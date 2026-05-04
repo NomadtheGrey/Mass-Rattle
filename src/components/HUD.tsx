@@ -66,6 +66,7 @@ export const HUD: React.FC<HUDProps> = ({
 }) => {
   const growthProgress = (totalScrapInfused % 100);
   const starLevel = Math.floor(totalScrapInfused / 100) + 1;
+  const [showSysCfg, setShowSysCfg] = React.useState(false);
 
   // Minimap logic
   const mapScale = 0.025;
@@ -159,6 +160,13 @@ export const HUD: React.FC<HUDProps> = ({
             <p className="animate-pulse">_</p>
           </div>
           <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-black/60 to-transparent" />
+          
+          {/* Author's Signature Integrated */}
+          <div className="absolute bottom-2 right-2 pitted-metal border border-zinc-800 animate-flicker pointer-events-none px-1.5 py-0.5 z-10 shadow-lg">
+            <div className="font-mono text-[7px] leading-tight led-text-dim whitespace-nowrap font-bold">
+              SCAV-TECH BY ADAM BAILEY // MOD-70.26
+            </div>
+          </div>
         </div>
       </aside>
 
@@ -247,7 +255,12 @@ export const HUD: React.FC<HUDProps> = ({
           <div className="w-12 h-12 pitted-metal flex items-center justify-center text-red-600 text-[10px] text-center font-bold border-2 border-red-900 bg-red-950/20">JETTISON [SPACE]</div>
           <div className="w-12 h-12 pitted-metal flex items-center justify-center text-[#33ff33] text-[9px] text-center uppercase tracking-tighter">Attractor [Q/E/R]</div>
           <div className="w-12 h-12 pitted-metal flex items-center justify-center text-cyan-500 text-[10px] text-center shadow-[0_0_10px_rgba(6,182,212,0.2)]">FUEL OK</div>
-          <div className="w-12 h-12 pitted-metal flex items-center justify-center text-zinc-600 text-[10px] text-center">SYSCFG</div>
+          <button 
+            onClick={() => setShowSysCfg(true)}
+            className="w-12 h-12 pitted-metal flex items-center justify-center text-[#33ff33] hover:text-white hover:bg-zinc-800 transition-colors text-[10px] text-center pointer-events-auto"
+          >
+            SYSCFG
+          </button>
         </div>
         <div className="h-32 hud-panel p-2 flex flex-col items-center justify-center border-4">
           <div className="text-[8px] text-[#444] mb-2 uppercase">Serial: 88-X9-R</div>
@@ -255,6 +268,64 @@ export const HUD: React.FC<HUDProps> = ({
           <div className="mt-2 text-[10px] opacity-20">BUILD: v2.4.0</div>
         </div>
       </aside>
+
+      {/* SYSCFG Popup */}
+      {showSysCfg && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm pointer-events-auto">
+          <div className="w-full max-w-md hud-panel p-6 border-4 border-[#3d2b1f] relative overflow-hidden">
+             {/* Re-using rusted-frame style via manual addition since it's a sub-panel */}
+            <div className="absolute inset-0 bg-[#1a1a1c] opacity-50 z-0" />
+            
+            <div className="relative z-10">
+              <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-2">
+                <h2 className="font-bold text-amber-500 uppercase tracking-widest text-sm">System Configuration [v70.26]</h2>
+                <button 
+                  onClick={() => setShowSysCfg(false)}
+                  className="text-white/40 hover:text-white text-xs font-mono"
+                >
+                  [X] CLOSE
+                </button>
+              </div>
+              
+              <div className="space-y-4 font-mono text-xs">
+                <div className="flex justify-between border-b border-white/5 pb-1">
+                  <span className="opacity-50">ENGINE_MODEL:</span>
+                  <span className="text-[#33ff33]">VITE-V5.4_CORTEX</span>
+                </div>
+                <div className="flex justify-between border-b border-white/5 pb-1">
+                  <span className="opacity-50">PHYSICS_ENGINE:</span>
+                  <span className="text-[#33ff33]">G-CONST_PHY_MOD</span>
+                </div>
+                <div className="flex justify-between border-b border-white/5 pb-1">
+                  <span className="opacity-50">UI_RENDERER:</span>
+                  <span className="text-[#33ff33]">REACT_HUD_SCAV</span>
+                </div>
+                <div className="flex justify-between border-b border-white/5 pb-1">
+                  <span className="opacity-50">STARDUST_GEN:</span>
+                  <span className="text-[#33ff33]">PROC_NOISE_2.0</span>
+                </div>
+                <div className="flex justify-between border-b border-white/5 pb-1">
+                  <span className="opacity-50">SHIP_SYSTEMS:</span>
+                  <span className="text-[#33ff33]">MOD-CR90_ACTIVE</span>
+                </div>
+              </div>
+
+              <div className="mt-8 flex justify-center">
+                <button 
+                  onClick={() => setShowSysCfg(false)}
+                  className="pitted-metal px-10 py-3 text-xs font-bold hover:bg-zinc-800 transition-colors uppercase tracking-widest text-[#33ff33]"
+                >
+                  Confirm Diagnostics
+                </button>
+              </div>
+              
+              <div className="mt-6 text-center text-[9px] opacity-40 italic font-serif text-amber-200">
+                "One man's trash is another man's starship propulsion system."
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
