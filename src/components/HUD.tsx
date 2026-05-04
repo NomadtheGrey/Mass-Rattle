@@ -271,56 +271,67 @@ export const HUD: React.FC<HUDProps> = ({
 
       {/* SYSCFG Popup */}
       {showSysCfg && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm pointer-events-auto">
-          <div className="w-full max-w-md hud-panel p-6 border-4 border-[#3d2b1f] relative overflow-hidden">
-             {/* Re-using rusted-frame style via manual addition since it's a sub-panel */}
-            <div className="absolute inset-0 bg-[#1a1a1c] opacity-50 z-0" />
-            
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md pointer-events-auto">
+          <div className="w-full max-w-md rusted-frame p-8 border-4 relative overflow-hidden shadow-[0_0_100px_rgba(0,0,0,1)]">
             <div className="relative z-10">
-              <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-2">
-                <h2 className="font-bold text-amber-500 uppercase tracking-widest text-sm">System Configuration [v70.26]</h2>
+              <div className="flex justify-between items-center mb-6 border-b-2 border-amber-900/40 pb-2">
+                <div className="flex flex-col">
+                  <h2 className="font-bold text-amber-600 uppercase tracking-widest text-sm leading-none">System Configuration</h2>
+                  <span className="text-[10px] text-zinc-500 font-mono mt-1">SCAV-OS VERSION 70.26 [STABLE]</span>
+                </div>
                 <button 
                   onClick={() => setShowSysCfg(false)}
-                  className="text-white/40 hover:text-white text-xs font-mono"
+                  className="text-red-900 hover:text-red-500 text-xs font-mono transition-colors"
                 >
-                  [X] CLOSE
+                  [X] ABORT
                 </button>
               </div>
               
-              <div className="space-y-4 font-mono text-xs">
+              <div className="space-y-3 font-mono text-xs">
                 <div className="flex justify-between border-b border-white/5 pb-1">
-                  <span className="opacity-50">ENGINE_MODEL:</span>
-                  <span className="text-[#33ff33]">VITE-V5.4_CORTEX</span>
+                  <span className="opacity-40">ENGINE_MODEL:</span>
+                  <span className="text-zinc-300">VITE-V5.4_CORTEX</span>
                 </div>
                 <div className="flex justify-between border-b border-white/5 pb-1">
-                  <span className="opacity-50">PHYSICS_ENGINE:</span>
-                  <span className="text-[#33ff33]">G-CONST_PHY_MOD</span>
+                  <span className="opacity-40">PHYSICS_ENGINE:</span>
+                  <span className="text-zinc-300">G-CONST_PHY_MOD</span>
                 </div>
                 <div className="flex justify-between border-b border-white/5 pb-1">
-                  <span className="opacity-50">UI_RENDERER:</span>
-                  <span className="text-[#33ff33]">REACT_HUD_SCAV</span>
+                  <span className="opacity-40">UI_RENDERER:</span>
+                  <span className="text-zinc-300">REACT_HUD_SCAV</span>
                 </div>
                 <div className="flex justify-between border-b border-white/5 pb-1">
-                  <span className="opacity-50">STARDUST_GEN:</span>
-                  <span className="text-[#33ff33]">PROC_NOISE_2.0</span>
-                </div>
-                <div className="flex justify-between border-b border-white/5 pb-1">
-                  <span className="opacity-50">SHIP_SYSTEMS:</span>
+                  <span className="opacity-40">SHIP_SYSTEMS:</span>
                   <span className="text-[#33ff33]">MOD-CR90_ACTIVE</span>
+                </div>
+              </div>
+
+              {/* Identity Plate Overlay */}
+              <div className="mt-8 pt-6 border-t-2 border-zinc-900/60 flex flex-col items-center gap-2">
+                <div className="pitted-metal px-6 py-2 border border-zinc-800 animate-flicker shadow-2xl relative overflow-hidden group">
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none" />
+                  <div className="font-mono text-[9px] leading-tight text-amber-600/70 text-center tracking-widest font-bold">
+                    DESIGNED BY: <span className="text-amber-500">ADAM BAILEY</span>
+                  </div>
+                  <div className="font-mono text-[8px] text-[#33ff33]/40 text-center uppercase mt-0.5 tracking-tighter">
+                    SCAV-TECH CUSTOM MODIFICATION // R-70.26
+                  </div>
                 </div>
               </div>
 
               <div className="mt-8 flex justify-center">
                 <button 
                   onClick={() => setShowSysCfg(false)}
-                  className="pitted-metal px-10 py-3 text-xs font-bold hover:bg-zinc-800 transition-colors uppercase tracking-widest text-[#33ff33]"
+                  className="pitted-metal px-12 py-3 text-xs font-bold hover:bg-zinc-800 transition-all uppercase tracking-widest text-amber-500 border border-amber-900/30 hover:border-amber-500 shadow-lg"
                 >
                   Confirm Diagnostics
                 </button>
               </div>
               
-              <div className="mt-6 text-center text-[9px] opacity-40 italic font-serif text-amber-200">
-                "One man's trash is another man's starship propulsion system."
+              <div className="mt-8 text-center text-[9px] opacity-30 italic font-serif text-amber-100 flex items-center justify-center gap-2">
+                <span className="w-8 h-px bg-white/10" />
+                "One man's trash is another man's propulsion system"
+                <span className="w-8 h-px bg-white/10" />
               </div>
             </div>
           </div>
