@@ -56,6 +56,7 @@ interface HUDProps {
   shipHealth: number;
   maxShipHealth: number;
   enemyIntegrity: number;
+  isShopOpen: boolean;
   useAnalogGauges: boolean;
   shipPos: { x: number; y: number };
   starPos: { x: number; y: number };
@@ -78,6 +79,7 @@ export const HUD: React.FC<HUDProps> = ({
   shipHealth,
   maxShipHealth,
   enemyIntegrity,
+  isShopOpen,
   useAnalogGauges,
   shipPos,
   starPos,
@@ -357,23 +359,27 @@ export const HUD: React.FC<HUDProps> = ({
           <div className="w-px bg-[#2d2d30] shrink-0"></div>
 
           <div className="flex-grow flex flex-col justify-between min-w-0">
-            <div className="embossed-label mb-2 bg-[#1a1a1c] border-zinc-700">Ship Enhancements [Keys 1-4 | G for Gauges]</div>
+            <div className="embossed-label mb-2 bg-[#1a1a1c] border-zinc-700">Ship Enhancements [Keys 1-5 | G for Gauges]</div>
             <div className="flex gap-2 pointer-events-auto overflow-x-auto pb-1 scrollbar-hide">
               {[
                 { type: 'thrust' as const, label: 'Thrust', cost: 15, lvl: upgrades.thrust, key: '1' },
                 { type: 'handling' as const, label: 'Nav', cost: 20, lvl: upgrades.handling, key: '2' },
                 { type: 'attractor' as const, label: 'VAC', cost: 12, lvl: upgrades.attractor, key: '3' },
-                { type: 'fuel' as const, label: 'Fuel', cost: 10, lvl: upgrades.fuelCap, key: '4' }
+                { type: 'fuel' as const, label: 'Fuel', cost: 10, lvl: upgrades.fuelCap, key: '4' },
+                { type: 'cargo' as const, label: 'Cargo', cost: 25, lvl: upgrades.cargo, key: '5' }
               ].map(u => (
                 <button 
                   key={u.type}
                   onClick={() => onUpgrade(u.type)}
-                  className="pitted-metal w-16 min-w-[64px] flex flex-col items-center py-2 relative group text-[#33ff33]"
+                  disabled={carrying < u.cost}
+                  className={`pitted-metal w-16 min-w-[64px] flex flex-col items-center py-2 relative group transition-all ${
+                    carrying >= u.cost ? 'text-[#33ff33] opacity-100' : 'text-zinc-600 opacity-50 grayscale cursor-not-allowed'
+                  }`}
                 >
                   <span className="text-[9px] font-bold uppercase tracking-tighter">[{u.key}] {u.label.substring(0,4)}</span>
                   <span className="text-[8px] opacity-60">Lvl {u.lvl}</span>
-                  <div className="absolute -top-8 left-1/2 -translate-x-1/2 transition-all opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] bg-black border border-zinc-800 p-1 font-mono">
-                    REQ: {u.cost} SCRAP
+                  <div className="absolute -top-8 left-1/2 -translate-x-1/2 transition-all opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] bg-black border border-zinc-800 p-1 font-mono z-50">
+                    REQ: {u.cost} CARGO
                   </div>
                 </button>
               ))}
@@ -385,14 +391,37 @@ export const HUD: React.FC<HUDProps> = ({
           <div className="w-40 flex flex-col justify-between shrink-0">
             <div className="embossed-label bg-pink-900/80 border-pink-500 text-[9px]">Cargo Manifest</div>
             <div className="grid grid-cols-5 gap-0.5 h-20 py-1">
-              {Array.from({ length: 15 }).map((_, i) => (
-                <div 
-                  key={i} 
-                  className={`border border-[#2d2d30] ${i < carrying ? 'bg-pink-600 shadow-[0_0_8px_pink]' : 'bg-black/40'}`}
-                />
-              ))}
+              {(() => {
+                const regularCap = 20 + upgrades.cargo * 10;
+                const overloadCap = Math.floor(regularCap * 0.25);
+                const totalSlots = regularCap + overloadCap;
+                
+                return Array.from({ length: totalSlots }).map((_, i) => {
+                  const isOverload = i >= regularCap;
+                  const isFilled = i < carrying;
+                  
+                  return (
+                    <div 
+                      key={i} 
+                      className={`border ${
+                        isOverload ? 'border-amber-900/40' : 'border-[#2d2d30]'
+                      } ${
+                        isFilled 
+                          ? isOverload 
+                            ? 'bg-amber-500 shadow-[0_0_4px_rgba(245,158,11,0.5)]' 
+                            : 'bg-pink-600 shadow-[0_0_4px_pink]' 
+                          : 'bg-black/40'
+                      }`}
+                    />
+                  );
+                });
+              })()}
             </div>
-            {carrying > 15 && <div className="text-[8px] text-pink-500 animate-pulse font-bold">WARNING: +{carrying-15} OVERLOAD</div>}
+            {carrying > (20 + (upgrades as any).cargo * 10) && (
+              <div className="text-[8px] text-amber-500 animate-pulse font-bold uppercase tracking-tighter leading-none mt-1">
+                Hull Overload: Slow-Down Active
+              </div>
+            )}
           </div>
         </div>
       </main>
@@ -416,6 +445,66 @@ export const HUD: React.FC<HUDProps> = ({
           <div className="mt-2 text-[10px] opacity-20">BUILD: v2.4.0</div>
         </div>
       </aside>
+
+      {/* Mobile Workshop Overlay */}
+      {isShopOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm pointer-events-auto">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="w-full max-w-xl hud-panel p-8 border-4 relative overflow-hidden bg-zinc-950/80 shadow-[0_0_50px_rgba(51,255,51,0.1)]"
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-[#33ff33]/5 to-transparent pointer-events-none" />
+            
+            <div className="relative z-10">
+              <div className="flex justify-between items-center mb-8 border-b-2 border-zinc-800 pb-4">
+                <div className="flex flex-col">
+                  <h2 className="font-bold text-[#33ff33] uppercase tracking-widest text-lg leading-none">Nomadic Workshop</h2>
+                  <span className="text-[10px] text-zinc-500 font-mono mt-1">MOBILE REPAIR & ENHANCEMENT UNIT // READY</span>
+                </div>
+                <div className="text-right">
+                  <div className="text-pink-500 text-xs font-mono">AVAILABLE CARGO</div>
+                  <div className="text-xl font-bold text-pink-400 leading-none">{carrying}U</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                {[
+                  { type: 'thrust' as const, label: 'Thrust Vectoring', desc: 'Increases engine output & acceleration', cost: 15, lvl: upgrades.thrust, icon: '🚀' },
+                  { type: 'handling' as const, label: 'Neural Nav-Link', desc: 'Improves rotation speed & response', cost: 20, lvl: upgrades.handling, icon: '🕹️' },
+                  { type: 'attractor' as const, label: 'High-Gauss VAC', desc: 'Expands scrap collection radius', cost: 12, lvl: upgrades.attractor, icon: '🧲' },
+                  { type: 'fuel' as const, label: 'Plasma Reserves', desc: 'Increases total fuel capacity', cost: 10, lvl: upgrades.fuelCap, icon: '⚡' },
+                  { type: 'cargo' as const, label: 'Hull Expansion', desc: 'Increases max cargo hold capacity', cost: 25, lvl: upgrades.cargo, icon: '📦' }
+                ].map(u => (
+                  <button 
+                    key={u.type}
+                    onClick={() => onUpgrade(u.type)}
+                    disabled={carrying < u.cost}
+                    className={`pitted-metal p-4 flex flex-col gap-2 relative transition-all text-left ${
+                      carrying >= u.cost ? 'hover:bg-zinc-900 border-zinc-700' : 'opacity-40 border-zinc-800 grayscale cursor-not-allowed'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start">
+                      <span className="text-sm font-bold uppercase text-[#33ff33]">{u.label}</span>
+                      <span className="text-xs opacity-60">LVL {u.lvl}</span>
+                    </div>
+                    <p className="text-[10px] opacity-60 leading-tight h-8">{u.desc}</p>
+                    <div className="flex justify-between items-center mt-2 pt-2 border-t border-zinc-800/50">
+                      <span className="text-[10px] font-mono text-pink-500 font-bold">COST: {u.cost}U</span>
+                      <span className="bg-zinc-800 px-2 py-0.5 rounded text-[9px] text-[#33ff33]">Purchase</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-8 pt-6 border-t border-zinc-800 flex justify-between items-center text-[10px] font-mono opacity-50">
+                <span>[TAB/U] CLOSE WORKSHOP</span>
+                <span className="animate-pulse">_SCAV_OS_MOD_ACTIVE</span>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* SYSCFG Popup */}
       {showSysCfg && (

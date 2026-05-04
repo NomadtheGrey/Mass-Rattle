@@ -22,6 +22,7 @@ export const useGameLoop = (width: number, height: number) => {
         handling: 0,
         attractor: 0,
         fuelCap: 0,
+        cargo: 0,
       },
     },
     star: {
@@ -44,28 +45,36 @@ export const useGameLoop = (width: number, height: number) => {
     },
     scrap: [],
     deployedCargo: [],
+    projectiles: [],
+    starOrbit: 0,
+    enemyStarOrbit: 0,
     teamScrap: 0,
+    isShopOpen: false,
+    lastUpgradeTime: 0,
     glitchActive: false,
     lastGlitchTime: 0,
     shakeAmount: 0,
+    isVictory: false,
+    isGameOver: false,
     useAnalogGauges: true,
     slip: 0,
   });
 
   const keys = useRef<Set<string>>(new Set());
 
-  const upgrade = useCallback((type: 'thrust' | 'handling' | 'attractor' | 'fuel') => {
+  const upgrade = useCallback((type: 'thrust' | 'handling' | 'attractor' | 'fuel' | 'cargo') => {
     setState(prev => {
       const cost = type === 'thrust' ? PHYSICS.UPGRADE_COSTS.THRUST : 
                    type === 'handling' ? PHYSICS.UPGRADE_COSTS.HANDLING : 
                    type === 'attractor' ? PHYSICS.UPGRADE_COSTS.ATTRACTOR :
-                   PHYSICS.UPGRADE_COSTS.FUEL;
+                   type === 'fuel' ? PHYSICS.UPGRADE_COSTS.FUEL :
+                   PHYSICS.UPGRADE_COSTS.CARGO;
       
-      if (prev.teamScrap < cost) return prev;
+      if (prev.ship.carrying < cost) return prev;
 
       const next = { ...prev };
-      next.teamScrap -= cost;
       const ship = { ...next.ship };
+      ship.carrying -= cost;
       ship.upgrades = { ...ship.upgrades, [type === 'fuel' ? 'fuelCap' : type]: (ship.upgrades as any)[type === 'fuel' ? 'fuelCap' : type] + 1 };
       
       if (type === 'attractor') {
@@ -76,12 +85,22 @@ export const useGameLoop = (width: number, height: number) => {
         ship.fuel = ship.maxFuel;
       }
 
-      return { ...next, ship, glitchActive: true, lastGlitchTime: performance.now() };
+      return { 
+        ...next, 
+        ship, 
+        glitchActive: true, 
+        lastGlitchTime: performance.now(),
+        lastUpgradeTime: performance.now() 
+      };
     });
   }, []);
 
   const toggleGauges = useCallback(() => {
     setState(prev => ({ ...prev, useAnalogGauges: !prev.useAnalogGauges }));
+  }, []);
+
+  const restart = useCallback(() => {
+    window.location.reload(); // Simple for now as we don't have a complex state machine yet
   }, []);
 
   const spawnScrap = useCallback((center: Vector2D, radius: number = 100) => {
@@ -140,7 +159,12 @@ export const useGameLoop = (width: number, height: number) => {
       if (e.code === 'Digit2') upgrade('handling');
       if (e.code === 'Digit3') upgrade('attractor');
       if (e.code === 'Digit4') upgrade('fuel');
+      if (e.code === 'Digit5') upgrade('cargo');
       if (e.code === 'KeyG') toggleGauges();
+      if (e.code === 'KeyU' || e.code === 'Tab') {
+        if (e.code === 'Tab') e.preventDefault();
+        setState(prev => ({ ...prev, isShopOpen: !prev.isShopOpen }));
+      }
     };
     const handleKeyUp = (e: KeyboardEvent) => keys.current.delete(e.code);
     window.addEventListener('keydown', handleKeyDown);
@@ -162,6 +186,19 @@ export const useGameLoop = (width: number, height: number) => {
 
         // 1. Fuel & Inputs
         const wantsThrust = keys.current.has('ArrowUp') || keys.current.has('KeyW');
+        
+        // Cargo Capacity
+        const regularCapacity = PHYSICS.CARGO.BASE_CAPACITY + ship.upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS;
+        const overloadCapacity = Math.floor(regularCapacity * PHYSICS.CARGO.OVERLOAD_RATIO);
+        const totalCapacity = regularCapacity + overloadCapacity;
+
+        // Slowdown Penalty (Overload)
+        let speedMult = 1.0;
+        if (ship.carrying > regularCapacity) {
+          const excess = ship.carrying - regularCapacity;
+          speedMult = 1.0 - (excess / overloadCapacity) * PHYSICS.CARGO.SLOWDOWN_PENALTY;
+        }
+
         if (wantsThrust && ship.fuel > PHYSICS.FUEL_CONSUMPTION) {
           ship.thrust = true;
           ship.fuel -= PHYSICS.FUEL_CONSUMPTION;
@@ -211,7 +248,7 @@ export const useGameLoop = (width: number, height: number) => {
         if (keys.current.has('ArrowRight') || keys.current.has('KeyD')) ship.angle += currentRotSpeed;
 
         if (ship.thrust) {
-          const currentThrust = PHYSICS.THRUST_POWER + ship.upgrades.thrust * 0.08;
+          const currentThrust = (PHYSICS.THRUST_POWER + ship.upgrades.thrust * 0.08) * speedMult;
           // Accel = Force / Mass
           ship.vel.x += (Math.cos(ship.angle) * currentThrust) / currentMass;
           ship.vel.y += (Math.sin(ship.angle) * currentThrust) / currentMass;
@@ -297,8 +334,10 @@ export const useGameLoop = (width: number, height: number) => {
           }
 
           if (dDistSq < (PHYSICS.AUTO_COLLECT_RADIUS ** 2)) { 
-            ship.carrying += 1;
-            return false;
+            if (ship.carrying < totalCapacity) {
+              ship.carrying += 1;
+              return false;
+            }
           }
           return true;
         });
@@ -442,6 +481,76 @@ export const useGameLoop = (width: number, height: number) => {
           slip = angleDiff / Math.PI;
         }
 
+        // Win/Loss Conditions
+        if (enemyStar.integrity <= 0 && !next.isVictory) {
+          next.isVictory = true;
+        }
+        if (ship.health <= 0 && !next.isGameOver) {
+          next.isGameOver = true;
+        }
+        if (next.isVictory || next.isGameOver) {
+          ship.thrust = false;
+        }
+
+        // 5. Projectiles and Defense
+        next.projectiles = (next.projectiles || []).filter(p => {
+          p.pos.x += p.vel.x;
+          p.pos.y += p.vel.y;
+          p.life -= 1;
+
+          // Collision with ship
+          const sdx = ship.pos.x - p.pos.x;
+          const sdy = ship.pos.y - p.pos.y;
+          if (p.owner === 'enemy' && Math.sqrt(sdx * sdx + sdy * sdy) < ship.size) {
+            ship.health -= PHYSICS.DEFENSE.DAMAGE;
+            next.shakeAmount = 15;
+            next.glitchActive = true;
+            next.lastGlitchTime = time;
+            return false;
+          }
+
+          // Collision with Enemy Star (Player Star defense helps)
+          if (p.owner === 'player') {
+            const edx = enemyStar.pos.x - p.pos.x;
+            const edy = enemyStar.pos.y - p.pos.y;
+            if (Math.sqrt(edx * edx + edy * edy) < enemyStar.size) {
+              enemyStar.integrity -= PHYSICS.DEFENSE.DAMAGE * 0.5; // Star defense is weaker than manual attacks
+              return false;
+            }
+          }
+
+          return p.life > 0;
+        });
+
+        // Update Turrets
+        next.starOrbit += 0.01;
+        next.enemyStarOrbit += 0.015;
+
+        // Auto-Fire for stars
+        [star, enemyStar].forEach(s => {
+          const target = s.type === 'home' ? enemyStar : ship;
+          const dx = target.pos.x - s.pos.x;
+          const dy = target.pos.y - s.pos.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist < PHYSICS.DEFENSE.RANGE && Math.random() < 0.01) {
+            const angle = Math.atan2(dy, dx);
+            next.projectiles.push({
+              id: Math.random().toString(),
+              pos: { 
+                x: s.pos.x + Math.cos(angle) * s.size, 
+                y: s.pos.y + Math.sin(angle) * s.size 
+              },
+              vel: {
+                x: Math.cos(angle) * PHYSICS.DEFENSE.BOLT_SPEED,
+                y: Math.sin(angle) * PHYSICS.DEFENSE.BOLT_SPEED,
+              },
+              owner: s.type === 'home' ? 'player' : 'enemy',
+              life: 180
+            });
+          }
+        });
+
         return {
           ...next,
           ship,
@@ -456,8 +565,10 @@ export const useGameLoop = (width: number, height: number) => {
       frameId = requestAnimationFrame(loop);
     };
     frameId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(frameId);
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
   }, [width, height]);
 
-  return { state, upgrade };
+  return { state, upgrade, restart };
 };

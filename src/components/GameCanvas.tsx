@@ -79,6 +79,28 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
           }
         }
 
+      // Turret Hubs (Orbiting defenses)
+      ctx.save();
+      ctx.rotate(isHome ? state.starOrbit : state.enemyStarOrbit);
+      const turretCount = isHome ? 2 : 4;
+      for (let i = 0; i < turretCount; i++) {
+        const tAngle = (i / turretCount) * Math.PI * 2;
+        ctx.save();
+        ctx.rotate(tAngle);
+        ctx.fillStyle = isHome ? '#1a1a1c' : '#300';
+        ctx.strokeStyle = isHome ? COLORS.CRT_GLOW : '#f43f5e';
+        ctx.lineWidth = 1;
+        ctx.translate(s.size + 15, 0);
+        ctx.fillRect(-5, -5, 10, 10);
+        ctx.strokeRect(-5, -5, 10, 10);
+        
+        // Barrel
+        ctx.fillRect(5, -2, 8, 4);
+        ctx.strokeRect(5, -2, 8, 4);
+        ctx.restore();
+      }
+      ctx.restore();
+
       // Star Core
       const gradient = ctx.createRadialGradient(0, 0, s.size * 0.2, 0, 0, s.size);
       if (isHome) {
@@ -106,6 +128,26 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
     scrap.forEach(d => {
       ctx.fillStyle = d.color;
       ctx.fillRect(d.pos.x - 2, d.pos.y - 2, 4, 4);
+    });
+
+    // DRAW PROJECTILES
+    (state.projectiles || []).forEach(p => {
+      ctx.fillStyle = p.owner === 'player' ? '#fff' : '#f43f5e';
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = p.owner === 'player' ? '#33ff33' : '#f43f5e';
+      
+      const headSize = p.owner === 'player' ? 3 : 4;
+      ctx.fillRect(p.pos.x - headSize/2, p.pos.y - headSize/2, headSize, headSize);
+      
+      // Trail
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = p.owner === 'player' ? 'rgba(51, 255, 51, 0.4)' : 'rgba(244, 63, 94, 0.4)';
+      ctx.beginPath();
+      ctx.moveTo(p.pos.x, p.pos.y);
+      ctx.lineTo(p.pos.x - p.vel.x * 3, p.pos.y - p.vel.y * 3);
+      ctx.stroke();
+      
+      ctx.shadowBlur = 0;
     });
 
     // DRAW DEPLOYED CARGO
@@ -166,6 +208,30 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
       ctx.lineTo(-ship.size * 2 - Math.random() * 15, (Math.random() - 0.5) * 8);
       ctx.lineTo(-ship.size * 0.8, (Math.random() - 0.5) * 4);
       ctx.fill();
+    }
+
+    // Welding Effect
+    const timeSinceUpgrade = performance.now() - state.lastUpgradeTime;
+    if (timeSinceUpgrade < 1500) {
+      const sparkCount = Math.floor(Math.random() * 8) + 4;
+      for (let i = 0; i < sparkCount; i++) {
+        const sx = (Math.random() - 0.5) * ship.size * 2.5;
+        const sy = (Math.random() - 0.5) * ship.size * 2.5;
+        const len = Math.random() * 6;
+        ctx.strokeStyle = Math.random() > 0.5 ? '#fff' : '#fbbf24';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx + (Math.random() - 0.5) * len, sy + (Math.random() - 0.5) * len);
+        ctx.stroke();
+      }
+      // Bright flash
+      if (Math.random() < 0.2) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.beginPath();
+        ctx.arc(0, 0, ship.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
     ctx.restore();
 

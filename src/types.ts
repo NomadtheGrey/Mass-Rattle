@@ -24,7 +24,16 @@ export interface Ship extends GameObject {
     handling: number;
     attractor: number;
     fuelCap: number;
+    cargo: number;
   };
+}
+
+export interface Projectile {
+  id: string;
+  pos: Vector2D;
+  vel: Vector2D;
+  owner: 'player' | 'enemy';
+  life: number;
 }
 
 export interface Star extends GameObject {
@@ -52,10 +61,17 @@ export interface GameState {
   enemyStar: Star;
   scrap: Scrap[];
   deployedCargo: DeployedCargo[];
+  projectiles: Projectile[];
+  starOrbit: number;
+  enemyStarOrbit: number;
   teamScrap: number;
+  isShopOpen: boolean;
+  lastUpgradeTime: number;
   glitchActive: boolean;
   lastGlitchTime: number;
   shakeAmount: number;
+  isVictory: boolean;
+  isGameOver: boolean;
   useAnalogGauges: boolean;
   lastEjectTime?: number;
   slip: number;

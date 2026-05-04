@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GameCanvas } from './components/GameCanvas';
 import { HUD } from './components/HUD';
+import { ResultsOverlay } from './components/ResultsOverlay';
 import { useGameLoop } from './hooks/useGameLoop';
 
 export default function App() {
@@ -26,12 +27,20 @@ export default function App() {
     return () => observer.disconnect();
   }, []);
 
-  const { state, upgrade } = useGameLoop(dimensions.width, dimensions.height);
+  const { state, upgrade, restart } = useGameLoop(dimensions.width, dimensions.height);
 
   const shipVelocity = Math.sqrt(state.ship.vel.x ** 2 + state.ship.vel.y ** 2);
 
   return (
     <div ref={containerRef} className="crt-container w-full h-full flex items-center justify-center p-0">
+      <ResultsOverlay 
+        isVictory={state.isVictory} 
+        isGameOver={state.isGameOver}
+        teamScrap={state.teamScrap}
+        totalScrapInfused={state.star.totalScrapInfused}
+        onRestart={restart}
+      />
+      
       {/* HUD Overlay */}
       <HUD 
         starMass={state.star.mass} 
@@ -45,6 +54,7 @@ export default function App() {
         shipHealth={state.ship.health}
         maxShipHealth={state.ship.maxHealth}
         enemyIntegrity={state.enemyStar.integrity}
+        isShopOpen={state.isShopOpen}
         shipPos={state.ship.pos}
         starPos={state.star.pos}
         scrapList={state.scrap}

@@ -22,6 +22,19 @@ export const PHYSICS = {
     HANDLING: 20,
     ATTRACTOR: 12,
     FUEL: 10,
+    CARGO: 25,
+  },
+  CARGO: {
+    BASE_CAPACITY: 20,
+    UPGRADE_BONUS: 10,
+    OVERLOAD_RATIO: 0.25,
+    SLOWDOWN_PENALTY: 0.4, // Up to 40% slower at max overload
+  },
+  DEFENSE: {
+    RANGE: 1200,
+    FIRERATE_MIN: 120, // frames
+    BOLT_SPEED: 8,
+    DAMAGE: 10,
   }
 };
 
