@@ -14,6 +14,8 @@ export const useGameLoop = (width: number, height: number) => {
       carrying: 0,
       fuel: 100,
       maxFuel: 100,
+      health: 100,
+      maxHealth: 100,
       attractRadius: PHYSICS.BASE_ATTRACT_RADIUS,
       upgrades: {
         thrust: 0,
@@ -29,6 +31,7 @@ export const useGameLoop = (width: number, height: number) => {
       mass: 400,
       totalScrapInfused: 0,
       type: 'home',
+      integrity: 1,
     },
     enemyStar: {
       pos: { x: width / 2 + 3000, y: height / 2 + 1000 },
@@ -37,13 +40,16 @@ export const useGameLoop = (width: number, height: number) => {
       mass: 4000,
       totalScrapInfused: 0,
       type: 'enemy',
+      integrity: 1,
     },
     scrap: [],
+    deployedCargo: [],
     teamScrap: 0,
     glitchActive: false,
     lastGlitchTime: 0,
     shakeAmount: 0,
     useAnalogGauges: true,
+    slip: 0,
   });
 
   const keys = useRef<Set<string>>(new Set());
@@ -78,24 +84,49 @@ export const useGameLoop = (width: number, height: number) => {
     setState(prev => ({ ...prev, useAnalogGauges: !prev.useAnalogGauges }));
   }, []);
 
-  const spawnScrap = useCallback(() => {
+  const spawnScrap = useCallback((center: Vector2D, radius: number = 100) => {
     const angle = Math.random() * Math.PI * 2;
-    const dist = 400 + Math.random() * 1200;
+    const r = Math.random() * radius;
+    const spawnPos = {
+      x: center.x + Math.cos(angle) * r,
+      y: center.y + Math.sin(angle) * r,
+    };
+    
     return {
-      pos: {
-        x: width / 2 + Math.cos(angle) * dist,
-        y: height / 2 + Math.sin(angle) * dist,
-      },
+      pos: spawnPos,
       color: COLORS.SCRAP[Math.floor(Math.random() * COLORS.SCRAP.length)],
       id: Math.random().toString(36).substr(2, 9),
     };
-  }, [width, height]);
+  }, []);
 
   // Initial scrap
   useEffect(() => {
+    const initialScrap = [];
+    
+    // Spawn several "Veins" or Belts
+    for (let v = 0; v < 15; v++) {
+      const vAngle = Math.random() * Math.PI * 2;
+      const vDist = 500 + Math.random() * 4000;
+      const vCenter = {
+        x: width / 2 + Math.cos(vAngle) * vDist,
+        y: height / 2 + Math.sin(vAngle) * vDist,
+      };
+      
+      // Some rare large clusters, mostly smaller pockets
+      const rand = Math.random();
+      let pocketCount = 1;
+      if (rand > 0.92) pocketCount = 12 + Math.floor(Math.random() * 15);
+      else if (rand > 0.7) pocketCount = 4 + Math.floor(Math.random() * 6);
+      else if (rand > 0.3) pocketCount = 2 + Math.floor(Math.random() * 2);
+      
+      for (let i = 0; i < pocketCount; i++) {
+        initialScrap.push(spawnScrap(vCenter, pocketCount * 12));
+      }
+    }
+
     setState(s => ({
       ...s,
-      scrap: Array.from({ length: 25 }, spawnScrap),
+      scrap: initialScrap,
       star: { ...s.star, pos: { x: width / 2, y: height / 2 } }
     }));
   }, [width, height, spawnScrap]);
@@ -142,9 +173,34 @@ export const useGameLoop = (width: number, height: number) => {
         // Auto-refuel from cargo
         if (ship.fuel < PHYSICS.FUEL_AUTO_CONVERT_THRESHOLD && ship.carrying > 0) {
           ship.carrying -= 1;
-          ship.fuel += 20; 
+          ship.fuel += 40; // Buffed conversion
           next.glitchActive = true;
           next.lastGlitchTime = time;
+        }
+
+        // Ship Health Regen
+        ship.health = Math.min(ship.health + 0.01, ship.maxHealth);
+
+        // Ship Health Damage from enemy star proximity
+        const edx = enemyStar.pos.x - ship.pos.x;
+        const edy = enemyStar.pos.y - ship.pos.y;
+        const eDist = Math.sqrt(edx * edx + edy * edy);
+        
+        // Deep Space Radiation check (distance from center of both stars)
+        const centerX = (star.pos.x + enemyStar.pos.x) / 2;
+        const centerY = (star.pos.y + enemyStar.pos.y) / 2;
+        const cdx = centerX - ship.pos.x;
+        const cdy = centerY - ship.pos.y;
+        const centerDist = Math.sqrt(cdx * cdx + cdy * cdy);
+
+        if (eDist < enemyStar.size + 150) {
+          ship.health -= 0.15 * (1 - (eDist / (enemyStar.size + 150)));
+          if (Math.random() < 0.05) next.shakeAmount = 3;
+        } else if (centerDist > 6000) {
+          // Deep Space Drain
+          const severity = (centerDist - 6000) / 4000;
+          ship.health -= 0.05 * severity;
+          if (Math.random() < 0.02) next.glitchActive = true;
         }
 
         // 2. Physics (Mass Scaling)
@@ -222,12 +278,15 @@ export const useGameLoop = (width: number, height: number) => {
            ship.vel.y *= -0.1;
         }
 
-        // Scrap Collection and ATTRACTION
+        // Scrap Collection, ATTRACTION and CULLING
         const newScrap = next.scrap.filter(d => {
           const ddx = ship.pos.x - d.pos.x;
           const ddy = ship.pos.y - d.pos.y;
           const dDistSq = ddx * ddx + ddy * ddy;
           const dDist = Math.sqrt(dDistSq);
+
+          // Cull distant scrap (2500 units) to keep memory clean and allow new spawns
+          if (dDist > 4000) return false;
 
           const attractLimit = isVacActive ? ship.attractRadius * 1.6 : ship.attractRadius;
           if (dDist < attractLimit) {
@@ -244,8 +303,34 @@ export const useGameLoop = (width: number, height: number) => {
           return true;
         });
 
-        while (newScrap.length < 25) {
-          newScrap.push(spawnScrap());
+        if (newScrap.length < 180 && Math.random() < 0.08) {
+          // Spawn clusters biased toward player movement or rich veins
+          const spawnAngle = (Math.random() * Math.PI * 2);
+          const spawnDist = 1200 + Math.random() * 800;
+          
+          let spawnCenter = {
+            x: ship.pos.x + Math.cos(spawnAngle) * spawnDist,
+            y: ship.pos.y + Math.sin(spawnAngle) * spawnDist,
+          };
+
+          // "Rich Vein" Logic (pseudo-noise)
+          const nv = Math.sin(spawnCenter.x * 0.001) * Math.cos(spawnCenter.y * 0.001);
+          if (nv < 0.2 && Math.random() < 0.7) {
+            // Nudge toward stars if not in a vein
+            const target = Math.random() > 0.5 ? star.pos : enemyStar.pos;
+            spawnCenter.x += (target.x - spawnCenter.x) * 0.4;
+            spawnCenter.y += (target.y - spawnCenter.y) * 0.4;
+          }
+          
+          const rand = Math.random();
+          let clusterSize = 1;
+          if (rand > 0.97) clusterSize = 8 + Math.floor(Math.random() * 8); 
+          else if (rand > 0.8) clusterSize = 3 + Math.floor(Math.random() * 3); 
+          else if (rand > 0.5) clusterSize = 2; 
+
+          for (let i = 0; i < clusterSize; i++) {
+            newScrap.push(spawnScrap(spawnCenter, clusterSize * 15));
+          }
         }
 
         // Home Delivery
@@ -274,21 +359,70 @@ export const useGameLoop = (width: number, height: number) => {
           next.lastGlitchTime = time;
         }
 
-        // Enemy Sabotage (Offensive Delivery)
-        const edx = enemyStar.pos.x - ship.pos.x;
-        const edy = enemyStar.pos.y - ship.pos.y;
-        const eDist = Math.sqrt(edx * edx + edy * edy);
+        // 277. Enemy Sabotage (Legacy check - we'll replace this with the projectile system)
         const wantsJettison = keys.current.has('Space');
-
-        if (ship.carrying > 0 && eDist < PHYSICS.DELIVERY_RADIUS * 2 && wantsJettison) {
-          const amount = ship.carrying;
-          enemyStar.mass *= (1 - 0.02 * amount);
-          enemyStar.size *= (1 - 0.01 * amount);
-          ship.carrying = 0;
-          glitch = true;
-          next.lastGlitchTime = time;
-          next.shakeAmount = 20;
+        
+        // Handle Ejection
+        if (wantsJettison && ship.carrying > 0 && (!next.lastEjectTime || time - next.lastEjectTime > 100)) {
+          ship.carrying -= 1;
+          next.lastEjectTime = time;
+          
+          // Eject in direction of travel + extra kick
+          const kickDir = ship.angle;
+          const kickForce = 8;
+          next.deployedCargo.push({
+            id: Math.random().toString(),
+            pos: { ...ship.pos },
+            vel: {
+              x: ship.vel.x + Math.cos(kickDir) * kickForce,
+              y: ship.vel.y + Math.sin(kickDir) * kickForce,
+            },
+            color: '#f472b6',
+            life: 200, // frames
+          });
         }
+
+        // Update Deployed Cargo
+        next.deployedCargo = (next.deployedCargo || []).filter(c => {
+          c.pos.x += c.vel.x;
+          c.pos.y += c.vel.y;
+          c.life -= 1;
+
+          // Collision with stars
+          for (const s of [star, enemyStar]) {
+            const dx = s.pos.x - c.pos.x;
+            const dy = s.pos.y - c.pos.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist < s.size + 10) {
+              const amount = 1;
+              if (s.type === 'home') {
+                const oldInfused = star.totalScrapInfused;
+                star.totalScrapInfused += amount;
+                next.teamScrap += amount;
+                
+                const newMilestone = Math.floor(star.totalScrapInfused / PHYSICS.STAR_GROWTH_THRESHOLD);
+                const oldMilestone = Math.floor(oldInfused / PHYSICS.STAR_GROWTH_THRESHOLD);
+                if (newMilestone > oldMilestone) {
+                  star.mass *= 1.25;
+                  star.size *= 1.15;
+                }
+              } else {
+                enemyStar.integrity = Math.max(0, enemyStar.integrity - 0.01);
+                enemyStar.mass *= 0.99; // Each bit of cargo damages it
+                enemyStar.size *= 0.995;
+                enemyStar.lastHitTime = time;
+                next.shakeAmount = 10;
+              }
+              
+              next.glitchActive = true;
+              next.lastGlitchTime = time;
+              return false; // Cargo consumed
+            }
+          }
+
+          return c.life > 0;
+        });
 
         if (glitch && time - prev.lastGlitchTime > 500) {
           glitch = false;
@@ -296,6 +430,17 @@ export const useGameLoop = (width: number, height: number) => {
 
         // Decay shake
         next.shakeAmount = Math.max(0, next.shakeAmount * 0.9);
+
+        // Calculate Inertia Slip (Drift)
+        // 0 = moving exactly forward, 1 = moving sideways/backward relative to heading
+        let slip = 0;
+        const velMag = Math.sqrt(ship.vel.x * ship.vel.x + ship.vel.y * ship.vel.y);
+        if (velMag > 0.1) {
+          const velAngle = Math.atan2(ship.vel.y, ship.vel.x);
+          let angleDiff = Math.abs(ship.angle - velAngle);
+          while (angleDiff > Math.PI) angleDiff = Math.abs(angleDiff - 2 * Math.PI);
+          slip = angleDiff / Math.PI;
+        }
 
         return {
           ...next,
@@ -305,13 +450,14 @@ export const useGameLoop = (width: number, height: number) => {
           scrap: newScrap,
           teamScrap,
           glitchActive: glitch,
+          slip,
         };
       });
       frameId = requestAnimationFrame(loop);
     };
     frameId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(frameId);
-  }, [width, height, spawnScrap]);
+  }, [width, height]);
 
   return { state, upgrade };
 };

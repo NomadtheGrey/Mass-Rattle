@@ -6,25 +6,40 @@ interface NeedleGaugeProps {
   max: number;
   label: string;
   color: string;
+  isFuel?: boolean;
 }
 
-const NeedleGauge: React.FC<NeedleGaugeProps> = ({ value, max, label, color }) => {
+const NeedleGauge: React.FC<NeedleGaugeProps> = ({ value, max, label, color, isFuel }) => {
   const percent = Math.min(value / max, 1.2);
   const rotation = (percent * 180) - 90; 
   const jitter = (Math.random() - 0.5) * 1.5;
 
+  const isLow = isFuel && percent < 0.3;
+  const isCritical = isFuel && percent < 0.1;
+
+  // Velocity gauge background should be transparent as requested
+  const isVelocity = label.includes('VELOCITY');
+
   return (
     <div className="flex flex-col items-center">
-      <div className="relative w-24 h-12 overflow-hidden border-b-2 border-zinc-800">
+      <div className={`relative w-24 h-12 overflow-hidden border-b-2 border-zinc-800 transition-colors duration-500 ${
+        isCritical ? 'bg-red-600/40 animate-pulse shadow-[inset_0_0_20px_#ef4444]' : 
+        isLow ? 'bg-orange-800/20' : 
+        isVelocity ? 'bg-transparent' : 'bg-zinc-900/10'
+      }`}>
         <div className="absolute bottom-0 left-0 w-full h-24 border-8 border-t-zinc-800 border-l-zinc-800 border-r-zinc-800 rounded-full opacity-20" />
         <motion.div 
           className="absolute bottom-0 left-1/2 w-0.5 h-14 origin-bottom -translate-x-1/2"
-          style={{ backgroundColor: color, rotate: rotation + jitter }}
+          style={{ backgroundColor: isCritical ? '#ef4444' : color, rotate: rotation + jitter }}
           transition={{ type: 'spring', damping: 12, stiffness: 90 }}
         />
         <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-[#0a0a0c] border border-zinc-700 z-10" />
       </div>
-      <div className="embossed-label mt-2" style={{ backgroundColor: '#222', border: '1px solid #444' }}>{label}</div>
+      <div className={`embossed-label mt-2 transition-colors ${
+        isCritical ? 'bg-red-600 border-red-400 text-white' : isLow ? 'bg-orange-700 border-orange-500 text-white' : 'bg-[#222] border-[#444]'
+      }`}>
+        {label}
+      </div>
     </div>
   );
 };
@@ -38,12 +53,16 @@ interface HUDProps {
   totalScrapInfused: number;
   fuel: number;
   maxFuel: number;
+  shipHealth: number;
+  maxShipHealth: number;
+  enemyIntegrity: number;
   useAnalogGauges: boolean;
   shipPos: { x: number; y: number };
   starPos: { x: number; y: number };
   enemyStarPos: { x: number; y: number };
   scrapList: { pos: { x: number; y: number } }[];
   upgrades: { thrust: number; handling: number; attractor: number; fuelCap: number };
+  slip: number;
   onUpgrade: (type: 'thrust' | 'handling' | 'attractor' | 'fuel') => void;
 }
 
@@ -56,12 +75,16 @@ export const HUD: React.FC<HUDProps> = ({
   totalScrapInfused,
   fuel,
   maxFuel,
+  shipHealth,
+  maxShipHealth,
+  enemyIntegrity,
   useAnalogGauges,
   shipPos,
   starPos,
   enemyStarPos,
   scrapList,
   upgrades,
+  slip,
   onUpgrade
 }) => {
   const growthProgress = (totalScrapInfused % 100);
@@ -72,13 +95,33 @@ export const HUD: React.FC<HUDProps> = ({
   const mapScale = 0.025;
   const mapCenter = { x: 50, y: 50 };
 
-  const getMapPos = (pos: { x: number; y: number }) => ({
-    x: mapCenter.x + (pos.x - shipPos.x) * mapScale * 100,
-    y: mapCenter.y + (pos.y - shipPos.y) * mapScale * 100,
-  });
+  const getMapPos = (pos: { x: number; y: number }) => {
+    // Ship is always at 50,50. We calculate relative offset scaled by mapScale.
+    const rawX = 50 + (pos.x - shipPos.x) * mapScale;
+    const rawY = 50 + (pos.y - shipPos.y) * mapScale;
+    return { x: rawX, y: rawY };
+  };
+
+  const getEdgeIndicator = (mPos: { x: number; y: number }) => {
+    const dx = mPos.x - 50;
+    const dy = mPos.y - 50;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    
+    // Check if outside circular radius (48% instead of 50% for padding)
+    if (dist < 48) return null;
+
+    const angle = Math.atan2(dy, dx);
+    return {
+      x: 50 + Math.cos(angle) * 46, 
+      y: 50 + Math.sin(angle) * 46,
+      angle: (angle * 180 / Math.PI) + 90
+    };
+  };
 
   const homeMap = getMapPos(starPos);
+  const homeIndicator = getEdgeIndicator(homeMap);
   const enemyMap = getMapPos(enemyStarPos);
+  const enemyIndicator = getEdgeIndicator(enemyMap);
 
   return (
     <div className={`fixed inset-0 pointer-events-none z-50 flex p-6 gap-6 ${glitch ? 'animate-pulse' : ''} text-[#33ff33]`}>
@@ -92,13 +135,26 @@ export const HUD: React.FC<HUDProps> = ({
           <div className="space-y-6">
             <div>
               <div className="flex justify-between text-[10px] mb-1">
-                <span>STAR CORE LVL {starLevel}</span>
+                <span>HOME STAR GROWTH</span>
                 <span className="text-[#ea580c]">{totalScrapInfused} INFUSED</span>
               </div>
-              <div className="vu-meter h-2">
+              <div className="vu-meter h-2 bg-orange-950/20">
                 <motion.div 
-                  className="vu-value-orange h-full bg-orange-600 shadow-[0_0_8px_orange]"
+                  className="h-full bg-gradient-to-r from-orange-800 to-orange-400 shadow-[0_0_8px_orange]"
                   animate={{ width: `${growthProgress}%` }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <div className="flex justify-between text-[10px] mb-1">
+                <span className="text-red-500">ENEMY STAR COLLAPSE</span>
+                <span className="text-red-500">{Math.floor(enemyIntegrity * 100)}%</span>
+              </div>
+              <div className="vu-meter h-2 bg-red-950/20">
+                <motion.div 
+                  className="h-full bg-red-600 shadow-[0_0_8px_#ef4444]"
+                  animate={{ width: `${enemyIntegrity * 100}%` }}
                 />
               </div>
             </div>
@@ -109,27 +165,69 @@ export const HUD: React.FC<HUDProps> = ({
                 <div className="absolute inset-0 grid-bg opacity-10" />
                 
                 {/* Home Star */}
-                <motion.div 
-                  className="absolute w-6 h-6 bg-orange-600 rounded-full blur-[1px] shadow-[0_0_15px_orange]"
-                  animate={{ left: `${homeMap.x}%`, top: `${homeMap.y}%` }}
-                />
+                {!homeIndicator ? (
+                  <motion.div 
+                    className="absolute w-6 h-6 bg-orange-600 rounded-full blur-[1px] shadow-[0_0_15px_orange] z-10"
+                    animate={{ left: `${homeMap.x}%`, top: `${homeMap.y}%` }}
+                    style={{ x: '-50%', y: '-50%' }}
+                  />
+                ) : (
+                  <div 
+                    className="absolute w-3 h-3 text-orange-500 z-10"
+                    style={{ left: `${homeIndicator.x}%`, top: `${homeIndicator.y}%`, transform: `translate(-50%, -50%) rotate(${homeIndicator.angle}deg)` }}
+                  >
+                    <div className="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[8px] border-b-orange-600 shadow-[0_0_10px_orange]" />
+                  </div>
+                )}
+
                 {/* Enemy Star */}
-                <motion.div 
-                  className="absolute w-10 h-10 bg-black rounded-full blur-[1px] border-2 border-red-500 shadow-[0_0_25px_red]"
-                  animate={{ left: `${enemyMap.x}%`, top: `${enemyMap.y}%` }}
-                />
+                {!enemyIndicator ? (
+                  <motion.div 
+                    className="absolute w-10 h-10 bg-black rounded-full blur-[1px] border-2 border-red-500 shadow-[0_0_25px_red] z-10"
+                    animate={{ left: `${enemyMap.x}%`, top: `${enemyMap.y}%` }}
+                    style={{ x: '-50%', y: '-50%' }}
+                  />
+                ) : (
+                  <div 
+                    className="absolute w-4 h-4 text-red-500 z-10"
+                    style={{ left: `${enemyIndicator.x}%`, top: `${enemyIndicator.y}%`, transform: `translate(-50%, -50%) rotate(${enemyIndicator.angle}deg)` }}
+                  >
+                    <div className="w-0 h-0 border-l-[8px] border-l-transparent border-r-[8px] border-r-transparent border-b-[10px] border-b-red-600 shadow-[0_0_15px_red] animate-pulse" />
+                  </div>
+                )}
                 
-                {/* Scrap Pulses */}
-                {scrapList.slice(0, 30).map((s, i) => {
+                {/* Scrap Pulses and Indicators */}
+                {scrapList.map((s, i) => {
                   const mPos = getMapPos(s.pos);
-                  if (mPos.x < -10 || mPos.x > 110 || mPos.y < -10 || mPos.y > 110) return null;
-                  return (
-                    <div 
-                      key={i} 
-                      className="absolute w-2 h-2 bg-pink-500/60 rounded-full animate-pulse"
-                      style={{ left: `${mPos.x}%`, top: `${mPos.y}%` }}
-                    />
-                  );
+                  const dx = mPos.x - 50;
+                  const dy = mPos.y - 50;
+                  const dist = Math.sqrt(dx * dx + dy * dy);
+                  const isOutOfRange = dist > 48;
+                  
+                  if (!isOutOfRange) {
+                    return (
+                      <div 
+                        key={i} 
+                        className="absolute w-0.5 h-0.5 bg-pink-400 rounded-full animate-pulse shadow-[0_0_2px_pink] z-10"
+                        style={{ left: `${mPos.x}%`, top: `${mPos.y}%`, transform: 'translate(-50%, -50%)' }}
+                      />
+                    );
+                  }
+
+                  // Direction indicators for "nearby" scrap (within 2x range)
+                  if (dist < 100) {
+                    const ind = getEdgeIndicator(mPos);
+                    if (ind) {
+                      return (
+                        <div 
+                          key={`ind-${i}`} 
+                          className="absolute w-1 h-1 bg-pink-600/60 rounded-full z-10 shadow-[0_0_2px_pink]"
+                          style={{ left: `${ind.x}%`, top: `${ind.y}%`, transform: 'translate(-50%, -50%)' }}
+                        />
+                      );
+                    }
+                  }
+                  return null;
                 })}
 
                 {/* Grid Overlay for depth */}
@@ -149,16 +247,28 @@ export const HUD: React.FC<HUDProps> = ({
           <h2 className="mb-4 pb-1 font-bold">
             <span className="embossed-label bg-zinc-900 border-zinc-700">Comms / Logs</span>
           </h2>
-          <div className="text-[11px] leading-relaxed space-y-2 opacity-80 font-mono">
-            {velocity > 4 && <p className="text-red-500">[WARN] SPEED EXCEEDS BUFFER</p>}
-            {carrying > 15 && <p className="text-yellow-500">[WARN] CARGO OVERLOAD</p>}
-            {carrying > 0 && <p className="text-pink-500 font-bold">[INFO] SCRAP LOAD: {carrying}U</p>}
-            <p className="text-cyan-400 font-bold bg-cyan-950/40 px-1 border-l-2 border-cyan-500">[BANK] {teamScrap} CREDITS</p>
-            {fuel < 20 && <p className="text-red-600 animate-pulse font-bold">[ERR] FUEL DEPLETED</p>}
-            {glitch && <p className="text-yellow-600">[DATA] SENSORS RECALIBRATING...</p>}
-            <p className="opacity-30">PINGS: {Math.floor(Math.random()*100)}ms</p>
-            <p className="animate-pulse">_</p>
-          </div>
+            <div className="text-[11px] leading-relaxed space-y-2 opacity-80 font-mono">
+              <div className="mb-4">
+                <div className="flex justify-between text-[9px] mb-1">
+                  <span className={shipHealth < 30 ? 'text-red-500 animate-pulse' : 'text-zinc-400'}>HULL_INTEGRITY</span>
+                  <span>{Math.floor(shipHealth)}%</span>
+                </div>
+                <div className="vu-meter h-3 bg-zinc-900 border border-zinc-800">
+                  <motion.div 
+                    className={`h-full ${shipHealth < 30 ? 'bg-red-600' : 'bg-cyan-600 shadow-[0_0_8px_cyan]'}`}
+                    animate={{ width: `${shipHealth}%` }}
+                  />
+                </div>
+              </div>
+              {velocity > 4 && <p className="text-red-500">[WARN] SPEED EXCEEDS BUFFER</p>}
+              {carrying > 15 && <p className="text-yellow-500">[WARN] CARGO OVERLOAD</p>}
+              {carrying > 0 && <p className="text-pink-500 font-bold">[INFO] SCRAP LOAD: {carrying}U</p>}
+              <p className="text-cyan-400 font-bold bg-cyan-950/40 px-1 border-l-2 border-cyan-500">[BANK] {teamScrap} CREDITS</p>
+              {fuel < 20 && <p className="text-red-600 animate-pulse font-bold">[ERR] FUEL DEPLETED</p>}
+              {glitch && <p className="text-yellow-600">[DATA] SENSORS RECALIBRATING...</p>}
+              <p className="opacity-30">PINGS: {Math.floor(Math.random()*100)}ms</p>
+              <p className="animate-pulse">_</p>
+            </div>
           <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-black/60 to-transparent" />
           
           {/* Author's Signature Integrated */}
@@ -176,28 +286,66 @@ export const HUD: React.FC<HUDProps> = ({
         
         <div className="h-44 hud-panel flex p-4 gap-4 border-4 overflow-hidden">
           {/* Gauges Section */}
-          <div className="flex items-center gap-4 w-1/4 min-w-[180px]">
+          <div className="flex items-center justify-center w-1/4 min-w-[220px]">
             {useAnalogGauges ? (
-              <>
-                <NeedleGauge value={velocity} max={5} label="Inertia" color="#33ff33" />
-                <NeedleGauge value={fuel} max={maxFuel} label="Fuel" color="#06b6d4" />
-              </>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                <NeedleGauge value={velocity} max={7.5} label="V-VELOCITY" color="#33ff33" />
+                <NeedleGauge value={fuel} max={maxFuel} label="FUEL" color="#06b6d4" isFuel={true} />
+                <NeedleGauge value={slip * 10} max={10} label="I-SLIP" color={slip > 0.5 ? "#f97316" : "#33ff33"} />
+                <NeedleGauge value={carrying} max={50} label="C-MASS" color={carrying > 25 ? "#f97316" : "#06b6d4"} />
+              </div>
             ) : (
-              <div className="flex flex-col gap-4 w-full">
+              <div className="flex flex-col gap-2 w-full text-[9px]">
                 <div>
-                  <div className="embossed-label mb-1 bg-zinc-800 border-zinc-600">Engine Load</div>
-                  <div className="vu-meter h-4">
+                  <div className="flex justify-between mb-0.5">
+                    <span className="opacity-60">VELOCITY</span>
+                    <span className={velocity > 6 ? 'text-red-500' : ''}>{velocity.toFixed(1)}</span>
+                  </div>
+                  <div className="vu-meter h-2">
                     <motion.div 
-                      className={`h-full ${velocity > 4 ? 'bg-red-600' : 'bg-[#33ff33] shadow-[0_0_8px_#33ff33]'}`}
-                      animate={{ width: `${(velocity / 5) * 100}%` }}
+                      className={`h-full ${velocity > 6 ? 'bg-red-600' : 'bg-[#33ff33] shadow-[0_0_4px_#33ff33]'}`}
+                      animate={{ width: `${(velocity / 7.5) * 100}%` }}
                     />
                   </div>
                 </div>
                 <div>
-                  <div className="embossed-label mb-1 bg-cyan-950 border-cyan-500">Fuel Reserves</div>
-                  <div className="vu-meter h-4">
+                  <div className="flex justify-between mb-0.5">
+                    <span className="opacity-60 text-pink-400">CARGO LOAD</span>
+                    <span>{carrying}U</span>
+                  </div>
+                  <div className="vu-meter h-2 bg-pink-900/20">
                     <motion.div 
-                      className="h-full bg-cyan-600 shadow-[0_0_8px_cyan]"
+                      className="h-full bg-pink-500 shadow-[0_0_4px_pink]"
+                      animate={{ width: `${Math.min((carrying / 50) * 100, 100)}%` }}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <div className="flex justify-between mb-0.5">
+                    <span className="opacity-60 text-orange-400">INERTIA SLIP</span>
+                    <span>{(slip * 100).toFixed(0)}%</span>
+                  </div>
+                  <div className="vu-meter h-2 bg-orange-900/20">
+                    <motion.div 
+                      className={`h-full ${slip > 0.5 ? 'bg-orange-500' : 'bg-zinc-600'}`}
+                      animate={{ width: `${slip * 100}%` }}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <div className={`flex justify-between mb-0.5 ${
+                    fuel < maxFuel * 0.1 ? 'text-red-500 animate-pulse' : ''
+                  }`}>
+                    <span>ENERGY</span>
+                    <span>{Math.floor(fuel)}</span>
+                  </div>
+                  <div className="vu-meter h-2">
+                    <motion.div 
+                      className={`h-full transition-colors ${
+                        fuel < maxFuel * 0.1 ? 'bg-red-500' : 
+                        fuel < maxFuel * 0.3 ? 'bg-orange-500' : 
+                        'bg-cyan-600'
+                      }`}
                       animate={{ width: `${(fuel / maxFuel) * 100}%` }}
                     />
                   </div>

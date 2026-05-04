@@ -42,12 +42,16 @@ export default function App() {
         totalScrapInfused={state.star.totalScrapInfused}
         fuel={state.ship.fuel}
         maxFuel={state.ship.maxFuel}
+        shipHealth={state.ship.health}
+        maxShipHealth={state.ship.maxHealth}
+        enemyIntegrity={state.enemyStar.integrity}
         shipPos={state.ship.pos}
         starPos={state.star.pos}
         scrapList={state.scrap}
         enemyStarPos={state.enemyStar.pos}
         useAnalogGauges={state.useAnalogGauges}
         upgrades={state.ship.upgrades}
+        slip={state.slip}
         onUpgrade={upgrade}
       />
 
@@ -71,7 +75,7 @@ export default function App() {
       {/* Controls Help */}
       <div className="fixed bottom-4 left-4 text-[10px] opacity-20 uppercase tracking-widest pointer-events-none z-[60] flex flex-col">
         <span>[WASD/ARROWS] THRUST/ROTATION | [Q/E/R] MANUAL VAC PULL</span>
-        <span>[1-4] UPGRADES | [SPACE] JETTISON AT ENEMY STAR</span>
+        <span>[1-4] UPGRADES | [SPACE] EJECT CARGO PULSE (SABOTAGE ENEMY / INFUSE HOME)</span>
       </div>
     </div>
   );

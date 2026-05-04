@@ -16,6 +16,8 @@ export interface Ship extends GameObject {
   carrying: number;
   fuel: number;
   maxFuel: number;
+  health: number;
+  maxHealth: number;
   attractRadius: number;
   upgrades: {
     thrust: number;
@@ -29,6 +31,8 @@ export interface Star extends GameObject {
   mass: number;
   totalScrapInfused: number;
   type: 'home' | 'enemy';
+  integrity: number; // 0 to 1
+  lastHitTime?: number;
 }
 
 export interface Scrap {
@@ -37,14 +41,22 @@ export interface Scrap {
   id: string;
 }
 
+export interface DeployedCargo extends Scrap {
+  vel: Vector2D;
+  life: number;
+}
+
 export interface GameState {
   ship: Ship;
   star: Star;
   enemyStar: Star;
   scrap: Scrap[];
+  deployedCargo: DeployedCargo[];
   teamScrap: number;
   glitchActive: boolean;
   lastGlitchTime: number;
   shakeAmount: number;
   useAnalogGauges: boolean;
+  lastEjectTime?: number;
+  slip: number;
 }
