@@ -130,6 +130,52 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
       ctx.fillRect(d.pos.x - 2, d.pos.y - 2, 4, 4);
     });
 
+    // DRAW DRONES
+    (state.drones || []).forEach(d => {
+      ctx.save();
+      ctx.translate(d.pos.x, d.pos.y);
+      ctx.rotate(d.angle);
+      
+      const isHome = d.owner === 'player';
+      const color = isHome ? COLORS.CRT_GLOW : '#f43f5e';
+      
+      // Drone body
+      ctx.fillStyle = '#1a1a1c';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      
+      // Triangular body
+      ctx.beginPath();
+      ctx.moveTo(8, 0);
+      ctx.lineTo(-6, 6);
+      ctx.lineTo(-4, 0);
+      ctx.lineTo(-6, -6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Cargo light if carrying
+      if (d.carrying > 0) {
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(-2, 0, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      
+      // Exhaust flame if moving
+      if (d.state !== 'searching') {
+        const flicker = Math.random() * 4;
+        ctx.fillStyle = isHome ? 'rgba(51, 255, 51, 0.6)' : 'rgba(244, 63, 94, 0.6)';
+        ctx.beginPath();
+        ctx.moveTo(-6, -2);
+        ctx.lineTo(-10 - flicker, 0);
+        ctx.lineTo(-6, 2);
+        ctx.fill();
+      }
+      
+      ctx.restore();
+    });
+
     // DRAW PROJECTILES
     (state.projectiles || []).forEach(p => {
       ctx.fillStyle = p.owner === 'player' ? '#fff' : '#f43f5e';

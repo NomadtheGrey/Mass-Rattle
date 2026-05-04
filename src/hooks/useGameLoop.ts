@@ -46,6 +46,7 @@ export const useGameLoop = (width: number, height: number) => {
     scrap: [],
     deployedCargo: [],
     projectiles: [],
+    drones: [],
     starOrbit: 0,
     enemyStarOrbit: 0,
     teamScrap: 0,
@@ -146,6 +147,30 @@ export const useGameLoop = (width: number, height: number) => {
     setState(s => ({
       ...s,
       scrap: initialScrap,
+      drones: [
+        {
+          id: 'player-drone-1',
+          pos: { x: width / 2 + 100, y: height / 2 + 100 },
+          vel: { x: 0, y: 0 },
+          angle: 0,
+          targetId: null,
+          carrying: 0,
+          capacity: PHYSICS.DRONES.CAPACITY,
+          owner: 'player',
+          state: 'searching'
+        },
+        {
+          id: 'enemy-drone-1',
+          pos: { x: s.enemyStar.pos.x - 100, y: s.enemyStar.pos.y - 100 },
+          vel: { x: 0, y: 0 },
+          angle: 0,
+          targetId: null,
+          carrying: 0,
+          capacity: PHYSICS.DRONES.CAPACITY,
+          owner: 'enemy',
+          state: 'searching'
+        }
+      ],
       star: { ...s.star, pos: { x: width / 2, y: height / 2 } }
     }));
   }, [width, height, spawnScrap]);
@@ -492,7 +517,100 @@ export const useGameLoop = (width: number, height: number) => {
           ship.thrust = false;
         }
 
-        // 5. Projectiles and Defense
+        // 5. Drones Logic
+        next.drones = (next.drones || []).map(drone => {
+          const droneStar = drone.owner === 'player' ? star : enemyStar;
+          
+          if (drone.state === 'searching') {
+            // Find closest scrap
+            let closestScrap = null;
+            let minDist = Infinity;
+            next.scrap.forEach(s => {
+              const dx = s.pos.x - drone.pos.x;
+              const dy = s.pos.y - drone.pos.y;
+              const d = dx * dx + dy * dy;
+              if (d < minDist) {
+                minDist = d;
+                closestScrap = s;
+              }
+            });
+
+            if (closestScrap) {
+              drone.targetId = (closestScrap as any).id;
+              drone.state = 'collecting';
+            }
+          }
+
+          if (drone.state === 'collecting') {
+            const target = next.scrap.find(s => s.id === drone.targetId);
+            if (!target) {
+              drone.state = 'searching';
+              drone.targetId = null;
+            } else {
+              const dx = target.pos.x - drone.pos.x;
+              const dy = target.pos.y - drone.pos.y;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              
+              const targetAngle = Math.atan2(dy, dx);
+              drone.angle += (targetAngle - drone.angle) * PHYSICS.DRONES.ROTATE_SPEED;
+              
+              drone.pos.x += Math.cos(drone.angle) * PHYSICS.DRONES.SPEED;
+              drone.pos.y += Math.sin(drone.angle) * PHYSICS.DRONES.SPEED;
+
+              if (dist < PHYSICS.DRONES.COLLECT_RADIUS) {
+                drone.carrying += 1;
+                // Remove scrap from world
+                next.scrap = next.scrap.filter(s => s.id !== drone.targetId);
+                drone.targetId = null;
+                
+                if (drone.carrying >= drone.capacity) {
+                  drone.state = 'returning';
+                } else {
+                  drone.state = 'searching';
+                }
+              }
+            }
+          }
+
+          if (drone.state === 'returning') {
+            const dx = droneStar.pos.x - drone.pos.x;
+            const dy = droneStar.pos.y - drone.pos.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            const targetAngle = Math.atan2(dy, dx);
+            drone.angle += (targetAngle - drone.angle) * PHYSICS.DRONES.ROTATE_SPEED;
+            
+            drone.pos.x += Math.cos(drone.angle) * PHYSICS.DRONES.SPEED;
+            drone.pos.y += Math.sin(drone.angle) * PHYSICS.DRONES.SPEED;
+
+            if (dist < droneStar.size + PHYSICS.DRONES.DEPOSIT_RADIUS) {
+              const amount = drone.carrying;
+              if (drone.owner === 'player') {
+                const oldInfused = star.totalScrapInfused;
+                star.totalScrapInfused += amount;
+                teamScrap += amount;
+                const newMilestone = Math.floor(star.totalScrapInfused / PHYSICS.STAR_GROWTH_THRESHOLD);
+                const oldMilestone = Math.floor(oldInfused / PHYSICS.STAR_GROWTH_THRESHOLD);
+                if (newMilestone > oldMilestone) {
+                  star.mass *= 1.25;
+                  star.size *= 1.15;
+                }
+              } else {
+                enemyStar.totalScrapInfused += amount;
+                // Healing or growth for enemy star
+                enemyStar.integrity = Math.min(1, enemyStar.integrity + 0.005 * amount);
+                enemyStar.size *= 1.01;
+                enemyStar.mass *= 1.01;
+              }
+              drone.carrying = 0;
+              drone.state = 'searching';
+            }
+          }
+
+          return drone;
+        });
+
+        // 6. Projectiles and Defense
         next.projectiles = (next.projectiles || []).filter(p => {
           p.pos.x += p.vel.x;
           p.pos.y += p.vel.y;

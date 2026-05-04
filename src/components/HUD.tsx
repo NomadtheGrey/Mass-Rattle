@@ -1,5 +1,6 @@
 import { motion } from 'motion/react';
 import React from 'react';
+import { PHYSICS } from '../constants';
 
 interface NeedleGaugeProps {
   value: number;
@@ -62,9 +63,9 @@ interface HUDProps {
   starPos: { x: number; y: number };
   enemyStarPos: { x: number; y: number };
   scrapList: { pos: { x: number; y: number } }[];
-  upgrades: { thrust: number; handling: number; attractor: number; fuelCap: number };
+  upgrades: { thrust: number; handling: number; attractor: number; fuelCap: number; cargo: number };
   slip: number;
-  onUpgrade: (type: 'thrust' | 'handling' | 'attractor' | 'fuel') => void;
+  onUpgrade: (type: 'thrust' | 'handling' | 'attractor' | 'fuel' | 'cargo') => void;
 }
 
 export const HUD: React.FC<HUDProps> = ({ 
@@ -126,9 +127,9 @@ export const HUD: React.FC<HUDProps> = ({
   const enemyIndicator = getEdgeIndicator(enemyMap);
 
   return (
-    <div className={`fixed inset-0 pointer-events-none z-50 flex p-6 gap-6 ${glitch ? 'animate-pulse' : ''} text-[#33ff33]`}>
+    <div className={`fixed inset-0 pointer-events-none z-50 flex p-6 gap-4 ${glitch ? 'animate-pulse' : ''} text-[#33ff33]`}>
       {/* Left Aside */}
-      <aside className="w-[225px] min-w-[225px] flex flex-col gap-4">
+      <aside className="w-48 min-w-[192px] flex flex-col gap-4">
         <div className="hud-panel p-4 border-4">
           <div className="absolute top-0 right-0 p-1 text-[10px] text-[#2d2d30]">MOD-CR90</div>
           <h2 className="mb-4 pb-1 font-bold">
@@ -263,7 +264,7 @@ export const HUD: React.FC<HUDProps> = ({
                 </div>
               </div>
               {velocity > 4 && <p className="text-red-500">[WARN] SPEED EXCEEDS BUFFER</p>}
-              {carrying > 15 && <p className="text-yellow-500">[WARN] CARGO OVERLOAD</p>}
+              {carrying > (PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS) && <p className="text-yellow-500">[WARN] CARGO OVERLOAD</p>}
               {carrying > 0 && <p className="text-pink-500 font-bold">[INFO] SCRAP LOAD: {carrying}U</p>}
               <p className="text-cyan-400 font-bold bg-cyan-950/40 px-1 border-l-2 border-cyan-500">[BANK] {teamScrap} CREDITS</p>
               {fuel < 20 && <p className="text-red-600 animate-pulse font-bold">[ERR] FUEL DEPLETED</p>}
@@ -284,17 +285,41 @@ export const HUD: React.FC<HUDProps> = ({
 
       {/* Main Center Area */}
       <main className="flex-grow flex flex-col gap-4 relative">
-        <div className="flex-grow pointer-events-none" />
+        <div className="flex-grow pointer-events-none relative">
+          {/* Utility Cluster - Now positioned above Cargo Manifest */}
+          <div className="absolute bottom-0 right-0 w-24 flex flex-col gap-2 items-end">
+            <div className="hud-panel w-16 p-2 flex flex-col items-center gap-4 border-2 bg-zinc-950/90 shadow-2xl pointer-events-auto">
+              <div className="w-10 h-10 pitted-metal flex items-center justify-center text-red-600 text-[8px] text-center font-bold border border-red-900 bg-red-950/20">JETTISON [SPACE]</div>
+              <div className="w-10 h-10 pitted-metal flex items-center justify-center text-[#33ff33] text-[7px] text-center uppercase tracking-tighter">VAC [Q/E/R]</div>
+              <div className="w-10 h-10 pitted-metal flex items-center justify-center text-cyan-500 text-[8px] text-center">FUEL OK</div>
+              <button 
+                onClick={() => setShowSysCfg(true)}
+                className="w-10 h-10 pitted-metal flex items-center justify-center text-[#33ff33] hover:text-white hover:bg-zinc-800 transition-colors text-[8px] text-center pointer-events-auto cursor-pointer"
+              >
+                SYSCFG
+              </button>
+            </div>
+            <div className="hud-panel w-20 p-2 border-2 bg-zinc-950/90 flex flex-col items-center justify-center gap-1">
+              <div className="text-[7px] text-zinc-600 uppercase whitespace-nowrap">S/N: 88-X9-R</div>
+              <div className="text-[8px] opacity-30">v2.4.0</div>
+            </div>
+          </div>
+        </div>
         
         <div className="h-44 hud-panel flex p-4 gap-4 border-4 overflow-hidden">
           {/* Gauges Section */}
-          <div className="flex items-center justify-center w-1/4 min-w-[220px]">
+          <div className="flex items-center justify-center w-1/4 min-w-[200px]">
             {useAnalogGauges ? (
               <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                 <NeedleGauge value={velocity} max={7.5} label="V-VELOCITY" color="#33ff33" />
                 <NeedleGauge value={fuel} max={maxFuel} label="FUEL" color="#06b6d4" isFuel={true} />
                 <NeedleGauge value={slip * 10} max={10} label="I-SLIP" color={slip > 0.5 ? "#f97316" : "#33ff33"} />
-                <NeedleGauge value={carrying} max={50} label="C-MASS" color={carrying > 25 ? "#f97316" : "#06b6d4"} />
+                <NeedleGauge 
+                  value={carrying} 
+                  max={PHYSICS.CARGO.BASE_CAPACITY + PHYSICS.CARGO.UPGRADE_BONUS * 5 * 1.25} 
+                  label="C-MASS" 
+                  color={carrying > (PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS) ? "#f97316" : "#06b6d4"} 
+                />
               </div>
             ) : (
               <div className="flex flex-col gap-2 w-full text-[9px]">
@@ -318,7 +343,7 @@ export const HUD: React.FC<HUDProps> = ({
                   <div className="vu-meter h-2 bg-pink-900/20">
                     <motion.div 
                       className="h-full bg-pink-500 shadow-[0_0_4px_pink]"
-                      animate={{ width: `${Math.min((carrying / 50) * 100, 100)}%` }}
+                      animate={{ width: `${Math.min((carrying / (PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS * 1.25)) * 100, 100)}%` }}
                     />
                   </div>
                 </div>
@@ -362,11 +387,11 @@ export const HUD: React.FC<HUDProps> = ({
             <div className="embossed-label mb-2 bg-[#1a1a1c] border-zinc-700">Ship Enhancements [Keys 1-5 | G for Gauges]</div>
             <div className="flex gap-2 pointer-events-auto overflow-x-auto pb-1 scrollbar-hide">
               {[
-                { type: 'thrust' as const, label: 'Thrust', cost: 15, lvl: upgrades.thrust, key: '1' },
-                { type: 'handling' as const, label: 'Nav', cost: 20, lvl: upgrades.handling, key: '2' },
-                { type: 'attractor' as const, label: 'VAC', cost: 12, lvl: upgrades.attractor, key: '3' },
-                { type: 'fuel' as const, label: 'Fuel', cost: 10, lvl: upgrades.fuelCap, key: '4' },
-                { type: 'cargo' as const, label: 'Cargo', cost: 25, lvl: upgrades.cargo, key: '5' }
+                { type: 'thrust' as const, label: 'Thrust', cost: PHYSICS.UPGRADE_COSTS.THRUST, lvl: upgrades.thrust, key: '1' },
+                { type: 'handling' as const, label: 'Nav', cost: PHYSICS.UPGRADE_COSTS.HANDLING, lvl: upgrades.handling, key: '2' },
+                { type: 'attractor' as const, label: 'VAC', cost: PHYSICS.UPGRADE_COSTS.ATTRACTOR, lvl: upgrades.attractor, key: '3' },
+                { type: 'fuel' as const, label: 'Fuel', cost: PHYSICS.UPGRADE_COSTS.FUEL, lvl: upgrades.fuelCap, key: '4' },
+                { type: 'cargo' as const, label: 'Cargo', cost: PHYSICS.UPGRADE_COSTS.CARGO, lvl: upgrades.cargo, key: '5' }
               ].map(u => (
                 <button 
                   key={u.type}
@@ -388,63 +413,89 @@ export const HUD: React.FC<HUDProps> = ({
 
           <div className="w-px bg-[#2d2d30] shrink-0"></div>
           
-          <div className="w-40 flex flex-col justify-between shrink-0">
-            <div className="embossed-label bg-pink-900/80 border-pink-500 text-[9px]">Cargo Manifest</div>
-            <div className="grid grid-cols-5 gap-0.5 h-20 py-1">
+          <div className="w-48 flex flex-col justify-between shrink-0">
+            <div className="flex justify-between items-center mb-1">
+              <div className="embossed-label bg-pink-900/80 border-pink-500 text-[9px] py-0 px-1 whitespace-nowrap">Cargo Manifest</div>
+              <div className="text-[10px] font-mono font-bold text-pink-400 ml-1">
+                {(() => {
+                  const reg = PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS;
+                  const ovr = Math.floor(reg * PHYSICS.CARGO.OVERLOAD_RATIO);
+                  if (carrying > reg) {
+                    return `${reg}/${reg} [+${carrying - reg}/${ovr}]`;
+                  }
+                  return `${carrying}/${reg}`;
+                })()}
+              </div>
+            </div>
+            <div className="flex-grow flex items-center justify-center min-h-[80px] bg-black/40 rounded border border-zinc-900/50 my-1 overflow-hidden p-1.5 shadow-inner">
               {(() => {
-                const regularCap = 20 + upgrades.cargo * 10;
-                const overloadCap = Math.floor(regularCap * 0.25);
+                const regularCap = PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS;
+                const overloadCap = Math.floor(regularCap * PHYSICS.CARGO.OVERLOAD_RATIO);
                 const totalSlots = regularCap + overloadCap;
                 
-                return Array.from({ length: totalSlots }).map((_, i) => {
-                  const isOverload = i >= regularCap;
-                  const isFilled = i < carrying;
-                  
-                  return (
-                    <div 
-                      key={i} 
-                      className={`border ${
-                        isOverload ? 'border-amber-900/40' : 'border-[#2d2d30]'
-                      } ${
-                        isFilled 
-                          ? isOverload 
-                            ? 'bg-amber-500 shadow-[0_0_4px_rgba(245,158,11,0.5)]' 
-                            : 'bg-pink-600 shadow-[0_0_4px_pink]' 
-                          : 'bg-black/40'
-                      }`}
-                    />
-                  );
-                });
+                // Optimized grid calculation to fit ~192x90 container (w-48)
+                const containerW = 170;
+                const containerH = 75;
+                const gap = 2;
+                
+                let bestSize = 4;
+                let bestCols = 4;
+                
+                for (let c = 1; c <= totalSlots; c++) {
+                  const r = Math.ceil(totalSlots / c);
+                  const s = Math.min((containerW - (c - 1) * gap) / c, (containerH - (r - 1) * gap) / r);
+                  if (s > bestSize) {
+                    bestSize = s;
+                    bestCols = c;
+                  }
+                }
+                
+                // Constrain max size
+                const finalSize = Math.min(bestSize, 20);
+
+                return (
+                  <div 
+                    className="grid" 
+                    style={{ 
+                      gridTemplateColumns: `repeat(${bestCols}, ${finalSize}px)`,
+                      gridAutoRows: `${finalSize}px`,
+                      gap: `${gap}px`
+                    }}
+                  >
+                    {Array.from({ length: totalSlots }).map((_, i) => {
+                      const isOverload = i >= regularCap;
+                      const isFilled = i < carrying;
+                      
+                      return (
+                        <div 
+                          key={i} 
+                          className={`border ${
+                            isOverload ? 'border-amber-900/60' : 'border-[#2d2d30]'
+                          } ${
+                            isFilled 
+                              ? isOverload 
+                                ? 'bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.6)]' 
+                                : 'bg-pink-600 shadow-[0_0_4px_pink]' 
+                              : 'bg-black/40'
+                          }`}
+                          style={{ width: finalSize, height: finalSize }}
+                        />
+                      );
+                    })}
+                  </div>
+                );
               })()}
             </div>
-            {carrying > (20 + (upgrades as any).cargo * 10) && (
-              <div className="text-[8px] text-amber-500 animate-pulse font-bold uppercase tracking-tighter leading-none mt-1">
-                Hull Overload: Slow-Down Active
+            {carrying > (PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS) && (
+              <div className="text-[8px] text-amber-500 animate-pulse font-bold uppercase tracking-tighter leading-none mt-1 text-center">
+                WARNING: HULL INTEGRITY COMPROMISED BY CARGO LOAD
               </div>
             )}
           </div>
         </div>
       </main>
 
-      {/* Right Aside */}
-      <aside className="w-24 flex flex-col gap-4">
-        <div className="flex-grow hud-panel flex flex-col items-center py-6 gap-8 border-4">
-          <div className="w-12 h-12 pitted-metal flex items-center justify-center text-red-600 text-[10px] text-center font-bold border-2 border-red-900 bg-red-950/20">JETTISON [SPACE]</div>
-          <div className="w-12 h-12 pitted-metal flex items-center justify-center text-[#33ff33] text-[9px] text-center uppercase tracking-tighter">Attractor [Q/E/R]</div>
-          <div className="w-12 h-12 pitted-metal flex items-center justify-center text-cyan-500 text-[10px] text-center shadow-[0_0_10px_rgba(6,182,212,0.2)]">FUEL OK</div>
-          <button 
-            onClick={() => setShowSysCfg(true)}
-            className="w-12 h-12 pitted-metal flex items-center justify-center text-[#33ff33] hover:text-white hover:bg-zinc-800 transition-colors text-[10px] text-center pointer-events-auto"
-          >
-            SYSCFG
-          </button>
-        </div>
-        <div className="h-32 hud-panel p-2 flex flex-col items-center justify-center border-4">
-          <div className="text-[8px] text-[#444] mb-2 uppercase">Serial: 88-X9-R</div>
-          <div className="w-full h-8 bg-zinc-950 border border-zinc-900 shadow-inner"></div>
-          <div className="mt-2 text-[10px] opacity-20">BUILD: v2.4.0</div>
-        </div>
-      </aside>
+      {/* Right Aside - Removed and integrated into main for space efficiency */}
 
       {/* Mobile Workshop Overlay */}
       {isShopOpen && (
@@ -470,11 +521,11 @@ export const HUD: React.FC<HUDProps> = ({
 
               <div className="grid grid-cols-2 gap-4">
                 {[
-                  { type: 'thrust' as const, label: 'Thrust Vectoring', desc: 'Increases engine output & acceleration', cost: 15, lvl: upgrades.thrust, icon: '🚀' },
-                  { type: 'handling' as const, label: 'Neural Nav-Link', desc: 'Improves rotation speed & response', cost: 20, lvl: upgrades.handling, icon: '🕹️' },
-                  { type: 'attractor' as const, label: 'High-Gauss VAC', desc: 'Expands scrap collection radius', cost: 12, lvl: upgrades.attractor, icon: '🧲' },
-                  { type: 'fuel' as const, label: 'Plasma Reserves', desc: 'Increases total fuel capacity', cost: 10, lvl: upgrades.fuelCap, icon: '⚡' },
-                  { type: 'cargo' as const, label: 'Hull Expansion', desc: 'Increases max cargo hold capacity', cost: 25, lvl: upgrades.cargo, icon: '📦' }
+                  { type: 'thrust' as const, label: 'Thrust Vectoring', desc: 'Increases engine output & acceleration', cost: PHYSICS.UPGRADE_COSTS.THRUST, lvl: upgrades.thrust, icon: '🚀' },
+                  { type: 'handling' as const, label: 'Neural Nav-Link', desc: 'Improves rotation speed & response', cost: PHYSICS.UPGRADE_COSTS.HANDLING, lvl: upgrades.handling, icon: '🕹️' },
+                  { type: 'attractor' as const, label: 'High-Gauss VAC', desc: 'Expands scrap collection radius', cost: PHYSICS.UPGRADE_COSTS.ATTRACTOR, lvl: upgrades.attractor, icon: '🧲' },
+                  { type: 'fuel' as const, label: 'Plasma Reserves', desc: 'Increases total fuel capacity', cost: PHYSICS.UPGRADE_COSTS.FUEL, lvl: upgrades.fuelCap, icon: '⚡' },
+                  { type: 'cargo' as const, label: 'Hull Expansion', desc: 'Increases max cargo hold capacity', cost: PHYSICS.UPGRADE_COSTS.CARGO, lvl: upgrades.cargo, icon: '📦' }
                 ].map(u => (
                   <button 
                     key={u.type}

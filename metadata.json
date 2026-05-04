@@ -1,6 +1,6 @@
 {
-  "name": "Gravity Wells: Phase 1",
-  "description": "A Scrap-Fi physics prototype featuring gravity wells, clunky inertia, and a Cassette Futurism aesthetic.",
+  "name": "Mass Rattle",
+  "description": "An orbital salvage simulator where mass matters. Navigate gravity wells, manage hull integrity, and rattle your way to riches.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }

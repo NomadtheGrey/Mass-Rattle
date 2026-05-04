@@ -55,6 +55,18 @@ export interface DeployedCargo extends Scrap {
   life: number;
 }
 
+export interface Harvester {
+  id: string;
+  pos: Vector2D;
+  vel: Vector2D;
+  angle: number;
+  targetId: string | null;
+  carrying: number;
+  capacity: number;
+  owner: 'player' | 'enemy';
+  state: 'searching' | 'collecting' | 'returning';
+}
+
 export interface GameState {
   ship: Ship;
   star: Star;
@@ -62,6 +74,7 @@ export interface GameState {
   scrap: Scrap[];
   deployedCargo: DeployedCargo[];
   projectiles: Projectile[];
+  drones: Harvester[];
   starOrbit: number;
   enemyStarOrbit: number;
   teamScrap: number;

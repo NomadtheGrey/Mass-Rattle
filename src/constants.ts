@@ -22,13 +22,20 @@ export const PHYSICS = {
     HANDLING: 20,
     ATTRACTOR: 12,
     FUEL: 10,
-    CARGO: 25,
+    CARGO: 15,
   },
   CARGO: {
-    BASE_CAPACITY: 20,
-    UPGRADE_BONUS: 10,
+    BASE_CAPACITY: 12,
+    UPGRADE_BONUS: 4,
     OVERLOAD_RATIO: 0.25,
     SLOWDOWN_PENALTY: 0.4, // Up to 40% slower at max overload
+  },
+  DRONES: {
+    SPEED: 2.5,
+    ROTATE_SPEED: 0.05,
+    CAPACITY: 5,
+    COLLECT_RADIUS: 40,
+    DEPOSIT_RADIUS: 80,
   },
   DEFENSE: {
     RANGE: 1200,
