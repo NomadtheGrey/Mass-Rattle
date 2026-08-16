@@ -2,5 +2,5 @@
   "name": "Mass Rattle",
   "description": "An orbital salvage simulator where mass matters. Navigate gravity wells, manage hull integrity, and rattle your way to riches.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

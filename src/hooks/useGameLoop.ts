@@ -62,21 +62,55 @@ export const useGameLoop = (width: number, height: number) => {
   });
 
   const keys = useRef<Set<string>>(new Set());
+  const touchInputs = useRef<{
+    thrust: boolean;
+    rotateLeft: boolean;
+    rotateRight: boolean;
+    vac: boolean;
+    jettison: boolean;
+    analogStick: { x: number; y: number } | null;
+  }>({
+    thrust: false,
+    rotateLeft: false,
+    rotateRight: false,
+    vac: false,
+    jettison: false,
+    analogStick: null,
+  });
+
+  const setVirtualControl = useCallback((action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison', active: boolean) => {
+    touchInputs.current[action] = active;
+  }, []);
+
+  const setAnalogStick = useCallback((stick: { x: number; y: number } | null) => {
+    touchInputs.current.analogStick = stick;
+  }, []);
+
+  const toggleShop = useCallback((force?: boolean) => {
+    setState(prev => ({
+      ...prev,
+      isShopOpen: typeof force === 'boolean' ? force : !prev.isShopOpen,
+    }));
+  }, []);
 
   const upgrade = useCallback((type: 'thrust' | 'handling' | 'attractor' | 'fuel' | 'cargo') => {
     setState(prev => {
-      const cost = type === 'thrust' ? PHYSICS.UPGRADE_COSTS.THRUST : 
-                   type === 'handling' ? PHYSICS.UPGRADE_COSTS.HANDLING : 
-                   type === 'attractor' ? PHYSICS.UPGRADE_COSTS.ATTRACTOR :
-                   type === 'fuel' ? PHYSICS.UPGRADE_COSTS.FUEL :
-                   PHYSICS.UPGRADE_COSTS.CARGO;
+      const baseCost = type === 'thrust' ? PHYSICS.UPGRADE_COSTS.THRUST : 
+                       type === 'handling' ? PHYSICS.UPGRADE_COSTS.HANDLING : 
+                       type === 'attractor' ? PHYSICS.UPGRADE_COSTS.ATTRACTOR :
+                       type === 'fuel' ? PHYSICS.UPGRADE_COSTS.FUEL :
+                       PHYSICS.UPGRADE_COSTS.CARGO;
+      
+      const currentLevel = type === 'fuel' ? prev.ship.upgrades.fuelCap : (prev.ship.upgrades as any)[type];
+      const cost = baseCost + (currentLevel * Math.floor(baseCost * 0.5));
       
       if (prev.ship.carrying < cost) return prev;
 
       const next = { ...prev };
       const ship = { ...next.ship };
       ship.carrying -= cost;
-      ship.upgrades = { ...ship.upgrades, [type === 'fuel' ? 'fuelCap' : type]: (ship.upgrades as any)[type === 'fuel' ? 'fuelCap' : type] + 1 };
+      const upgradeKey = type === 'fuel' ? 'fuelCap' : type;
+      ship.upgrades = { ...ship.upgrades, [upgradeKey]: (ship.upgrades as any)[upgradeKey] + 1 };
       
       if (type === 'attractor') {
         ship.attractRadius = PHYSICS.BASE_ATTRACT_RADIUS + ship.upgrades.attractor * 35;
@@ -210,7 +244,10 @@ export const useGameLoop = (width: number, height: number) => {
         const enemyStar = { ...next.enemyStar };
 
         // 1. Fuel & Inputs
-        const wantsThrust = keys.current.has('ArrowUp') || keys.current.has('KeyW');
+        const stick = touchInputs.current.analogStick;
+        const stickDist = stick ? Math.sqrt(stick.x * stick.x + stick.y * stick.y) : 0;
+        const stickThrust = stickDist > 0.45;
+        const wantsThrust = keys.current.has('ArrowUp') || keys.current.has('KeyW') || touchInputs.current.thrust || stickThrust;
         
         // Cargo Capacity
         const regularCapacity = PHYSICS.CARGO.BASE_CAPACITY + ship.upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS;
@@ -269,8 +306,23 @@ export const useGameLoop = (width: number, height: number) => {
         const currentMass = PHYSICS.SHIP_MASS + (ship.carrying * PHYSICS.MASS_PER_CARGO);
         const currentRotSpeed = (PHYSICS.ROTATION_SPEED + ship.upgrades.handling * 0.005) / (1 + ship.carrying * 0.05);
         
-        if (keys.current.has('ArrowLeft') || keys.current.has('KeyA')) ship.angle -= currentRotSpeed;
-        if (keys.current.has('ArrowRight') || keys.current.has('KeyD')) ship.angle += currentRotSpeed;
+        if (keys.current.has('ArrowLeft') || keys.current.has('KeyA') || touchInputs.current.rotateLeft) {
+          ship.angle -= currentRotSpeed;
+        }
+        if (keys.current.has('ArrowRight') || keys.current.has('KeyD') || touchInputs.current.rotateRight) {
+          ship.angle += currentRotSpeed;
+        }
+
+        // Analog stick rotational tracking
+        if (stick && stickDist > 0.15) {
+          const targetAngle = Math.atan2(stick.y, stick.x);
+          let angleDiff = targetAngle - ship.angle;
+          while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+          while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+          const maxTurn = currentRotSpeed * 1.5;
+          const turn = Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), maxTurn);
+          ship.angle += turn;
+        }
 
         if (ship.thrust) {
           const currentThrust = (PHYSICS.THRUST_POWER + ship.upgrades.thrust * 0.08) * speedMult;
@@ -279,8 +331,8 @@ export const useGameLoop = (width: number, height: number) => {
           ship.vel.y += (Math.sin(ship.angle) * currentThrust) / currentMass;
         }
 
-        // Active VAC Mode (Q, E, or R)
-        const isVacActive = keys.current.has('KeyQ') || keys.current.has('KeyE') || keys.current.has('KeyR');
+        // Active VAC Mode (Q, E, R or virtual touch)
+        const isVacActive = keys.current.has('KeyQ') || keys.current.has('KeyE') || keys.current.has('KeyR') || touchInputs.current.vac;
 
         // Gravity from BOTH Stars
         [star, enemyStar].forEach(s => {
@@ -424,7 +476,7 @@ export const useGameLoop = (width: number, height: number) => {
         }
 
         // 277. Enemy Sabotage (Legacy check - we'll replace this with the projectile system)
-        const wantsJettison = keys.current.has('Space');
+        const wantsJettison = keys.current.has('Space') || touchInputs.current.jettison;
         
         // Handle Ejection
         if (wantsJettison && ship.carrying > 0 && (!next.lastEjectTime || time - next.lastEjectTime > 100)) {
@@ -688,5 +740,13 @@ export const useGameLoop = (width: number, height: number) => {
     };
   }, [width, height]);
 
-  return { state, upgrade, restart };
+  return { 
+    state, 
+    upgrade, 
+    restart, 
+    setVirtualControl, 
+    setAnalogStick, 
+    toggleShop, 
+    toggleGauges 
+  };
 };

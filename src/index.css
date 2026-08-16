@@ -24,6 +24,11 @@ body {
   font-family: var(--font-mono);
   overflow: hidden;
   image-rendering: pixelated;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  overscroll-behavior: none;
 }
 
 /* CRT Screen Effect */
@@ -33,6 +38,10 @@ body {
   height: 100vh;
   overflow: hidden;
   background: var(--bg-dark);
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }
 
 .crt-scanlines {
