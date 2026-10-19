@@ -1,0 +1,14 @@
+{
+  // Mass-Rattle game site, hosted as a Cloudflare Worker serving static
+  // assets — same proven shape as BioForge's wrangler.jsonc.
+  // The game is a static Vite build: `npm run build` emits dist/, and
+  // Wrangler serves that folder as the site. No server code runs here.
+  // Production builds run from the `main` branch only; the `WIP` branch
+  // must have preview/non-production builds OFF in the dashboard, so
+  // WIP pushes trigger no build and cost no Workers Builds minutes.
+  "name": "massrattle",
+  "compatibility_date": "2025-01-01",
+  "assets": {
+    "directory": "./dist"
+  }
+}
