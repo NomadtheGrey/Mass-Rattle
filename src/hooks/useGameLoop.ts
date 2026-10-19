@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { GameState, Vector2D } from '../types';
 import { PHYSICS, COLORS } from '../constants';
+import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER } from '../loadout';
 
 export const useGameLoop = (width: number, height: number) => {
   const [state, setState] = useState<GameState>({
@@ -17,6 +18,8 @@ export const useGameLoop = (width: number, height: number) => {
       health: 100,
       maxHealth: 100,
       attractRadius: PHYSICS.BASE_ATTRACT_RADIUS,
+      arsenal: {},
+      loadout: { weapon: null, defense: null, hybrid: null },
       upgrades: {
         thrust: 0,
         handling: 0,
@@ -130,6 +133,56 @@ export const useGameLoop = (width: number, height: number) => {
     });
   }, []);
 
+  // ------------------------------------------------------------------
+  // ARSENAL: buy/upgrade an item tier, and equip items into the loadout.
+  // Everything is paid from scrap in the cargo hold (ship.carrying),
+  // the same wallet as the five base upgrades and star feeding.
+  // ------------------------------------------------------------------
+  const buyItem = useCallback((itemId: string) => {
+    const def = getLoadoutItem(itemId);
+    if (!def) return;
+    setState(prev => {
+      const owned = prev.ship.arsenal[itemId] || 0;
+      if (owned >= MAX_ITEM_TIER) return prev;
+      const cost = itemTierCost(def, owned);
+      if (prev.ship.carrying < cost) return prev;
+
+      const ship = { ...prev.ship };
+      ship.carrying -= cost;
+      ship.arsenal = { ...ship.arsenal, [itemId]: owned + 1 };
+      // First purchase auto-equips ONLY into an empty slot (free: it is
+      // part of the purchase). If the slot is taken, the player swaps
+      // deliberately and pays the pinned swap cost (see equipItem).
+      if (owned === 0 && !ship.loadout[def.category]) {
+        ship.loadout = { ...ship.loadout, [def.category]: itemId };
+      }
+      return { ...prev, ship, glitchActive: true, lastGlitchTime: performance.now() };
+    });
+  }, []);
+
+  const equipItem = useCallback((itemId: string) => {
+    const def = getLoadoutItem(itemId);
+    if (!def) return;
+    setState(prev => {
+      const owned = prev.ship.arsenal[itemId] || 0;
+      if (owned <= 0) return prev; // cannot equip what you do not own
+      const slot = def.category;
+      const current = prev.ship.loadout[slot];
+      if (current === itemId) return prev; // already equipped
+
+      const ship = { ...prev.ship };
+      // Adam's pin: swapping costs 60 + 20 per tier beyond the first,
+      // priced on the INCOMING item's tier. Empty slot = free equip.
+      if (current !== null) {
+        const cost = swapCostForTier(owned);
+        if (ship.carrying < cost) return prev;
+        ship.carrying -= cost;
+      }
+      ship.loadout = { ...ship.loadout, [slot]: itemId };
+      return { ...prev, ship, glitchActive: true, lastGlitchTime: performance.now() };
+    });
+  }, []);
+
   const toggleGauges = useCallback(() => {
     setState(prev => ({ ...prev, useAnalogGauges: !prev.useAnalogGauges }));
   }, []);
@@ -191,7 +244,8 @@ export const useGameLoop = (width: number, height: number) => {
           carrying: 0,
           capacity: PHYSICS.DRONES.CAPACITY,
           owner: 'player',
-          state: 'searching'
+          state: 'searching',
+          health: 100
         },
         {
           id: 'enemy-drone-1',
@@ -202,7 +256,8 @@ export const useGameLoop = (width: number, height: number) => {
           carrying: 0,
           capacity: PHYSICS.DRONES.CAPACITY,
           owner: 'enemy',
-          state: 'searching'
+          state: 'searching',
+          health: 100
         }
       ],
       star: { ...s.star, pos: { x: width / 2, y: height / 2 } }
@@ -743,6 +798,8 @@ export const useGameLoop = (width: number, height: number) => {
   return { 
     state, 
     upgrade, 
+    buyItem, 
+    equipItem, 
     restart, 
     setVirtualControl, 
     setAnalogStick, 

@@ -32,6 +32,8 @@ export default function App() {
   const { 
     state, 
     upgrade, 
+    buyItem, 
+    equipItem, 
     restart, 
     setVirtualControl, 
     setAnalogStick, 
@@ -77,6 +79,10 @@ export default function App() {
         upgrades={state.ship.upgrades}
         slip={state.slip}
         onUpgrade={upgrade}
+        arsenal={state.ship.arsenal}
+        loadout={state.ship.loadout}
+        onBuyItem={buyItem}
+        onEquipItem={equipItem}
         isMobileRadarOpen={isMobileRadarOpen}
         onToggleMobileRadar={handleToggleMobileRadar}
         onCloseShop={() => toggleShop(false)}
@@ -116,7 +122,7 @@ export default function App() {
       {/* Controls Help (Desktop only) */}
       <div className="hidden md:flex fixed bottom-4 left-4 text-[10px] opacity-20 uppercase tracking-widest pointer-events-none z-[60] flex-col">
         <span>[WASD/ARROWS] THRUST/ROTATION | [Q/E/R] MANUAL VAC PULL</span>
-        <span>[1-5] UPGRADES | [SPACE] EJECT CARGO PULSE (SABOTAGE ENEMY / INFUSE HOME) | [TAB/U] WORKSHOP</span>
+        <span>[1-5] UPGRADES | [SPACE] EJECT CARGO PULSE (SABOTAGE ENEMY / INFUSE HOME) | [TAB/U] WORKSHOP (SHIP / WEAPONS / DEFENSE / HYBRID)</span>
       </div>
     </div>
   );

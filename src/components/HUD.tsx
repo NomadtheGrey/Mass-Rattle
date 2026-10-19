@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import React from 'react';
 import { PHYSICS } from '../constants';
+import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory } from '../loadout';
 
 interface NeedleGaugeProps {
   value: number;
@@ -66,6 +67,11 @@ interface HUDProps {
   upgrades: { thrust: number; handling: number; attractor: number; fuelCap: number; cargo: number };
   slip: number;
   onUpgrade: (type: 'thrust' | 'handling' | 'attractor' | 'fuel' | 'cargo') => void;
+  // Arsenal (weapons / defenses / hybrids): owned tiers + equipped loadout.
+  arsenal: Record<string, number>;
+  loadout: { weapon: string | null; defense: string | null; hybrid: string | null };
+  onBuyItem: (itemId: string) => void;
+  onEquipItem: (itemId: string) => void;
   isMobileRadarOpen?: boolean;
   onToggleMobileRadar?: () => void;
   onCloseShop?: () => void;
@@ -94,6 +100,10 @@ export const HUD: React.FC<HUDProps> = ({
   upgrades,
   slip,
   onUpgrade,
+  arsenal,
+  loadout,
+  onBuyItem,
+  onEquipItem,
   isMobileRadarOpen = false,
   onToggleMobileRadar,
   onCloseShop,
@@ -103,6 +113,8 @@ export const HUD: React.FC<HUDProps> = ({
   const growthProgress = (totalScrapInfused % 100);
   const starLevel = Math.floor(totalScrapInfused / 100) + 1;
   const [showSysCfg, setShowSysCfg] = React.useState(false);
+  // Workshop tabs: the five base ship tracks, then the Arsenal categories.
+  const [shopTab, setShopTab] = React.useState<'ship' | ArsenalCategory>('ship');
   const [localRadarOpen, setLocalRadarOpen] = React.useState(false);
 
   const radarActive = isMobileRadarOpen || localRadarOpen;
@@ -602,6 +614,29 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
       </main>
 
+      {/* LOADOUT TILES — the equipped trio's permanent spot on the HUD:
+          bottom-center, always visible, so the player can see their build
+          (and spot an empty slot) without opening the shop. */}
+      <div className="fixed bottom-24 sm:bottom-5 left-1/2 -translate-x-1/2 z-[55] flex gap-1.5 sm:gap-2 pointer-events-none">
+        {([
+          { slot: 'weapon' as const, label: 'WPN' },
+          { slot: 'defense' as const, label: 'DEF' },
+          { slot: 'hybrid' as const, label: 'HYB' },
+        ]).map(({ slot, label }) => {
+          const def = getLoadoutItem(loadout[slot]);
+          const tier = def ? (arsenal[def.id] || 0) : 0;
+          return (
+            <div key={slot} className={`hud-panel px-2 py-1 sm:px-3 sm:py-1.5 rounded border text-center min-w-[64px] sm:min-w-[84px] ${def ? 'border-[#33ff33]/60' : 'border-zinc-800 opacity-50'}`}>
+              <div className="text-[7px] sm:text-[8px] font-mono text-zinc-500 tracking-widest">{label}</div>
+              <div className="text-[9px] sm:text-[11px] font-bold uppercase text-[#33ff33] leading-tight">
+                {def ? `${def.icon} ${def.name}` : '— EMPTY —'}
+              </div>
+              {def && <div className="text-[7px] sm:text-[8px] font-mono text-pink-400">TIER {tier}</div>}
+            </div>
+          );
+        })}
+      </div>
+
       {/* Workshop Overlay (Responsive for both Mobile and Desktop) */}
       {isShopOpen && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-2 sm:p-4 bg-black/75 backdrop-blur-md pointer-events-auto">
@@ -635,7 +670,86 @@ export const HUD: React.FC<HUDProps> = ({
                 </div>
               </div>
 
+              {/* Shop Tabs: SHIP = the five base upgrade tracks;
+                  WEAPONS / DEFENSE / HYBRID = the Arsenal (src/loadout.ts) */}
+              <div className="flex gap-1.5 mb-3 sm:mb-4">
+                {([
+                  { key: 'ship', label: '🚀 SHIP' },
+                  { key: 'weapon', label: '🔫 WEAPONS' },
+                  { key: 'defense', label: '🛡️ DEFENSE' },
+                  { key: 'hybrid', label: '♻️ HYBRID' },
+                ] as const).map(tab => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setShopTab(tab.key)}
+                    className={`flex-1 px-1 py-1.5 rounded text-[9px] sm:text-[10px] font-mono font-bold border touch-manipulation active:scale-95 ${
+                      shopTab === tab.key
+                        ? 'bg-[#33ff33] text-black border-[#33ff33] shadow-[0_0_8px_#33ff33]'
+                        : 'bg-zinc-900 text-zinc-400 border-zinc-700'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {shopTab !== 'ship' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 overflow-y-auto pr-1 max-h-[60vh] scrollbar-thin">
+                  {LOADOUT_ITEMS.filter(def => def.category === shopTab).map(def => {
+                    const owned = arsenal[def.id] || 0;
+                    const equipped = loadout[def.category] === def.id;
+                    const nextCost = itemTierCost(def, owned);
+                    const maxed = owned >= MAX_ITEM_TIER;
+                    const canBuy = !maxed && carrying >= nextCost;
+                    // Swap pricing (Adam's pin): free into an empty slot,
+                    // otherwise 60 + 20 per tier beyond the first of the
+                    // item being swapped in.
+                    const slotFilled = loadout[def.category] !== null;
+                    const swapCost = slotFilled ? swapCostForTier(Math.max(1, owned)) : 0;
+                    const canEquip = owned > 0 && !equipped && carrying >= swapCost;
+                    return (
+                      <div key={def.id} className={`pitted-metal p-3 sm:p-4 flex flex-col gap-1.5 sm:gap-2 relative rounded-lg text-left border ${equipped ? 'border-[#33ff33] shadow-[0_0_10px_rgba(51,255,51,0.25)]' : 'border-zinc-700'}`}>
+                        <div className="flex justify-between items-start">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-base">{def.icon}</span>
+                            <span className="text-xs sm:text-sm font-bold uppercase text-[#33ff33]">{def.name}</span>
+                          </div>
+                          <span className="text-[10px] sm:text-xs font-mono opacity-70 bg-zinc-800 px-1.5 py-0.5 rounded">
+                            {owned > 0 ? `TIER ${owned}/${MAX_ITEM_TIER}` : 'NOT OWNED'}
+                          </span>
+                        </div>
+                        <p className="text-[9px] sm:text-[10px] opacity-60 leading-tight">{def.desc}</p>
+                        <div className="flex gap-1.5 mt-1 pt-1.5 border-t border-zinc-800/50">
+                          <button
+                            onClick={() => onBuyItem(def.id)}
+                            disabled={!canBuy}
+                            className={`flex-1 px-2 py-1 rounded text-[9px] sm:text-[10px] font-bold touch-manipulation active:scale-95 ${
+                              canBuy ? 'bg-[#33ff33] text-black shadow-[0_0_8px_#33ff33]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                            }`}
+                          >
+                            {maxed ? 'MAX TIER' : owned > 0 ? `UPGRADE: ${nextCost}U` : `BUY: ${nextCost}U`}
+                          </button>
+                          {owned > 0 && (
+                            <button
+                              onClick={() => onEquipItem(def.id)}
+                              disabled={!canEquip}
+                              className={`flex-1 px-2 py-1 rounded text-[9px] sm:text-[10px] font-bold touch-manipulation active:scale-95 ${
+                                equipped ? 'bg-zinc-800 text-[#33ff33] cursor-default' :
+                                canEquip ? 'bg-pink-600 text-white shadow-[0_0_8px_rgba(219,39,119,0.6)]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                              }`}
+                            >
+                              {equipped ? 'EQUIPPED' : swapCost > 0 ? `SWAP IN: ${swapCost}U` : 'EQUIP (FREE)'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               {/* Upgrades List (Scrollable on small mobile screens) */}
+              {shopTab === 'ship' && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 overflow-y-auto pr-1 max-h-[60vh] scrollbar-thin">
                 {[
                   { type: 'thrust' as const, label: 'Thrust Vectoring', desc: 'Increases engine output & MAX VELOCITY', base: PHYSICS.UPGRADE_COSTS.THRUST, lvl: upgrades.thrust, icon: '🚀' },
@@ -675,6 +789,7 @@ export const HUD: React.FC<HUDProps> = ({
                   );
                 })}
               </div>
+              )}
 
               {/* Workshop Footer */}
               <div className="mt-4 pt-3 border-t border-zinc-800 flex justify-between items-center text-[10px] font-mono opacity-60">

@@ -19,6 +19,10 @@ export interface Ship extends GameObject {
   health: number;
   maxHealth: number;
   attractRadius: number;
+  // Arsenal (see src/loadout.ts): item id -> owned tier (0/absent = not owned),
+  // and the one equipped item id per category (null = slot empty).
+  arsenal: Record<string, number>;
+  loadout: { weapon: string | null; defense: string | null; hybrid: string | null };
   upgrades: {
     thrust: number;
     handling: number;
@@ -57,6 +61,9 @@ export interface DeployedCargo extends Scrap {
 
 export interface Harvester {
   id: string;
+  // Drones gain health with the Arsenal slices: ship weapons need something
+  // to damage. 100 = a fresh drone; destroyed drones drop their cargo as scrap.
+  health: number;
   pos: Vector2D;
   vel: Vector2D;
   angle: number;
