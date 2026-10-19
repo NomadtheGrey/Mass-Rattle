@@ -116,6 +116,14 @@ export default function App() {
         carrying={state.ship.carrying}
         fuel={state.ship.fuel}
         maxFuel={state.ship.maxFuel}
+        weaponId={state.ship.loadout.weapon}
+        inWell={bankInWell}
+        bankedScrap={state.bankedScrap}
+        onDepositBank={depositBank}
+        onWithdrawBank={withdrawBank}
+        decoyEquipped={state.ship.loadout.defense === 'decoy_beacon'}
+        decoyActive={!!state.decoy}
+        onDeployDecoy={deployDecoy}
       />
 
       {/* Main Game Surface with Thick Frame */}
