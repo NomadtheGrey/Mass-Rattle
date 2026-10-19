@@ -653,12 +653,16 @@ export const HUD: React.FC<HUDProps> = ({
 
       {/* CME WARNING: the enemy star is charging — its aim is locked, so
           the play is to move out of the line or get distance and let the
-          wave dissipate before it reaches you. */}
+          wave dissipate before it reaches you. The sub-line shortens on
+          phones where the long copy would wrap. */}
       {cmeWarning && (
         <div className="fixed top-16 sm:top-20 left-1/2 -translate-x-1/2 z-[69] pointer-events-none">
           <div className="hud-panel px-3 py-2 sm:px-4 rounded border-2 border-red-500 bg-zinc-950/95 text-center shadow-[0_0_18px_rgba(239,68,68,0.4)] animate-pulse">
             <div className="text-[10px] sm:text-xs font-mono font-bold text-red-400 tracking-widest">⚠ CME INCOMING</div>
-            <div className="text-[9px] sm:text-[10px] font-mono text-zinc-300">BREAK THE AIM LINE — OR OUTRUN IT AND LET IT DISSIPATE</div>
+            <div className="text-[9px] sm:text-[10px] font-mono text-zinc-300">
+              <span className="hidden sm:inline">BREAK THE AIM LINE — OR OUTRUN IT AND LET IT DISSIPATE</span>
+              <span className="sm:hidden">DODGE THE AIM LINE!</span>
+            </div>
           </div>
         </div>
       )}
