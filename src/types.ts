@@ -121,6 +121,9 @@ export interface GameState {
   // wallet: hold first, then bank (see useGameLoop walletPay).
   bankedScrap: number;
   isShopOpen: boolean;
+  /** Set when a shop-open attempt is refused (outside the star's well);
+   * the HUD shows a "return to your star" hint briefly after this time. */
+  shopRefusedAt?: number;
   lastUpgradeTime: number;
   glitchActive: boolean;
   lastGlitchTime: number;

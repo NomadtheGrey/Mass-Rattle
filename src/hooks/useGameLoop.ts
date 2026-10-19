@@ -114,10 +114,17 @@ export const useGameLoop = (width: number, height: number) => {
   }, []);
 
   const toggleShop = useCallback((force?: boolean) => {
-    setState(prev => ({
-      ...prev,
-      isShopOpen: typeof force === 'boolean' ? force : !prev.isShopOpen,
-    }));
+    setState(prev => {
+      const wantOpen = typeof force === 'boolean' ? force : !prev.isShopOpen;
+      // SHOP-WELL GATE (Adam's pin, 2026-10-19, via the UI chat): the
+      // workshop only OPENS inside the home star's gravity well — it is a
+      // dock, not a carried menu. Closing is always allowed. A refused
+      // open stamps shopRefusedAt so the HUD can show the fly-home hint.
+      if (wantOpen && !prev.isShopOpen && !inBankWell(prev.ship.pos, prev.star.pos, prev.star.size)) {
+        return { ...prev, shopRefusedAt: Date.now() };
+      }
+      return { ...prev, isShopOpen: wantOpen };
+    });
   }, []);
 
   const upgrade = useCallback((type: 'thrust' | 'handling' | 'attractor' | 'fuel' | 'cargo') => {
@@ -336,7 +343,13 @@ export const useGameLoop = (width: number, height: number) => {
       if (e.code === 'KeyG') toggleGauges();
       if (e.code === 'KeyU' || e.code === 'Tab') {
         if (e.code === 'Tab') e.preventDefault();
-        setState(prev => ({ ...prev, isShopOpen: !prev.isShopOpen }));
+        setState(prev => {
+          // Same shop-well gate as toggleShop (Adam's pin, 2026-10-19).
+          if (!prev.isShopOpen && !inBankWell(prev.ship.pos, prev.star.pos, prev.star.size)) {
+            return { ...prev, shopRefusedAt: Date.now() };
+          }
+          return { ...prev, isShopOpen: !prev.isShopOpen };
+        });
       }
     };
     const handleKeyUp = (e: KeyboardEvent) => keys.current.delete(e.code);
@@ -717,6 +730,12 @@ export const useGameLoop = (width: number, height: number) => {
           let angleDiff = Math.abs(ship.angle - velAngle);
           while (angleDiff > Math.PI) angleDiff = Math.abs(angleDiff - 2 * Math.PI);
           slip = angleDiff / Math.PI;
+        }
+
+        // Shop-well gate, second half: drift out of the well with the
+        // workshop open and it closes behind you (Adam's pin, 2026-10-19).
+        if (next.isShopOpen && !inBankWell(ship.pos, star.pos, star.size)) {
+          next.isShopOpen = false;
         }
 
         // Win/Loss Conditions

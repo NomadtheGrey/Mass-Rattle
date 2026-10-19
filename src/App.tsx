@@ -91,6 +91,7 @@ export default function App() {
         onEquipItem={equipItem}
         bankedScrap={state.bankedScrap}
         bankInWell={bankInWell}
+        shopRefusedAt={state.shopRefusedAt}
         onDepositBank={depositBank}
         onWithdrawBank={withdrawBank}
         isMobileRadarOpen={isMobileRadarOpen}

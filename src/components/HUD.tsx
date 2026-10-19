@@ -75,6 +75,7 @@ interface HUDProps {
   // The Bank: saved scrap balance + hold<->bank transfers.
   bankedScrap: number;
   bankInWell: boolean;
+  shopRefusedAt?: number;
   onDepositBank: () => void;
   onWithdrawBank: () => void;
   isMobileRadarOpen?: boolean;
@@ -111,6 +112,7 @@ export const HUD: React.FC<HUDProps> = ({
   onEquipItem,
   bankedScrap,
   bankInWell,
+  shopRefusedAt,
   onDepositBank,
   onWithdrawBank,
   isMobileRadarOpen = false,
@@ -627,6 +629,40 @@ export const HUD: React.FC<HUDProps> = ({
           </div>
         </div>
       </main>
+
+      {/* SHOP-REFUSAL HINT (Adam's pin, 2026-10-19): trying to open the
+          workshop outside the well stamps shopRefusedAt; show the way home
+          for a few seconds. HUD re-renders every frame, so this fades on
+          its own when the stamp ages out. */}
+      {shopRefusedAt && Date.now() - shopRefusedAt < 2800 && (
+        <div className="fixed top-16 sm:top-20 left-1/2 -translate-x-1/2 z-[70] pointer-events-none">
+          <div className="hud-panel px-3 py-2 sm:px-4 rounded border-2 border-amber-500 bg-zinc-950/95 text-center shadow-[0_0_18px_rgba(245,158,11,0.35)]">
+            <div className="text-[10px] sm:text-xs font-mono font-bold text-amber-400 tracking-widest">⚠ WORKSHOP LOCKED</div>
+            <div className="text-[9px] sm:text-[10px] font-mono text-zinc-300">THE SHOP LIVES AT YOUR STAR — FLY INTO THE WELL (DASHED RING)</div>
+          </div>
+        </div>
+      )}
+
+      {/* DOCK PILLS: inside the well (and only there), one-tap Deposit and
+          Open Shop float above the loadout tiles — banking used to be
+          buried in the BANK tab; at the dock it is one tap. */}
+      {bankInWell && !isShopOpen && (
+        <div className="fixed bottom-[104px] sm:bottom-[76px] left-1/2 -translate-x-1/2 z-[56] flex gap-2">
+          <button
+            onClick={onDepositBank}
+            disabled={carrying <= 0}
+            className={`hud-panel px-3 py-1.5 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider ${carrying > 0 ? 'border-[#33ff33] text-[#33ff33] shadow-[0_0_10px_rgba(51,255,51,0.35)]' : 'border-zinc-800 text-zinc-600 opacity-50 cursor-not-allowed'}`}
+          >
+            🏦 DEPOSIT{carrying > 0 ? ` ${carrying}U` : ''}
+          </button>
+          <button
+            onClick={onOpenShop}
+            className="hud-panel px-3 py-1.5 rounded border border-pink-500 font-mono text-[10px] sm:text-[11px] font-bold tracking-wider text-pink-400 shadow-[0_0_10px_rgba(219,39,119,0.35)]"
+          >
+            🔧 OPEN SHOP
+          </button>
+        </div>
+      )}
 
       {/* LOADOUT TILES — the equipped trio's permanent spot on the HUD:
           bottom-center, always visible, so the player can see their build
