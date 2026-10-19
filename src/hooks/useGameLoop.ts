@@ -3,7 +3,7 @@ import { GameState, Vector2D } from '../types';
 import { PHYSICS, COLORS } from '../constants';
 import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER } from '../loadout';
 import { inBankWell } from '../bank';
-import { weaponStatsFor } from '../loadout';
+import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor } from '../loadout';
 
 /**
  * COMBINED WALLET — every purchase in the game (base upgrades, Arsenal
@@ -70,6 +70,7 @@ export const useGameLoop = (width: number, height: number) => {
     deployedCargo: [],
     projectiles: [],
     mines: [],
+    decoy: null,
     drones: [],
     starOrbit: 0,
     enemyStarOrbit: 0,
@@ -124,6 +125,23 @@ export const useGameLoop = (width: number, height: number) => {
         return { ...prev, shopRefusedAt: Date.now() };
       }
       return { ...prev, isShopOpen: wantOpen };
+    });
+  }, []);
+
+  /**
+   * Deploy the Decoy Beacon at the ship's position (KeyX or the HUD pill).
+   * One at a time; it lives for its tier's lifetime or until shot down.
+   * (The shared-DEPLOY-key shape is the UI chat's proposal being tried in
+   * WIP — Adam's lean is that the beacon is the only manual deployable.)
+   */
+  const deployDecoy = useCallback(() => {
+    setState(prev => {
+      const tier = prev.ship.loadout.defense === 'decoy_beacon' ? (prev.ship.arsenal['decoy_beacon'] || 0) : 0;
+      if (tier <= 0 || prev.decoy) return prev;
+      return {
+        ...prev,
+        decoy: { pos: { ...prev.ship.pos }, health: decoyHealthFor(tier), lifeFrames: decoyLifeFramesFor(tier) },
+      };
     });
   }, []);
 
@@ -341,6 +359,7 @@ export const useGameLoop = (width: number, height: number) => {
       if (e.code === 'Digit4') upgrade('fuel');
       if (e.code === 'Digit5') upgrade('cargo');
       if (e.code === 'KeyG') toggleGauges();
+      if (e.code === 'KeyX') deployDecoy();
       if (e.code === 'KeyU' || e.code === 'Tab') {
         if (e.code === 'Tab') e.preventDefault();
         setState(prev => {
@@ -359,7 +378,7 @@ export const useGameLoop = (width: number, height: number) => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [upgrade]);
+  }, [upgrade, deployDecoy]);
 
   useEffect(() => {
     let frameId: number;
@@ -369,6 +388,31 @@ export const useGameLoop = (width: number, height: number) => {
         const ship = { ...next.ship };
         const star = { ...next.star };
         const enemyStar = { ...next.enemyStar };
+
+        // DEFENSE STATE (Slice 6): the equipped defense's invariants are
+        // enforced here, once, every frame — max hull follows Armor
+        // Plating, the shield pool follows the Deflector — so buying or
+        // swapping in the shop needs no bookkeeping of its own.
+        const defId = ship.loadout.defense;
+        const defTier = defId ? (ship.arsenal[defId] || 0) : 0;
+        const wantMaxHealth = 100 + (defId === 'armor_plating' ? armorHullFor(defTier) : 0);
+        if (ship.maxHealth !== wantMaxHealth) {
+          if (wantMaxHealth > ship.maxHealth) ship.health += wantMaxHealth - ship.maxHealth;
+          ship.maxHealth = wantMaxHealth;
+          if (ship.health > wantMaxHealth) ship.health = wantMaxHealth;
+        }
+        if (defId === 'deflector_shield') {
+          const sMax = shieldMaxFor(defTier);
+          if (ship.shield === undefined) ship.shield = sMax;
+          if (ship.shield > sMax) ship.shield = sMax;
+          if (time - (ship.shieldHitAt || 0) > 2500 && ship.shield < sMax) {
+            ship.shield = Math.min(sMax, ship.shield + shieldRechargePerFrame(defTier));
+          }
+        } else if (ship.shield) {
+          ship.shield = 0;
+        }
+        const gravFactor = defId === 'grav_dampers' ? gravFactorFor(defTier) : 1;
+        const thrustFactor = defId === 'armor_plating' ? armorThrustFactor(defTier) : 1;
 
         // 1. Fuel & Inputs
         const stick = touchInputs.current.analogStick;
@@ -452,7 +496,7 @@ export const useGameLoop = (width: number, height: number) => {
         }
 
         if (ship.thrust) {
-          const currentThrust = (PHYSICS.THRUST_POWER + ship.upgrades.thrust * 0.08) * speedMult;
+          const currentThrust = (PHYSICS.THRUST_POWER + ship.upgrades.thrust * 0.08) * speedMult * thrustFactor;
           // Accel = Force / Mass
           ship.vel.x += (Math.cos(ship.angle) * currentThrust) / currentMass;
           ship.vel.y += (Math.sin(ship.angle) * currentThrust) / currentMass;
@@ -473,7 +517,7 @@ export const useGameLoop = (width: number, height: number) => {
           const isHomeStar = s.type === 'home';
           const shipGravityModifier = isHomeStar ? 0.2 : 0.6; // Much weaker pull for home
           
-          const force = (PHYSICS.G * s.mass * shipGravityModifier) / safeDistSq;
+          const force = ((PHYSICS.G * s.mass * shipGravityModifier) / safeDistSq) * gravFactor;
           
           const ax = (force * dx) / (dist || 1);
           const ay = (force * dy) / (dist || 1);
@@ -758,6 +802,24 @@ export const useGameLoop = (width: number, height: number) => {
             drone.stunFrames -= 1;
             return drone;
           }
+
+          // Decoy Beacon: enemy drones within 500 chase the beacon instead
+          // of working — it screams "hostile" louder than scrap whispers,
+          // and a returning drone delays its delivery to chase it.
+          if (drone.owner === 'enemy' && next.decoy) {
+            const bx = next.decoy.pos.x - drone.pos.x;
+            const by = next.decoy.pos.y - drone.pos.y;
+            const bd = Math.hypot(bx, by);
+            if (bd < 500) {
+              const ba = Math.atan2(by, bx);
+              drone.angle += (ba - drone.angle) * PHYSICS.DRONES.ROTATE_SPEED;
+              if (bd > 30) {
+                drone.pos.x += Math.cos(drone.angle) * PHYSICS.DRONES.SPEED;
+                drone.pos.y += Math.sin(drone.angle) * PHYSICS.DRONES.SPEED;
+              }
+              return drone;
+            }
+          }
           
           if (drone.state === 'searching') {
             // Find closest scrap
@@ -848,6 +910,12 @@ export const useGameLoop = (width: number, height: number) => {
           return drone;
         });
 
+        // Decoy lifetime (Slice 6)
+        if (next.decoy) {
+          next.decoy = { ...next.decoy, lifeFrames: next.decoy.lifeFrames - 1 };
+          if (next.decoy.lifeFrames <= 0) next.decoy = null;
+        }
+
         // MINES (Slice 4): an enemy drone wandering inside a mine's radius
         // trips it — everything hostile in the blast takes the damage,
         // including the enemy star if it is somehow close.
@@ -897,12 +965,34 @@ export const useGameLoop = (width: number, height: number) => {
           p.pos.y += p.vel.y;
           p.life -= 1;
 
+          // Collision with the DECOY beacon (Slice 6): bolts meant for the
+          // ship eat the beacon instead, until it is shot down.
+          if (p.owner === 'enemy' && next.decoy &&
+              Math.hypot(next.decoy.pos.x - p.pos.x, next.decoy.pos.y - p.pos.y) < 12) {
+            next.decoy = { ...next.decoy, health: next.decoy.health - PHYSICS.DEFENSE.DAMAGE };
+            if (next.decoy.health <= 0) next.decoy = null;
+            return false;
+          }
+
           // Collision with ship
           const sdx = ship.pos.x - p.pos.x;
           const sdy = ship.pos.y - p.pos.y;
           if (p.owner === 'enemy' && Math.sqrt(sdx * sdx + sdy * sdy) < ship.size) {
-            ship.health -= PHYSICS.DEFENSE.DAMAGE;
-            next.shakeAmount = 15;
+            let dmg = PHYSICS.DEFENSE.DAMAGE;
+            // Deflector Shield eats bolts before they reach the hull;
+            // whatever overflows the pool is what the hull feels.
+            if (ship.shield && ship.shield > 0) {
+              const absorbed = Math.min(ship.shield, dmg);
+              ship.shield -= absorbed;
+              dmg -= absorbed;
+              ship.shieldHitAt = time;
+            }
+            if (dmg > 0) {
+              ship.health -= dmg;
+              next.shakeAmount = 15;
+            } else {
+              next.shakeAmount = Math.max(next.shakeAmount, 5);
+            }
             next.glitchActive = true;
             next.lastGlitchTime = time;
             return false;
@@ -959,6 +1049,34 @@ export const useGameLoop = (width: number, height: number) => {
           return p.life > 0;
         });
 
+        // POINT-DEFENSE ZAP (Slice 6): fully automatic — the single
+        // nearest hostile bolt OR drone inside PD_RANGE gets zapped, one
+        // target per cooldown. Bolts are destroyed; drones take damage
+        // (and the death sweep below turns kills into dropped scrap).
+        if (defId === 'pd_zap' && time >= (ship.pdReadyAt || 0)) {
+          let zapTarget: any = null;
+          let hitProj: any = null;
+          let hitDrone: any = null;
+          let bestD = PD_RANGE;
+          next.projectiles.forEach(p => {
+            if (p.owner !== 'enemy') return;
+            const dd = Math.hypot(p.pos.x - ship.pos.x, p.pos.y - ship.pos.y);
+            if (dd < bestD) { bestD = dd; hitProj = p; hitDrone = null; zapTarget = p.pos; }
+          });
+          next.drones.forEach(d => {
+            if (d.owner !== 'enemy') return;
+            const dd = Math.hypot(d.pos.x - ship.pos.x, d.pos.y - ship.pos.y);
+            if (dd < bestD) { bestD = dd; hitDrone = d; hitProj = null; zapTarget = d.pos; }
+          });
+          if (hitProj) next.projectiles = next.projectiles.filter(p => p !== hitProj);
+          if (hitDrone) hitDrone.health -= pdDamageFor(defTier);
+          if (zapTarget) {
+            ship.pdReadyAt = time + PD_COOLDOWN_MS;
+            ship.pdZapAt = time;
+            ship.pdZapTarget = { x: zapTarget.x, y: zapTarget.y };
+          }
+        }
+
         // DRONE DEATHS (Slice 4): a drone shot or mined to 0 health becomes
         // wreckage — it drops what it was carrying plus one salvage piece.
         // Drops go into newScrap, the array the frame actually returns.
@@ -981,7 +1099,7 @@ export const useGameLoop = (width: number, height: number) => {
 
         // Auto-Fire for stars
         [star, enemyStar].forEach(s => {
-          const target = s.type === 'home' ? enemyStar : ship;
+          const target = s.type === 'home' ? enemyStar : (next.decoy ? { pos: next.decoy.pos } : ship);
           const dx = target.pos.x - s.pos.x;
           const dy = target.pos.y - s.pos.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
@@ -1030,6 +1148,7 @@ export const useGameLoop = (width: number, height: number) => {
     equipItem, 
     depositBank, 
     withdrawBank, 
+    deployDecoy, 
     restart, 
     setVirtualControl, 
     setAnalogStick, 

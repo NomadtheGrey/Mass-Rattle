@@ -21,6 +21,13 @@ export interface Ship extends GameObject {
   attractRadius: number;
   /** performance.now() timestamp before which the equipped weapon cannot fire again. */
   fireReadyAt?: number;
+  /** Deflector Shield: current pool and the last time it took a hit (loop clock). */
+  shield?: number;
+  shieldHitAt?: number;
+  /** Point-Defense Zap: next-ready time and the last zap's target (for the canvas arc). */
+  pdReadyAt?: number;
+  pdZapAt?: number;
+  pdZapTarget?: Vector2D;
   // Arsenal (see src/loadout.ts): item id -> owned tier (0/absent = not owned),
   // and the one equipped item id per category (null = slot empty).
   arsenal: Record<string, number>;
@@ -110,6 +117,8 @@ export interface GameState {
   projectiles: Projectile[];
   /** Proximity mines laid by the player (Mine Layer weapon). */
   mines: Mine[];
+  /** Active Decoy Beacon, if one is deployed (Decoy Beacon defense). */
+  decoy: { pos: Vector2D; health: number; lifeFrames: number } | null;
   drones: Harvester[];
   starOrbit: number;
   enemyStarOrbit: number;

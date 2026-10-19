@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import React from 'react';
 import { PHYSICS } from '../constants';
-import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory } from '../loadout';
+import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor } from '../loadout';
 
 interface NeedleGaugeProps {
   value: number;
@@ -76,6 +76,9 @@ interface HUDProps {
   bankedScrap: number;
   bankInWell: boolean;
   shopRefusedAt?: number;
+  shieldHp?: number;
+  decoyActive?: boolean;
+  onDeployDecoy?: () => void;
   onDepositBank: () => void;
   onWithdrawBank: () => void;
   isMobileRadarOpen?: boolean;
@@ -113,6 +116,9 @@ export const HUD: React.FC<HUDProps> = ({
   bankedScrap,
   bankInWell,
   shopRefusedAt,
+  shieldHp,
+  decoyActive,
+  onDeployDecoy,
   onDepositBank,
   onWithdrawBank,
   isMobileRadarOpen = false,
@@ -664,6 +670,20 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
       )}
 
+      {/* DECOY PILL: the beacon is a field tool, so its one-tap deploy
+          lives outside the well-gated dock pills. Shows only while the
+          Decoy Beacon is the equipped defense and none is live. */}
+      {loadout.defense === 'decoy_beacon' && !decoyActive && (
+        <div className={`fixed left-1/2 -translate-x-1/2 z-[56] ${bankInWell && !isShopOpen ? 'bottom-[146px] sm:bottom-[118px]' : 'bottom-[104px] sm:bottom-[76px]'}`}>
+          <button
+            onClick={onDeployDecoy}
+            className="hud-panel px-3 py-1.5 rounded border border-pink-500 font-mono text-[10px] sm:text-[11px] font-bold tracking-wider text-pink-400 shadow-[0_0_10px_rgba(219,39,119,0.35)]"
+          >
+            📡 DEPLOY DECOY [X]
+          </button>
+        </div>
+      )}
+
       {/* LOADOUT TILES — the equipped trio's permanent spot on the HUD:
           bottom-center, always visible, so the player can see their build
           (and spot an empty slot) without opening the shop. */}
@@ -687,6 +707,12 @@ export const HUD: React.FC<HUDProps> = ({
                 {def ? `${def.icon} ${def.name}` : '— EMPTY —'}
               </div>
               {def && <div className="text-[7px] sm:text-[8px] font-mono text-pink-400">TIER {tier}</div>}
+              {slot === 'defense' && def?.id === 'deflector_shield' && (
+                <div className="text-[7px] sm:text-[8px] font-mono text-cyan-300">POOL {Math.ceil(shieldHp || 0)}/{shieldMaxFor(tier)}</div>
+              )}
+              {slot === 'defense' && def?.id === 'decoy_beacon' && (
+                <div className="text-[7px] sm:text-[8px] font-mono text-pink-300">{decoyActive ? 'BEACON LIVE' : 'PRESS X / PILL'}</div>
+              )}
             </div>
           );
         })}

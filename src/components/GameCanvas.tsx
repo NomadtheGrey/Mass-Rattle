@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { GameState } from '../types';
 import { COLORS } from '../constants';
 import { BANK_WELL_MARGIN } from '../bank';
+import { shieldMaxFor, PD_RANGE } from '../loadout';
 
 interface GameCanvasProps {
   state: GameState;
@@ -173,6 +174,30 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
       }
     });
 
+    // DRAW DECOY BEACON: a blinking mast with an expanding scream-ring.
+    if (state.decoy) {
+      const d = state.decoy;
+      ctx.save();
+      ctx.translate(d.pos.x, d.pos.y);
+      ctx.strokeStyle = '#f472b6';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, 8);
+      ctx.lineTo(0, -8);
+      ctx.moveTo(-6, 8);
+      ctx.lineTo(6, 8);
+      ctx.stroke();
+      const pulse = (state.starOrbit * 30) % (Math.PI * 2);
+      ctx.strokeStyle = 'rgba(244, 114, 182, 0.35)';
+      ctx.beginPath();
+      ctx.arc(0, 0, 12 + (pulse / (Math.PI * 2)) * 26, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = '#f472b6';
+      ctx.font = '8px monospace';
+      ctx.fillText('DECOY', -12, -14);
+      ctx.restore();
+    }
+
     // DRAW DRONES
     (state.drones || []).forEach(d => {
       ctx.save();
@@ -239,6 +264,28 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
       ctx.shadowBlur = 0;
     });
 
+    // PD ZAP ARC: a jagged cyan line to the zapped target, gone in ~130 ms.
+    // (performance.now shares the game loop's clock, so this stays honest.)
+    if (ship.pdZapAt && ship.pdZapTarget && performance.now() - ship.pdZapAt < 130) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(103, 232, 249, 0.9)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(ship.pos.x, ship.pos.y);
+      const segs = 5;
+      for (let i = 1; i <= segs; i++) {
+        const t = i / segs;
+        const jx = i === segs ? 0 : (Math.random() - 0.5) * 14;
+        const jy = i === segs ? 0 : (Math.random() - 0.5) * 14;
+        ctx.lineTo(
+          ship.pos.x + (ship.pdZapTarget.x - ship.pos.x) * t + jx,
+          ship.pos.y + (ship.pdZapTarget.y - ship.pos.y) * t + jy,
+        );
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // DRAW DEPLOYED CARGO
     (state.deployedCargo || []).forEach(c => {
       ctx.fillStyle = '#fff';
@@ -262,6 +309,26 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
     ctx.beginPath();
     ctx.arc(0, 0, ship.attractRadius, 0, Math.PI * 2);
     ctx.stroke();
+
+    // DEFENSE VISUALS (Slice 6): Deflector bubble (brightness = pool left)
+    // and the faint Point-Defense reach ring, when those are equipped.
+    if (ship.loadout.defense === 'deflector_shield' && ship.shield && ship.shield > 0) {
+      const sTier = ship.arsenal['deflector_shield'] || 1;
+      const frac = Math.max(0, Math.min(1, ship.shield / shieldMaxFor(sTier)));
+      ctx.strokeStyle = `rgba(103, 232, 249, ${0.25 + 0.55 * frac})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, ship.size + 9, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    if (ship.loadout.defense === 'pd_zap') {
+      ctx.strokeStyle = 'rgba(103, 232, 249, 0.10)';
+      ctx.setLineDash([3, 9]);
+      ctx.beginPath();
+      ctx.arc(0, 0, PD_RANGE, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
 
     ctx.rotate(ship.angle);
     

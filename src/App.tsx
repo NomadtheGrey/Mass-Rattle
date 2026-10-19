@@ -37,6 +37,7 @@ export default function App() {
     equipItem, 
     depositBank, 
     withdrawBank, 
+    deployDecoy, 
     restart, 
     setVirtualControl, 
     setAnalogStick, 
@@ -92,6 +93,9 @@ export default function App() {
         bankedScrap={state.bankedScrap}
         bankInWell={bankInWell}
         shopRefusedAt={state.shopRefusedAt}
+        shieldHp={state.ship.shield}
+        decoyActive={!!state.decoy}
+        onDeployDecoy={deployDecoy}
         onDepositBank={depositBank}
         onWithdrawBank={withdrawBank}
         isMobileRadarOpen={isMobileRadarOpen}

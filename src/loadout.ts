@@ -203,3 +203,35 @@ export const weaponStatsFor = (id: string | null, tier: number): (WeaponStats & 
   if (!base) return null;
   return { ...base, damage: base.damage + base.damagePerTier * Math.max(0, tier - 1) };
 };
+
+/**
+ * DEFENSE NUMBERS (Slice 6) — one helper per defense, tier-driven, so the
+ * game loop never hardcodes an item's behavior. Draft tuning throughout.
+ *
+ * CME HARDENING note: cmeReductionFor is armed and ready, but nothing
+ * consumes it yet — the CME system itself is a separate queued slice.
+ * The moment stars start firing CMEs, their damage/knockback to the ship
+ * is multiplied by (1 - cmeReductionFor(tier)).
+ */
+
+/** Deflector Shield pool: T1 40, +15/tier, T5 100. */
+export const shieldMaxFor = (tier: number): number => (tier > 0 ? 25 + 15 * tier : 0);
+/** Shield recharge per frame once 2.5 s have passed without a hit. */
+export const shieldRechargePerFrame = (tier: number): number => (6 + 2 * tier) / 60;
+/** Armor Plating: extra max hull per tier (T5 = +100). */
+export const armorHullFor = (tier: number): number => 20 * tier;
+/** Armor Plating thrust factor: mass costs 4% acceleration per tier. */
+export const armorThrustFactor = (tier: number): number => 1 - 0.04 * tier;
+/** Point-Defense Zap reach (units) and cadence. */
+export const PD_RANGE = 130;
+export const PD_COOLDOWN_MS = 900;
+/** PD zap damage to a drone: T1 9, +3/tier, T5 21. (Bolts are destroyed outright.) */
+export const pdDamageFor = (tier: number): number => 6 + 3 * tier;
+/** CME Hardening: fraction of CME damage/knockback ignored — 20%/tier, T5 immune. */
+export const cmeReductionFor = (tier: number): number => Math.min(1, 0.2 * tier);
+/** Decoy Beacon hull (enemy bolts can shoot it down): T1 35, +15/tier. */
+export const decoyHealthFor = (tier: number): number => 20 + 15 * tier;
+/** Decoy Beacon lifetime in frames: T1 16 s, +4 s/tier, T5 32 s. */
+export const decoyLifeFramesFor = (tier: number): number => (12 + 4 * tier) * 60;
+/** Grav Dampers: gravity on the ship is multiplied by this — T1 0.88, T5 0.40. */
+export const gravFactorFor = (tier: number): number => 1 - 0.12 * tier;
