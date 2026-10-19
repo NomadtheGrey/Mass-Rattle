@@ -78,6 +78,32 @@ export interface Star extends GameObject {
   type: 'home' | 'enemy';
   integrity: number; // 0 to 1
   lastHitTime?: number;
+  /** CME timers (Slice 7), on the game loop's clock: next scheduled fire,
+   * the end of the current charge telegraph, and the locked aim angle. */
+  cmeNextAt?: number;
+  cmeChargeEndsAt?: number;
+  cmeAimAngle?: number;
+}
+
+/**
+ * A CME wavefront in flight (Slice 7). It expands from its star at a
+ * fixed speed and DISSIPATES: damage and knockback scale with
+ * (1 - radius / maxRange), so distance — or outrunning it — is defense.
+ * dirAngle null = all-directional (radial) expansion.
+ */
+export interface CmeWave {
+  id: string;
+  owner: 'home' | 'enemy';
+  pos: Vector2D;
+  dirAngle: number | null;
+  radius: number;
+  speed: number;
+  maxRange: number;
+  baseDamage: number;
+  baseKnockback: number;
+  milestone: number;
+  /** Ids already struck by this wave ('ship', 'decoy', or drone ids). */
+  hitIds: string[];
 }
 
 export interface Scrap {
@@ -119,6 +145,8 @@ export interface GameState {
   mines: Mine[];
   /** Active Decoy Beacon, if one is deployed (Decoy Beacon defense). */
   decoy: { pos: Vector2D; health: number; lifeFrames: number } | null;
+  /** CME wavefronts currently in flight from either star (Slice 7). */
+  cmes: CmeWave[];
   drones: Harvester[];
   starOrbit: number;
   enemyStarOrbit: number;

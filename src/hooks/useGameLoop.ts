@@ -3,7 +3,7 @@ import { GameState, Vector2D } from '../types';
 import { PHYSICS, COLORS } from '../constants';
 import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER } from '../loadout';
 import { inBankWell } from '../bank';
-import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor } from '../loadout';
+import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, cmeReductionFor } from '../loadout';
 
 /**
  * COMBINED WALLET — every purchase in the game (base upgrades, Arsenal
@@ -71,6 +71,7 @@ export const useGameLoop = (width: number, height: number) => {
     projectiles: [],
     mines: [],
     decoy: null,
+    cmes: [],
     drones: [],
     starOrbit: 0,
     enemyStarOrbit: 0,
@@ -1076,6 +1077,121 @@ export const useGameLoop = (width: number, height: number) => {
             ship.pdZapTarget = { x: zapTarget.x, y: zapTarget.y };
           }
         }
+
+        // CME — CORONAL MASS EJECTIONS (Slice 7). Each star fires one
+        // about every 30 s (Adam's pin), stronger each of its milestones.
+        // Telegraph: CHARGE_MS before firing, the star charges and LOCKS
+        // its aim at the nearest hostile — move, and the cone misses you.
+        // Default shot is directed; 10% x M (cap 90%) goes radial instead.
+        // The wave DISSIPATES (Adam's pin): damage and knockback scale
+        // with (1 - radius / maxRange), and the wave dies at max range —
+        // outrunning a CME is a real defense.
+        [star, enemyStar].forEach(s => {
+          if (s.cmeNextAt === undefined) s.cmeNextAt = time + PHYSICS.CME.INTERVAL_MS;
+          if (!s.cmeChargeEndsAt && time >= s.cmeNextAt - PHYSICS.CME.CHARGE_MS) {
+            s.cmeChargeEndsAt = s.cmeNextAt;
+            // Aim at the nearest hostile, locked for the whole telegraph.
+            if (s.type === 'enemy') {
+              const t = next.decoy ? next.decoy.pos : ship.pos;
+              s.cmeAimAngle = Math.atan2(t.y - s.pos.y, t.x - s.pos.x);
+            } else {
+              let bt: any = enemyStar;
+              let bd = Infinity;
+              next.drones.forEach(d => {
+                if (d.owner !== 'enemy') return;
+                const dd = Math.hypot(d.pos.x - s.pos.x, d.pos.y - s.pos.y);
+                if (dd < bd) { bd = dd; bt = d; }
+              });
+              s.cmeAimAngle = Math.atan2(bt.pos.y - s.pos.y, bt.pos.x - s.pos.x);
+            }
+          }
+          if (s.cmeChargeEndsAt && time >= s.cmeChargeEndsAt) {
+            const M = Math.floor(s.totalScrapInfused / PHYSICS.STAR_GROWTH_THRESHOLD);
+            const radial = Math.random() < Math.min(0.9, 0.1 * M);
+            (next.cmes = next.cmes || []).push({
+              id: Math.random().toString(),
+              owner: s.type,
+              pos: { ...s.pos },
+              dirAngle: radial ? null : (s.cmeAimAngle ?? 0),
+              radius: s.size,
+              speed: PHYSICS.CME.SPEED,
+              maxRange: PHYSICS.CME.BASE_RANGE + PHYSICS.CME.RANGE_PER_M * M,
+              baseDamage: PHYSICS.CME.BASE_DAMAGE + PHYSICS.CME.DAMAGE_PER_M * M,
+              baseKnockback: PHYSICS.CME.BASE_KNOCKBACK + PHYSICS.CME.KNOCKBACK_PER_M * M,
+              milestone: M,
+              hitIds: [],
+            });
+            s.cmeChargeEndsAt = undefined;
+            s.cmeAimAngle = undefined;
+            s.cmeNextAt = time + PHYSICS.CME.INTERVAL_MS + Math.random() * PHYSICS.CME.JITTER_MS;
+          }
+        });
+
+        // Advance the waves and apply whatever they wash over.
+        next.cmes = (next.cmes || []).filter(w => {
+          w.radius += w.speed;
+          if (w.radius > w.maxRange) return false;
+          const falloff = Math.max(0, 1 - w.radius / w.maxRange);
+          const inBand = (p: { x: number; y: number }) =>
+            Math.abs(Math.hypot(p.x - w.pos.x, p.y - w.pos.y) - w.radius) < PHYSICS.CME.BAND;
+          const inCone = (p: { x: number; y: number }) => {
+            if (w.dirAngle === null) return true;
+            let dd = Math.atan2(p.y - w.pos.y, p.x - w.pos.x) - w.dirAngle;
+            while (dd > Math.PI) dd -= Math.PI * 2;
+            while (dd < -Math.PI) dd += Math.PI * 2;
+            return Math.abs(dd) < PHYSICS.CME.CONE_RAD;
+          };
+          const shoveVec = (p: { x: number; y: number }, kb: number) => {
+            const dx = p.x - w.pos.x;
+            const dy = p.y - w.pos.y;
+            const d = Math.hypot(dx, dy) || 1;
+            return { x: (dx / d) * kb, y: (dy / d) * kb };
+          };
+          const washDrone = (d: any) => {
+            if (w.hitIds.includes(d.id) || !inBand(d.pos) || !inCone(d.pos)) return;
+            w.hitIds.push(d.id);
+            d.health -= w.baseDamage * falloff;
+            const sv = shoveVec(d.pos, w.baseKnockback * falloff * 2);
+            d.pos.x += sv.x;
+            d.pos.y += sv.y;
+            d.stunFrames = Math.max(d.stunFrames || 0, 30);
+          };
+
+          if (w.owner === 'enemy') {
+            // A DIRECTED enemy CME eats the decoy whole: the beacon dies,
+            // the wave dies with it. A radial one just washes past it.
+            if (next.decoy && !w.hitIds.includes('decoy') && inBand(next.decoy.pos) && inCone(next.decoy.pos)) {
+              w.hitIds.push('decoy');
+              next.decoy = null;
+              if (w.dirAngle !== null) return false;
+            }
+            if (!w.hitIds.includes('ship') && inBand(ship.pos) && inCone(ship.pos)) {
+              w.hitIds.push('ship');
+              // CME Hardening (finally consuming its table) cuts both the
+              // damage and the knockback; Grav Dampers cut knockback too.
+              const red = defId === 'cme_hardening' ? cmeReductionFor(defTier) : 0;
+              let dmg = w.baseDamage * falloff * (1 - red);
+              if (ship.shield && ship.shield > 0) {
+                const absorbed = Math.min(ship.shield, dmg);
+                ship.shield -= absorbed;
+                dmg -= absorbed;
+                ship.shieldHitAt = time;
+              }
+              if (dmg > 0) ship.health -= dmg;
+              const kb = w.baseKnockback * falloff * (1 - red) * gravFactor;
+              const sv = shoveVec(ship.pos, kb);
+              ship.vel.x += sv.x;
+              ship.vel.y += sv.y;
+              next.shakeAmount = Math.max(next.shakeAmount, 6 + 10 * falloff);
+              next.glitchActive = true;
+              next.lastGlitchTime = time;
+            }
+            next.drones.forEach(d => { if (d.owner === 'player') washDrone(d); });
+          } else {
+            next.drones.forEach(d => { if (d.owner === 'enemy') washDrone(d); });
+          }
+          return true;
+        });
 
         // DRONE DEATHS (Slice 4): a drone shot or mined to 0 health becomes
         // wreckage — it drops what it was carrying plus one salvage piece.

@@ -95,6 +95,7 @@ export default function App() {
         shopRefusedAt={state.shopRefusedAt}
         shieldHp={state.ship.shield}
         decoyActive={!!state.decoy}
+        cmeWarning={!!(state.enemyStar.cmeChargeEndsAt && state.enemyStar.cmeChargeEndsAt > performance.now())}
         onDeployDecoy={deployDecoy}
         onDepositBank={depositBank}
         onWithdrawBank={withdrawBank}

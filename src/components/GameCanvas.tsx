@@ -127,6 +127,28 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
         ctx.restore();
       }
 
+      // CME CHARGE TELEGRAPH: while a star is charging, it pulses a bright
+      // ring, and its locked aim shows as a dashed line — the dodge window.
+      if (s.cmeChargeEndsAt && s.cmeChargeEndsAt > performance.now()) {
+        ctx.save();
+        const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 60);
+        ctx.strokeStyle = isHome ? `rgba(51, 255, 51, ${0.35 + 0.4 * pulse})` : `rgba(244, 63, 94, ${0.35 + 0.4 * pulse})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, s.size + 14 + pulse * 8, 0, Math.PI * 2);
+        ctx.stroke();
+        if (s.cmeAimAngle !== undefined) {
+          ctx.strokeStyle = isHome ? 'rgba(51, 255, 51, 0.3)' : 'rgba(244, 63, 94, 0.45)';
+          ctx.setLineDash([8, 8]);
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(s.cmeAimAngle) * s.size, Math.sin(s.cmeAimAngle) * s.size);
+          ctx.lineTo(Math.cos(s.cmeAimAngle) * (s.size + 430), Math.sin(s.cmeAimAngle) * (s.size + 430));
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+        ctx.restore();
+      }
+
       // Star Core
       const gradient = ctx.createRadialGradient(0, 0, s.size * 0.2, 0, 0, s.size);
       if (isHome) {
@@ -285,6 +307,33 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
       ctx.stroke();
       ctx.restore();
     }
+
+    // CME WAVES: an expanding front that visibly fades as it dissipates —
+    // the alpha IS the falloff, so you can see how much teeth it has left.
+    (state.cmes || []).forEach(w => {
+      const frac = Math.max(0, 1 - w.radius / w.maxRange);
+      const col = w.owner === 'home' ? '51, 255, 51' : '244, 63, 94';
+      ctx.save();
+      ctx.strokeStyle = `rgba(${col}, ${0.12 + 0.55 * frac})`;
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      if (w.dirAngle === null) {
+        ctx.arc(w.pos.x, w.pos.y, w.radius, 0, Math.PI * 2);
+      } else {
+        ctx.arc(w.pos.x, w.pos.y, w.radius, w.dirAngle - 0.6, w.dirAngle + 0.6);
+      }
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(${col}, ${0.25 + 0.45 * frac})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      if (w.dirAngle === null) {
+        ctx.arc(w.pos.x, w.pos.y, Math.max(0, w.radius - 16), 0, Math.PI * 2);
+      } else {
+        ctx.arc(w.pos.x, w.pos.y, Math.max(0, w.radius - 16), w.dirAngle - 0.6, w.dirAngle + 0.6);
+      }
+      ctx.stroke();
+      ctx.restore();
+    });
 
     // DRAW DEPLOYED CARGO
     (state.deployedCargo || []).forEach(c => {

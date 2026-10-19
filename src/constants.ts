@@ -42,6 +42,30 @@ export const PHYSICS = {
     FIRERATE_MIN: 120, // frames
     BOLT_SPEED: 8,
     DAMAGE: 10,
+  },
+  /**
+   * CME (Slice 7) — a star's periodic coronal mass ejection.
+   * Settled shape (Adam): fires ~every 30 s per star, stronger each
+   * milestone; directed at the nearest hostile by default, with a
+   * 10% x M chance (cap 90%) of going all-directional instead; and it
+   * DISSIPATES over distance (also Adam) — a traveling wave at finite
+   * SPEED whose damage/knockback fade to zero at its max range, so a
+   * fast ship can outrun one and a distant ship barely feels it.
+   * All numbers here are draft tuning.
+   */
+  CME: {
+    INTERVAL_MS: 30000,
+    JITTER_MS: 5000,
+    CHARGE_MS: 1200,      // telegraph: the star glows and locks its aim
+    SPEED: 6,             // units/frame — drones (2.5) can't outrun it; a thrusting ship can
+    BASE_RANGE: 900,
+    RANGE_PER_M: 150,
+    BASE_DAMAGE: 14,
+    DAMAGE_PER_M: 6,
+    BASE_KNOCKBACK: 9,
+    KNOCKBACK_PER_M: 2,
+    CONE_RAD: 0.6,        // directed half-angle, ~34 degrees
+    BAND: 26,             // wavefront thickness for hit tests
   }
 };
 

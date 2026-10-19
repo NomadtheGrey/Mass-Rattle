@@ -78,6 +78,7 @@ interface HUDProps {
   shopRefusedAt?: number;
   shieldHp?: number;
   decoyActive?: boolean;
+  cmeWarning?: boolean;
   onDeployDecoy?: () => void;
   onDepositBank: () => void;
   onWithdrawBank: () => void;
@@ -118,6 +119,7 @@ export const HUD: React.FC<HUDProps> = ({
   shopRefusedAt,
   shieldHp,
   decoyActive,
+  cmeWarning,
   onDeployDecoy,
   onDepositBank,
   onWithdrawBank,
@@ -645,6 +647,18 @@ export const HUD: React.FC<HUDProps> = ({
           <div className="hud-panel px-3 py-2 sm:px-4 rounded border-2 border-amber-500 bg-zinc-950/95 text-center shadow-[0_0_18px_rgba(245,158,11,0.35)]">
             <div className="text-[10px] sm:text-xs font-mono font-bold text-amber-400 tracking-widest">⚠ WORKSHOP LOCKED</div>
             <div className="text-[9px] sm:text-[10px] font-mono text-zinc-300">THE SHOP LIVES AT YOUR STAR — FLY INTO THE WELL (DASHED RING)</div>
+          </div>
+        </div>
+      )}
+
+      {/* CME WARNING: the enemy star is charging — its aim is locked, so
+          the play is to move out of the line or get distance and let the
+          wave dissipate before it reaches you. */}
+      {cmeWarning && (
+        <div className="fixed top-16 sm:top-20 left-1/2 -translate-x-1/2 z-[69] pointer-events-none">
+          <div className="hud-panel px-3 py-2 sm:px-4 rounded border-2 border-red-500 bg-zinc-950/95 text-center shadow-[0_0_18px_rgba(239,68,68,0.4)] animate-pulse">
+            <div className="text-[10px] sm:text-xs font-mono font-bold text-red-400 tracking-widest">⚠ CME INCOMING</div>
+            <div className="text-[9px] sm:text-[10px] font-mono text-zinc-300">BREAK THE AIM LINE — OR OUTRUN IT AND LET IT DISSIPATE</div>
           </div>
         </div>
       )}
