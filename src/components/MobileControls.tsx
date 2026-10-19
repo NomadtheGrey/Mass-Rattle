@@ -1,8 +1,9 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
-import { Rocket, Magnet, Disc, Wrench, Navigation, Gauge, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Rocket, Magnet, Disc, Wrench, Navigation, Gauge, ChevronLeft, ChevronRight, Download, Upload, Landmark, Radio } from 'lucide-react';
+import { getLoadoutItem } from '../loadout';
 
 interface MobileControlsProps {
-  onControlChange: (action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison', active: boolean) => void;
+  onControlChange: (action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison' | 'fire', active: boolean) => void;
   onAnalogStick: (stick: { x: number; y: number } | null) => void;
   onOpenWorkshop: () => void;
   onToggleRadar: () => void;
@@ -10,6 +11,19 @@ interface MobileControlsProps {
   carrying: number;
   fuel: number;
   maxFuel: number;
+  // CONTEXTUAL CONTROLS (UI chat try-out, Adam's go-ahead 2026-10-19):
+  // a control only exists while it is usable. No dead buttons.
+  /** Equipped weapon id (ship.loadout.weapon); null = unarmed, no FIRE tile. */
+  weaponId: string | null;
+  /** True inside the home star's bank well: the combat cluster becomes the dock. */
+  inWell: boolean;
+  bankedScrap: number;
+  onDepositBank: () => void;
+  onWithdrawBank: () => void;
+  /** Decoy Beacon equipped + not yet out: the one manual DEPLOY tile shows. */
+  decoyEquipped: boolean;
+  decoyActive: boolean;
+  onDeployDecoy: () => void;
 }
 
 export const MobileControls: React.FC<MobileControlsProps> = ({
@@ -21,7 +35,17 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
   carrying,
   fuel,
   maxFuel,
+  weaponId,
+  inWell,
+  bankedScrap,
+  onDepositBank,
+  onWithdrawBank,
+  decoyEquipped,
+  decoyActive,
+  onDeployDecoy,
 }) => {
+  const weaponDef = getLoadoutItem(weaponId);
+  const isMineLayer = weaponDef?.id === 'mine_layer';
   const joystickRef = useRef<HTMLDivElement>(null);
   const [stickActive, setStickActive] = useState(false);
   const [stickPos, setStickPos] = useState({ x: 0, y: 0 });
@@ -86,7 +110,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
     }
   };
 
-  const createTouchButtonHandler = (action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison') => {
+  const createTouchButtonHandler = (action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison' | 'fire') => {
     return {
       onPointerDown: (e: React.PointerEvent) => {
         e.preventDefault();
@@ -106,6 +130,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
     };
   };
 
+  const fireHandlers = createTouchButtonHandler('fire');
   const thrustHandlers = createTouchButtonHandler('thrust');
   const vacHandlers = createTouchButtonHandler('vac');
   const jettisonHandlers = createTouchButtonHandler('jettison');
@@ -242,36 +267,97 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
           )}
         </div>
 
-        {/* Right Side: Action Cluster */}
+        {/* Right Side: Action Cluster — CONTEXTUAL (UI chat try-out):
+            in the well this whole side becomes the dock; in the field a
+            tile exists only while it can actually be used. */}
         <div className="flex items-center gap-2 sm:gap-3">
-          
-          {/* Column 1: VAC & JETTISON */}
-          <div className="flex flex-col gap-2">
-            {/* JETTISON Button */}
-            <button
-              {...jettisonHandlers}
-              disabled={carrying <= 0}
-              className={`w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 flex flex-col items-center justify-center transition-all touch-none ${
-                carrying > 0
-                  ? 'border-red-600 bg-red-950/40 text-red-500 active:bg-red-900 active:scale-95 shadow-[0_0_12px_rgba(239,68,68,0.3)]'
-                  : 'border-zinc-800 bg-zinc-950/50 text-zinc-600 opacity-40 grayscale cursor-not-allowed'
-              }`}
-            >
-              <Disc size={16} className={carrying > 0 ? 'text-red-400 animate-spin' : ''} />
-              <span className="text-[8px] font-mono font-bold uppercase tracking-tight mt-0.5">EJECT</span>
-            </button>
 
-            {/* VAC Button */}
-            <button
-              {...vacHandlers}
-              className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-emerald-600/80 bg-emerald-950/30 text-[#33ff33] active:bg-emerald-900/60 active:border-[#33ff33] active:scale-95 flex flex-col items-center justify-center shadow-[0_0_12px_rgba(51,255,51,0.2)] touch-none"
-            >
-              <Magnet size={16} className="text-[#33ff33]" />
-              <span className="text-[8px] font-mono font-bold uppercase tracking-tight mt-0.5">VAC PULL</span>
-            </button>
-          </div>
+          {inWell ? (
+            /* Column 1 (docked): BANK ACTIONS — deposit/withdraw live here
+               because both only work inside the well anyway. The WORKSHOP
+               button in the top row opens the (well-gated) shop itself. */
+            <div className="flex flex-col gap-2">
+              {carrying > 0 && (
+                <button
+                  onClick={() => { triggerHaptic(20); onDepositBank(); }}
+                  className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-pink-600/80 bg-pink-950/40 text-pink-400 active:bg-pink-900/60 active:scale-95 flex flex-col items-center justify-center shadow-[0_0_12px_rgba(236,72,153,0.3)] touch-none"
+                >
+                  <Download size={16} className="text-pink-400" />
+                  <span className="text-[8px] font-mono font-bold uppercase tracking-tight mt-0.5">DEPOSIT</span>
+                  <span className="text-[7px] font-mono opacity-70">ALL {carrying}U</span>
+                </button>
+              )}
+              {bankedScrap > 0 && (
+                <button
+                  onClick={() => { triggerHaptic(20); onWithdrawBank(); }}
+                  className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-cyan-600/80 bg-cyan-950/40 text-cyan-300 active:bg-cyan-900/60 active:scale-95 flex flex-col items-center justify-center shadow-[0_0_12px_rgba(34,211,238,0.25)] touch-none"
+                >
+                  <Upload size={16} className="text-cyan-300" />
+                  <span className="text-[8px] font-mono font-bold uppercase tracking-tight mt-0.5">WITHDRAW</span>
+                  <span className="text-[7px] font-mono opacity-70">BANK {bankedScrap}U</span>
+                </button>
+              )}
+              {carrying <= 0 && bankedScrap <= 0 && (
+                <div className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-zinc-800 bg-zinc-950/50 text-zinc-500 flex flex-col items-center justify-center">
+                  <Landmark size={16} />
+                  <span className="text-[8px] font-mono font-bold uppercase tracking-tight mt-0.5">DOCKED</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* Column 1 (field): EJECT only while carrying, VAC always,
+               DECOY only while an undeployed beacon is equipped. */
+            <div className="flex flex-col gap-2">
+              {/* JETTISON Button — gone entirely at zero cargo (was a greyed dead tile) */}
+              {carrying > 0 && (
+                <button
+                  {...jettisonHandlers}
+                  className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-red-600 bg-red-950/40 text-red-500 active:bg-red-900 active:scale-95 flex flex-col items-center justify-center transition-all touch-none shadow-[0_0_12px_rgba(239,68,68,0.3)]"
+                >
+                  <Disc size={16} className="text-red-400 animate-spin" />
+                  <span className="text-[8px] font-mono font-bold uppercase tracking-tight mt-0.5">EJECT</span>
+                </button>
+              )}
 
-          {/* Column 2: Big Primary THRUST Button */}
+              {/* VAC Button */}
+              <button
+                {...vacHandlers}
+                className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-emerald-600/80 bg-emerald-950/30 text-[#33ff33] active:bg-emerald-900/60 active:border-[#33ff33] active:scale-95 flex flex-col items-center justify-center shadow-[0_0_12px_rgba(51,255,51,0.2)] touch-none"
+              >
+                <Magnet size={16} className="text-[#33ff33]" />
+                <span className="text-[8px] font-mono font-bold uppercase tracking-tight mt-0.5">VAC PULL</span>
+              </button>
+
+              {/* DECOY deploy tile — the one manual deployable wears its own
+                  name here, only until it is out (then it leaves). */}
+              {decoyEquipped && !decoyActive && (
+                <button
+                  onClick={() => { triggerHaptic(20); onDeployDecoy(); }}
+                  className="w-14 h-10 sm:w-16 pitted-metal rounded-lg border-2 border-amber-600/80 bg-amber-950/40 text-amber-300 active:bg-amber-900/60 active:scale-95 flex flex-col items-center justify-center shadow-[0_0_12px_rgba(245,158,11,0.25)] touch-none"
+                >
+                  <Radio size={14} className="text-amber-300" />
+                  <span className="text-[8px] font-mono font-bold uppercase tracking-tight mt-0.5">DECOY ▸ DROP</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Column 2: FIRE — only while armed, and never in the well
+              (guns put away at home; the dock column takes this space).
+              The tile wears the equipped weapon: its icon, FIRE — or DROP
+              for the Mine Layer — and its name. */}
+          {weaponDef && !inWell && (
+            <button
+              {...fireHandlers}
+              className="w-14 h-26 sm:w-16 sm:h-28 pitted-metal rounded-xl border-2 border-red-600/80 bg-gradient-to-b from-red-950/60 to-zinc-950 text-red-400 active:from-red-700 active:to-red-900 active:border-red-400 active:text-white active:scale-95 flex flex-col items-center justify-center gap-1 shadow-[0_0_20px_rgba(239,68,68,0.3)] touch-none"
+            >
+              <span className="text-[22px] leading-none" aria-hidden>{weaponDef.icon}</span>
+              <span className="text-[10px] font-mono font-black uppercase tracking-wider text-red-300">{isMineLayer ? 'DROP' : 'FIRE'}</span>
+              <span className="text-[6px] font-mono opacity-60 uppercase text-center leading-tight px-0.5">{weaponDef.name}</span>
+            </button>
+          )}
+
+          {/* Column 3: Big Primary THRUST Button */}
           <button
             {...thrustHandlers}
             className="w-18 h-26 sm:w-20 sm:h-28 pitted-metal rounded-xl border-2 border-orange-600/80 bg-gradient-to-b from-orange-950/60 to-zinc-950 text-orange-400 active:from-orange-700 active:to-orange-900 active:border-orange-400 active:text-white active:scale-95 flex flex-col items-center justify-center gap-1 shadow-[0_0_20px_rgba(234,88,12,0.3)] touch-none relative overflow-hidden"

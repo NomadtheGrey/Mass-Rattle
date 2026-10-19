@@ -1,6 +1,27 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { GameState, Vector2D } from '../types';
 import { PHYSICS, COLORS } from '../constants';
+import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER } from '../loadout';
+import { inBankWell } from '../bank';
+import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, cmeReductionFor } from '../loadout';
+
+/**
+ * COMBINED WALLET — every purchase in the game (base upgrades, Arsenal
+ * tiers, loadout swaps) is checked against hold + bank TOGETHER and paid
+ * hold-first, then bank. This is what makes prices above the hold's
+ * physical capacity (15 scrap at start) reachable at all.
+ *
+ * BANK ACCESS (Adam, 2026-10-19): the bank IS the home star's gravity
+ * well — savings can only be SPENT from inside the well (see src/bank.ts).
+ * Outside it, bankAccessible is false and the wallet is the hold alone.
+ * Returns null when the accessible wallet cannot cover the cost.
+ */
+const walletPay = (carrying: number, banked: number, cost: number, bankAccessible: boolean) => {
+  const accessible = carrying + (bankAccessible ? banked : 0);
+  if (accessible < cost) return null;
+  const fromHold = Math.min(carrying, cost);
+  return { carrying: carrying - fromHold, banked: banked - (cost - fromHold) };
+};
 
 export const useGameLoop = (width: number, height: number) => {
   const [state, setState] = useState<GameState>({
@@ -17,6 +38,8 @@ export const useGameLoop = (width: number, height: number) => {
       health: 100,
       maxHealth: 100,
       attractRadius: PHYSICS.BASE_ATTRACT_RADIUS,
+      arsenal: {},
+      loadout: { weapon: null, defense: null, hybrid: null },
       upgrades: {
         thrust: 0,
         handling: 0,
@@ -46,10 +69,14 @@ export const useGameLoop = (width: number, height: number) => {
     scrap: [],
     deployedCargo: [],
     projectiles: [],
+    mines: [],
+    decoy: null,
+    cmes: [],
     drones: [],
     starOrbit: 0,
     enemyStarOrbit: 0,
     teamScrap: 0,
+    bankedScrap: 0,
     isShopOpen: false,
     lastUpgradeTime: 0,
     glitchActive: false,
@@ -68,6 +95,7 @@ export const useGameLoop = (width: number, height: number) => {
     rotateRight: boolean;
     vac: boolean;
     jettison: boolean;
+    fire: boolean;
     analogStick: { x: number; y: number } | null;
   }>({
     thrust: false,
@@ -75,10 +103,11 @@ export const useGameLoop = (width: number, height: number) => {
     rotateRight: false,
     vac: false,
     jettison: false,
+    fire: false,
     analogStick: null,
   });
 
-  const setVirtualControl = useCallback((action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison', active: boolean) => {
+  const setVirtualControl = useCallback((action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison' | 'fire', active: boolean) => {
     touchInputs.current[action] = active;
   }, []);
 
@@ -87,10 +116,34 @@ export const useGameLoop = (width: number, height: number) => {
   }, []);
 
   const toggleShop = useCallback((force?: boolean) => {
-    setState(prev => ({
-      ...prev,
-      isShopOpen: typeof force === 'boolean' ? force : !prev.isShopOpen,
-    }));
+    setState(prev => {
+      const wantOpen = typeof force === 'boolean' ? force : !prev.isShopOpen;
+      // SHOP-WELL GATE (Adam's pin, 2026-10-19, via the UI chat): the
+      // workshop only OPENS inside the home star's gravity well — it is a
+      // dock, not a carried menu. Closing is always allowed. A refused
+      // open stamps shopRefusedAt so the HUD can show the fly-home hint.
+      if (wantOpen && !prev.isShopOpen && !inBankWell(prev.ship.pos, prev.star.pos, prev.star.size)) {
+        return { ...prev, shopRefusedAt: Date.now() };
+      }
+      return { ...prev, isShopOpen: wantOpen };
+    });
+  }, []);
+
+  /**
+   * Deploy the Decoy Beacon at the ship's position (KeyX or the HUD pill).
+   * One at a time; it lives for its tier's lifetime or until shot down.
+   * (The shared-DEPLOY-key shape is the UI chat's proposal being tried in
+   * WIP — Adam's lean is that the beacon is the only manual deployable.)
+   */
+  const deployDecoy = useCallback(() => {
+    setState(prev => {
+      const tier = prev.ship.loadout.defense === 'decoy_beacon' ? (prev.ship.arsenal['decoy_beacon'] || 0) : 0;
+      if (tier <= 0 || prev.decoy) return prev;
+      return {
+        ...prev,
+        decoy: { pos: { ...prev.ship.pos }, health: decoyHealthFor(tier), lifeFrames: decoyLifeFramesFor(tier) },
+      };
+    });
   }, []);
 
   const upgrade = useCallback((type: 'thrust' | 'handling' | 'attractor' | 'fuel' | 'cargo') => {
@@ -104,11 +157,13 @@ export const useGameLoop = (width: number, height: number) => {
       const currentLevel = type === 'fuel' ? prev.ship.upgrades.fuelCap : (prev.ship.upgrades as any)[type];
       const cost = baseCost + (currentLevel * Math.floor(baseCost * 0.5));
       
-      if (prev.ship.carrying < cost) return prev;
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost, inBankWell(prev.ship.pos, prev.star.pos, prev.star.size));
+      if (!payment) return prev;
 
       const next = { ...prev };
       const ship = { ...next.ship };
-      ship.carrying -= cost;
+      ship.carrying = payment.carrying;
+      next.bankedScrap = payment.banked;
       const upgradeKey = type === 'fuel' ? 'fuelCap' : type;
       ship.upgrades = { ...ship.upgrades, [upgradeKey]: (ship.upgrades as any)[upgradeKey] + 1 };
       
@@ -127,6 +182,89 @@ export const useGameLoop = (width: number, height: number) => {
         lastGlitchTime: performance.now(),
         lastUpgradeTime: performance.now() 
       };
+    });
+  }, []);
+
+  // ------------------------------------------------------------------
+  // ARSENAL: buy/upgrade an item tier, and equip items into the loadout.
+  // Everything is paid from scrap in the cargo hold (ship.carrying),
+  // the same wallet as the five base upgrades and star feeding.
+  // ------------------------------------------------------------------
+  const buyItem = useCallback((itemId: string) => {
+    const def = getLoadoutItem(itemId);
+    if (!def) return;
+    setState(prev => {
+      const owned = prev.ship.arsenal[itemId] || 0;
+      if (owned >= MAX_ITEM_TIER) return prev;
+      const cost = itemTierCost(def, owned);
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost, inBankWell(prev.ship.pos, prev.star.pos, prev.star.size));
+      if (!payment) return prev;
+
+      const ship = { ...prev.ship };
+      ship.carrying = payment.carrying;
+      ship.arsenal = { ...ship.arsenal, [itemId]: owned + 1 };
+      // First purchase auto-equips ONLY into an empty slot (free: it is
+      // part of the purchase). If the slot is taken, the player swaps
+      // deliberately and pays the pinned swap cost (see equipItem).
+      if (owned === 0 && !ship.loadout[def.category]) {
+        ship.loadout = { ...ship.loadout, [def.category]: itemId };
+      }
+      return { ...prev, ship, bankedScrap: payment.banked, glitchActive: true, lastGlitchTime: performance.now() };
+    });
+  }, []);
+
+  const equipItem = useCallback((itemId: string) => {
+    const def = getLoadoutItem(itemId);
+    if (!def) return;
+    setState(prev => {
+      const owned = prev.ship.arsenal[itemId] || 0;
+      if (owned <= 0) return prev; // cannot equip what you do not own
+      const slot = def.category;
+      const current = prev.ship.loadout[slot];
+      if (current === itemId) return prev; // already equipped
+
+      const ship = { ...prev.ship };
+      let banked = prev.bankedScrap;
+      // Adam's pin: swapping costs 60 + 20 per tier beyond the first,
+      // priced on the INCOMING item's tier. Empty slot = free equip.
+      // Paid from the combined wallet like every other purchase.
+      if (current !== null) {
+        const payment = walletPay(prev.ship.carrying, prev.bankedScrap, swapCostForTier(owned), inBankWell(prev.ship.pos, prev.star.pos, prev.star.size));
+        if (!payment) return prev;
+        ship.carrying = payment.carrying;
+        banked = payment.banked;
+      }
+      ship.loadout = { ...ship.loadout, [slot]: itemId };
+      return { ...prev, ship, bankedScrap: banked, glitchActive: true, lastGlitchTime: performance.now() };
+    });
+  }, []);
+
+  // ------------------------------------------------------------------
+  // BANK: move scrap between hold and bank. Banking is what lets a
+  // player SAVE UP past the hold's physical capacity — and banked scrap
+  // survives flybys of the home star that would auto-feed the hold.
+  // Withdraw is limited by free hold space (capacity incl. overload).
+  // ------------------------------------------------------------------
+  const depositBank = useCallback(() => {
+    setState(prev => {
+      if (!inBankWell(prev.ship.pos, prev.star.pos, prev.star.size)) return prev; // banking happens at home
+      if (prev.ship.carrying <= 0) return prev;
+      const ship = { ...prev.ship, carrying: 0 };
+      return { ...prev, ship, bankedScrap: prev.bankedScrap + prev.ship.carrying, glitchActive: true, lastGlitchTime: performance.now() };
+    });
+  }, []);
+
+  const withdrawBank = useCallback(() => {
+    setState(prev => {
+      if (!inBankWell(prev.ship.pos, prev.star.pos, prev.star.size)) return prev; // banking happens at home
+      if (prev.bankedScrap <= 0) return prev;
+      const regularCapacity = PHYSICS.CARGO.BASE_CAPACITY + prev.ship.upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS;
+      const totalCapacity = regularCapacity + Math.floor(regularCapacity * PHYSICS.CARGO.OVERLOAD_RATIO);
+      const space = Math.max(0, totalCapacity - prev.ship.carrying);
+      const moved = Math.min(space, prev.bankedScrap);
+      if (moved <= 0) return prev;
+      const ship = { ...prev.ship, carrying: prev.ship.carrying + moved };
+      return { ...prev, ship, bankedScrap: prev.bankedScrap - moved, glitchActive: true, lastGlitchTime: performance.now() };
     });
   }, []);
 
@@ -191,7 +329,8 @@ export const useGameLoop = (width: number, height: number) => {
           carrying: 0,
           capacity: PHYSICS.DRONES.CAPACITY,
           owner: 'player',
-          state: 'searching'
+          state: 'searching',
+          health: 100
         },
         {
           id: 'enemy-drone-1',
@@ -202,7 +341,8 @@ export const useGameLoop = (width: number, height: number) => {
           carrying: 0,
           capacity: PHYSICS.DRONES.CAPACITY,
           owner: 'enemy',
-          state: 'searching'
+          state: 'searching',
+          health: 100
         }
       ],
       star: { ...s.star, pos: { x: width / 2, y: height / 2 } }
@@ -220,9 +360,16 @@ export const useGameLoop = (width: number, height: number) => {
       if (e.code === 'Digit4') upgrade('fuel');
       if (e.code === 'Digit5') upgrade('cargo');
       if (e.code === 'KeyG') toggleGauges();
+      if (e.code === 'KeyX') deployDecoy();
       if (e.code === 'KeyU' || e.code === 'Tab') {
         if (e.code === 'Tab') e.preventDefault();
-        setState(prev => ({ ...prev, isShopOpen: !prev.isShopOpen }));
+        setState(prev => {
+          // Same shop-well gate as toggleShop (Adam's pin, 2026-10-19).
+          if (!prev.isShopOpen && !inBankWell(prev.ship.pos, prev.star.pos, prev.star.size)) {
+            return { ...prev, shopRefusedAt: Date.now() };
+          }
+          return { ...prev, isShopOpen: !prev.isShopOpen };
+        });
       }
     };
     const handleKeyUp = (e: KeyboardEvent) => keys.current.delete(e.code);
@@ -232,7 +379,7 @@ export const useGameLoop = (width: number, height: number) => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [upgrade]);
+  }, [upgrade, deployDecoy]);
 
   useEffect(() => {
     let frameId: number;
@@ -242,6 +389,31 @@ export const useGameLoop = (width: number, height: number) => {
         const ship = { ...next.ship };
         const star = { ...next.star };
         const enemyStar = { ...next.enemyStar };
+
+        // DEFENSE STATE (Slice 6): the equipped defense's invariants are
+        // enforced here, once, every frame — max hull follows Armor
+        // Plating, the shield pool follows the Deflector — so buying or
+        // swapping in the shop needs no bookkeeping of its own.
+        const defId = ship.loadout.defense;
+        const defTier = defId ? (ship.arsenal[defId] || 0) : 0;
+        const wantMaxHealth = 100 + (defId === 'armor_plating' ? armorHullFor(defTier) : 0);
+        if (ship.maxHealth !== wantMaxHealth) {
+          if (wantMaxHealth > ship.maxHealth) ship.health += wantMaxHealth - ship.maxHealth;
+          ship.maxHealth = wantMaxHealth;
+          if (ship.health > wantMaxHealth) ship.health = wantMaxHealth;
+        }
+        if (defId === 'deflector_shield') {
+          const sMax = shieldMaxFor(defTier);
+          if (ship.shield === undefined) ship.shield = sMax;
+          if (ship.shield > sMax) ship.shield = sMax;
+          if (time - (ship.shieldHitAt || 0) > 2500 && ship.shield < sMax) {
+            ship.shield = Math.min(sMax, ship.shield + shieldRechargePerFrame(defTier));
+          }
+        } else if (ship.shield) {
+          ship.shield = 0;
+        }
+        const gravFactor = defId === 'grav_dampers' ? gravFactorFor(defTier) : 1;
+        const thrustFactor = defId === 'armor_plating' ? armorThrustFactor(defTier) : 1;
 
         // 1. Fuel & Inputs
         const stick = touchInputs.current.analogStick;
@@ -325,7 +497,7 @@ export const useGameLoop = (width: number, height: number) => {
         }
 
         if (ship.thrust) {
-          const currentThrust = (PHYSICS.THRUST_POWER + ship.upgrades.thrust * 0.08) * speedMult;
+          const currentThrust = (PHYSICS.THRUST_POWER + ship.upgrades.thrust * 0.08) * speedMult * thrustFactor;
           // Accel = Force / Mass
           ship.vel.x += (Math.cos(ship.angle) * currentThrust) / currentMass;
           ship.vel.y += (Math.sin(ship.angle) * currentThrust) / currentMass;
@@ -346,7 +518,7 @@ export const useGameLoop = (width: number, height: number) => {
           const isHomeStar = s.type === 'home';
           const shipGravityModifier = isHomeStar ? 0.2 : 0.6; // Much weaker pull for home
           
-          const force = (PHYSICS.G * s.mass * shipGravityModifier) / safeDistSq;
+          const force = ((PHYSICS.G * s.mass * shipGravityModifier) / safeDistSq) * gravFactor;
           
           const ax = (force * dx) / (dist || 1);
           const ay = (force * dy) / (dist || 1);
@@ -498,6 +670,53 @@ export const useGameLoop = (width: number, height: number) => {
           });
         }
 
+        // SHIP WEAPON FIRE (Slice 4): the equipped weapon shoots down the
+        // ship's nose. Hold F on desktop or the FIRE button on mobile.
+        // Stats and tier scaling: src/loadout.ts WEAPON_STATS.
+        const wantsFire = keys.current.has('KeyF') || touchInputs.current.fire;
+        const weaponId = ship.loadout.weapon;
+        const wStats = weaponStatsFor(weaponId, weaponId ? (ship.arsenal[weaponId] || 0) : 0);
+        if (wantsFire && wStats && time >= (ship.fireReadyAt || 0)) {
+          const cost = wStats.scrapCost || 0;
+          if (cost <= 0 || ship.carrying >= cost) {
+            if (cost > 0) ship.carrying -= cost;
+            ship.fireReadyAt = time + wStats.cooldownMs;
+            if (wStats.kind === 'mine') {
+              // Mine Layer: no projectile — a mine drops at the ship's tail.
+              (next.mines = next.mines || []).push({
+                id: Math.random().toString(),
+                pos: { ...ship.pos },
+                damage: wStats.damage,
+                radius: wStats.radius || 115,
+              });
+            } else {
+              const pellets = wStats.pellets || 1;
+              for (let pi = 0; pi < pellets; pi++) {
+                const spreadOffset = pellets > 1 ? (pi / (pellets - 1) - 0.5) * (wStats.spread || 0) : 0;
+                const a = ship.angle + spreadOffset;
+                next.projectiles.push({
+                  id: Math.random().toString(),
+                  pos: {
+                    x: ship.pos.x + Math.cos(ship.angle) * (ship.size + 4),
+                    y: ship.pos.y + Math.sin(ship.angle) * (ship.size + 4),
+                  },
+                  vel: {
+                    x: Math.cos(a) * wStats.speed + ship.vel.x * 0.5,
+                    y: Math.sin(a) * wStats.speed + ship.vel.y * 0.5,
+                  },
+                  owner: 'player',
+                  life: wStats.life,
+                  damage: wStats.damage,
+                  kind: weaponId || undefined,
+                  pierce: wStats.pierce,
+                  size: wStats.size,
+                  hitIds: wStats.pierce ? [] : undefined,
+                });
+              }
+            }
+          }
+        }
+
         // Update Deployed Cargo
         next.deployedCargo = (next.deployedCargo || []).filter(c => {
           c.pos.x += c.vel.x;
@@ -558,6 +777,12 @@ export const useGameLoop = (width: number, height: number) => {
           slip = angleDiff / Math.PI;
         }
 
+        // Shop-well gate, second half: drift out of the well with the
+        // workshop open and it closes behind you (Adam's pin, 2026-10-19).
+        if (next.isShopOpen && !inBankWell(ship.pos, star.pos, star.size)) {
+          next.isShopOpen = false;
+        }
+
         // Win/Loss Conditions
         if (enemyStar.integrity <= 0 && !next.isVictory) {
           next.isVictory = true;
@@ -572,6 +797,30 @@ export const useGameLoop = (width: number, height: number) => {
         // 5. Drones Logic
         next.drones = (next.drones || []).map(drone => {
           const droneStar = drone.owner === 'player' ? star : enemyStar;
+
+          // Ion stun: a rebooting drone hangs dead in space, timer ticking.
+          if (drone.stunFrames && drone.stunFrames > 0) {
+            drone.stunFrames -= 1;
+            return drone;
+          }
+
+          // Decoy Beacon: enemy drones within 500 chase the beacon instead
+          // of working — it screams "hostile" louder than scrap whispers,
+          // and a returning drone delays its delivery to chase it.
+          if (drone.owner === 'enemy' && next.decoy) {
+            const bx = next.decoy.pos.x - drone.pos.x;
+            const by = next.decoy.pos.y - drone.pos.y;
+            const bd = Math.hypot(bx, by);
+            if (bd < 500) {
+              const ba = Math.atan2(by, bx);
+              drone.angle += (ba - drone.angle) * PHYSICS.DRONES.ROTATE_SPEED;
+              if (bd > 30) {
+                drone.pos.x += Math.cos(drone.angle) * PHYSICS.DRONES.SPEED;
+                drone.pos.y += Math.sin(drone.angle) * PHYSICS.DRONES.SPEED;
+              }
+              return drone;
+            }
+          }
           
           if (drone.state === 'searching') {
             // Find closest scrap
@@ -662,34 +911,302 @@ export const useGameLoop = (width: number, height: number) => {
           return drone;
         });
 
+        // Decoy lifetime (Slice 6)
+        if (next.decoy) {
+          next.decoy = { ...next.decoy, lifeFrames: next.decoy.lifeFrames - 1 };
+          if (next.decoy.lifeFrames <= 0) next.decoy = null;
+        }
+
+        // MINES (Slice 4): an enemy drone wandering inside a mine's radius
+        // trips it — everything hostile in the blast takes the damage,
+        // including the enemy star if it is somehow close.
+        next.mines = (next.mines || []).filter(mine => {
+          const tripped = next.drones.some(d => d.owner === 'enemy' &&
+            Math.hypot(d.pos.x - mine.pos.x, d.pos.y - mine.pos.y) < mine.radius);
+          if (!tripped) return true;
+          next.drones.forEach(d => {
+            if (d.owner === 'enemy' && Math.hypot(d.pos.x - mine.pos.x, d.pos.y - mine.pos.y) < mine.radius) {
+              d.health -= mine.damage;
+            }
+          });
+          if (Math.hypot(enemyStar.pos.x - mine.pos.x, enemyStar.pos.y - mine.pos.y) < mine.radius + enemyStar.size) {
+            enemyStar.integrity -= mine.damage * 0.002;
+            enemyStar.lastHitTime = time;
+          }
+          next.shakeAmount = Math.max(next.shakeAmount, 12);
+          return false;
+        });
+
         // 6. Projectiles and Defense
         next.projectiles = (next.projectiles || []).filter(p => {
+          // Seeker torpedoes steer toward the nearest enemy drone,
+          // turning at most 0.15 rad/frame so they arc rather than snap.
+          if (p.kind === 'seeker_torpedoes') {
+            let best: any = null;
+            let bestD = 700;
+            next.drones.forEach(d => {
+              if (d.owner !== 'enemy') return;
+              const dd = Math.hypot(d.pos.x - p.pos.x, d.pos.y - p.pos.y);
+              if (dd < bestD) { bestD = dd; best = d; }
+            });
+            if (best) {
+              const cur = Math.atan2(p.vel.y, p.vel.x);
+              const want = Math.atan2(best.pos.y - p.pos.y, best.pos.x - p.pos.x);
+              let diff = want - cur;
+              while (diff > Math.PI) diff -= Math.PI * 2;
+              while (diff < -Math.PI) diff += Math.PI * 2;
+              const turn = Math.max(-0.15, Math.min(0.15, diff));
+              const spd = Math.hypot(p.vel.x, p.vel.y) || 9.5;
+              p.vel.x = Math.cos(cur + turn) * spd;
+              p.vel.y = Math.sin(cur + turn) * spd;
+            }
+          }
+
           p.pos.x += p.vel.x;
           p.pos.y += p.vel.y;
           p.life -= 1;
+
+          // Collision with the DECOY beacon (Slice 6): bolts meant for the
+          // ship eat the beacon instead, until it is shot down.
+          if (p.owner === 'enemy' && next.decoy &&
+              Math.hypot(next.decoy.pos.x - p.pos.x, next.decoy.pos.y - p.pos.y) < 12) {
+            next.decoy = { ...next.decoy, health: next.decoy.health - PHYSICS.DEFENSE.DAMAGE };
+            if (next.decoy.health <= 0) next.decoy = null;
+            return false;
+          }
 
           // Collision with ship
           const sdx = ship.pos.x - p.pos.x;
           const sdy = ship.pos.y - p.pos.y;
           if (p.owner === 'enemy' && Math.sqrt(sdx * sdx + sdy * sdy) < ship.size) {
-            ship.health -= PHYSICS.DEFENSE.DAMAGE;
-            next.shakeAmount = 15;
+            let dmg = PHYSICS.DEFENSE.DAMAGE;
+            // Deflector Shield eats bolts before they reach the hull;
+            // whatever overflows the pool is what the hull feels.
+            if (ship.shield && ship.shield > 0) {
+              const absorbed = Math.min(ship.shield, dmg);
+              ship.shield -= absorbed;
+              dmg -= absorbed;
+              ship.shieldHitAt = time;
+            }
+            if (dmg > 0) {
+              ship.health -= dmg;
+              next.shakeAmount = 15;
+            } else {
+              next.shakeAmount = Math.max(next.shakeAmount, 5);
+            }
             next.glitchActive = true;
             next.lastGlitchTime = time;
             return false;
+          }
+
+          // Collision with enemy DRONES (ship weapons only — turret bolts
+          // carry no damage field and keep their old pass-through behavior)
+          if (p.owner === 'player' && p.damage !== undefined) {
+            const hitDrone = next.drones.find(d => d.owner === 'enemy' &&
+              !(p.hitIds || []).includes(d.id) &&
+              Math.hypot(d.pos.x - p.pos.x, d.pos.y - p.pos.y) < 14);
+            if (hitDrone) {
+              hitDrone.health -= p.damage;
+              if (p.kind === 'ion_blaster') {
+                // Ion disable: the drone reboots (stunned, no movement)
+                // and drops whatever scrap it was carrying.
+                hitDrone.stunFrames = 90;
+                for (let di = 0; di < hitDrone.carrying; di++) {
+                  newScrap.push({
+                    id: Math.random().toString(),
+                    pos: { x: hitDrone.pos.x + (Math.random() - 0.5) * 24, y: hitDrone.pos.y + (Math.random() - 0.5) * 24 },
+                    color: COLORS.SCRAP[Math.floor(Math.random() * COLORS.SCRAP.length)],
+                  });
+                }
+                hitDrone.carrying = 0;
+              }
+              if (p.pierce) {
+                (p.hitIds = p.hitIds || []).push(hitDrone.id);
+              } else {
+                return false;
+              }
+            }
           }
 
           // Collision with Enemy Star (Player Star defense helps)
           if (p.owner === 'player') {
             const edx = enemyStar.pos.x - p.pos.x;
             const edy = enemyStar.pos.y - p.pos.y;
-            if (Math.sqrt(edx * edx + edy * edy) < enemyStar.size) {
-              enemyStar.integrity -= PHYSICS.DEFENSE.DAMAGE * 0.5; // Star defense is weaker than manual attacks
-              return false;
+            if (Math.sqrt(edx * edx + edy * edy) < enemyStar.size && !(p.hitIds || []).includes('enemy-star')) {
+              // REPAIR (Slice 4): this used to subtract DAMAGE x 0.5 = 5 from
+              // a 0..1 integrity scale — a single turret hit would have ended
+              // the game outright. Star damage is now damage x 0.002 for every
+              // shooter: a T1 bolt chips 0.024, a T5 rail lance lands 0.186.
+              enemyStar.integrity -= (p.damage !== undefined ? p.damage : PHYSICS.DEFENSE.DAMAGE) * 0.002;
+              enemyStar.lastHitTime = time;
+              if (p.pierce) {
+                (p.hitIds = p.hitIds || []).push('enemy-star');
+              } else {
+                return false;
+              }
             }
           }
 
           return p.life > 0;
+        });
+
+        // POINT-DEFENSE ZAP (Slice 6): fully automatic — the single
+        // nearest hostile bolt OR drone inside PD_RANGE gets zapped, one
+        // target per cooldown. Bolts are destroyed; drones take damage
+        // (and the death sweep below turns kills into dropped scrap).
+        if (defId === 'pd_zap' && time >= (ship.pdReadyAt || 0)) {
+          let zapTarget: any = null;
+          let hitProj: any = null;
+          let hitDrone: any = null;
+          let bestD = PD_RANGE;
+          next.projectiles.forEach(p => {
+            if (p.owner !== 'enemy') return;
+            const dd = Math.hypot(p.pos.x - ship.pos.x, p.pos.y - ship.pos.y);
+            if (dd < bestD) { bestD = dd; hitProj = p; hitDrone = null; zapTarget = p.pos; }
+          });
+          next.drones.forEach(d => {
+            if (d.owner !== 'enemy') return;
+            const dd = Math.hypot(d.pos.x - ship.pos.x, d.pos.y - ship.pos.y);
+            if (dd < bestD) { bestD = dd; hitDrone = d; hitProj = null; zapTarget = d.pos; }
+          });
+          if (hitProj) next.projectiles = next.projectiles.filter(p => p !== hitProj);
+          if (hitDrone) hitDrone.health -= pdDamageFor(defTier);
+          if (zapTarget) {
+            ship.pdReadyAt = time + PD_COOLDOWN_MS;
+            ship.pdZapAt = time;
+            ship.pdZapTarget = { x: zapTarget.x, y: zapTarget.y };
+          }
+        }
+
+        // CME — CORONAL MASS EJECTIONS (Slice 7). Each star fires one
+        // about every 30 s (Adam's pin), stronger each of its milestones.
+        // Telegraph: CHARGE_MS before firing, the star charges and LOCKS
+        // its aim at the nearest hostile — move, and the cone misses you.
+        // Default shot is directed; 10% x M (cap 90%) goes radial instead.
+        // The wave DISSIPATES (Adam's pin): damage and knockback scale
+        // with (1 - radius / maxRange), and the wave dies at max range —
+        // outrunning a CME is a real defense.
+        [star, enemyStar].forEach(s => {
+          if (s.cmeNextAt === undefined) s.cmeNextAt = time + PHYSICS.CME.INTERVAL_MS;
+          if (!s.cmeChargeEndsAt && time >= s.cmeNextAt - PHYSICS.CME.CHARGE_MS) {
+            s.cmeChargeEndsAt = s.cmeNextAt;
+            // Aim at the nearest hostile, locked for the whole telegraph.
+            if (s.type === 'enemy') {
+              const t = next.decoy ? next.decoy.pos : ship.pos;
+              s.cmeAimAngle = Math.atan2(t.y - s.pos.y, t.x - s.pos.x);
+            } else {
+              let bt: any = enemyStar;
+              let bd = Infinity;
+              next.drones.forEach(d => {
+                if (d.owner !== 'enemy') return;
+                const dd = Math.hypot(d.pos.x - s.pos.x, d.pos.y - s.pos.y);
+                if (dd < bd) { bd = dd; bt = d; }
+              });
+              s.cmeAimAngle = Math.atan2(bt.pos.y - s.pos.y, bt.pos.x - s.pos.x);
+            }
+          }
+          if (s.cmeChargeEndsAt && time >= s.cmeChargeEndsAt) {
+            const M = Math.floor(s.totalScrapInfused / PHYSICS.STAR_GROWTH_THRESHOLD);
+            const radial = Math.random() < Math.min(0.9, 0.1 * M);
+            (next.cmes = next.cmes || []).push({
+              id: Math.random().toString(),
+              owner: s.type,
+              pos: { ...s.pos },
+              dirAngle: radial ? null : (s.cmeAimAngle ?? 0),
+              radius: s.size,
+              speed: PHYSICS.CME.SPEED,
+              maxRange: PHYSICS.CME.BASE_RANGE + PHYSICS.CME.RANGE_PER_M * M,
+              baseDamage: PHYSICS.CME.BASE_DAMAGE + PHYSICS.CME.DAMAGE_PER_M * M,
+              baseKnockback: PHYSICS.CME.BASE_KNOCKBACK + PHYSICS.CME.KNOCKBACK_PER_M * M,
+              milestone: M,
+              hitIds: [],
+            });
+            s.cmeChargeEndsAt = undefined;
+            s.cmeAimAngle = undefined;
+            s.cmeNextAt = time + PHYSICS.CME.INTERVAL_MS + Math.random() * PHYSICS.CME.JITTER_MS;
+          }
+        });
+
+        // Advance the waves and apply whatever they wash over.
+        next.cmes = (next.cmes || []).filter(w => {
+          w.radius += w.speed;
+          if (w.radius > w.maxRange) return false;
+          const falloff = Math.max(0, 1 - w.radius / w.maxRange);
+          const inBand = (p: { x: number; y: number }) =>
+            Math.abs(Math.hypot(p.x - w.pos.x, p.y - w.pos.y) - w.radius) < PHYSICS.CME.BAND;
+          const inCone = (p: { x: number; y: number }) => {
+            if (w.dirAngle === null) return true;
+            let dd = Math.atan2(p.y - w.pos.y, p.x - w.pos.x) - w.dirAngle;
+            while (dd > Math.PI) dd -= Math.PI * 2;
+            while (dd < -Math.PI) dd += Math.PI * 2;
+            return Math.abs(dd) < PHYSICS.CME.CONE_RAD;
+          };
+          const shoveVec = (p: { x: number; y: number }, kb: number) => {
+            const dx = p.x - w.pos.x;
+            const dy = p.y - w.pos.y;
+            const d = Math.hypot(dx, dy) || 1;
+            return { x: (dx / d) * kb, y: (dy / d) * kb };
+          };
+          const washDrone = (d: any) => {
+            if (w.hitIds.includes(d.id) || !inBand(d.pos) || !inCone(d.pos)) return;
+            w.hitIds.push(d.id);
+            d.health -= w.baseDamage * falloff;
+            const sv = shoveVec(d.pos, w.baseKnockback * falloff * 2);
+            d.pos.x += sv.x;
+            d.pos.y += sv.y;
+            d.stunFrames = Math.max(d.stunFrames || 0, 30);
+          };
+
+          if (w.owner === 'enemy') {
+            // A DIRECTED enemy CME eats the decoy whole: the beacon dies,
+            // the wave dies with it. A radial one just washes past it.
+            if (next.decoy && !w.hitIds.includes('decoy') && inBand(next.decoy.pos) && inCone(next.decoy.pos)) {
+              w.hitIds.push('decoy');
+              next.decoy = null;
+              if (w.dirAngle !== null) return false;
+            }
+            if (!w.hitIds.includes('ship') && inBand(ship.pos) && inCone(ship.pos)) {
+              w.hitIds.push('ship');
+              // CME Hardening (finally consuming its table) cuts both the
+              // damage and the knockback; Grav Dampers cut knockback too.
+              const red = defId === 'cme_hardening' ? cmeReductionFor(defTier) : 0;
+              let dmg = w.baseDamage * falloff * (1 - red);
+              if (ship.shield && ship.shield > 0) {
+                const absorbed = Math.min(ship.shield, dmg);
+                ship.shield -= absorbed;
+                dmg -= absorbed;
+                ship.shieldHitAt = time;
+              }
+              if (dmg > 0) ship.health -= dmg;
+              const kb = w.baseKnockback * falloff * (1 - red) * gravFactor;
+              const sv = shoveVec(ship.pos, kb);
+              ship.vel.x += sv.x;
+              ship.vel.y += sv.y;
+              next.shakeAmount = Math.max(next.shakeAmount, 6 + 10 * falloff);
+              next.glitchActive = true;
+              next.lastGlitchTime = time;
+            }
+            next.drones.forEach(d => { if (d.owner === 'player') washDrone(d); });
+          } else {
+            next.drones.forEach(d => { if (d.owner === 'enemy') washDrone(d); });
+          }
+          return true;
+        });
+
+        // DRONE DEATHS (Slice 4): a drone shot or mined to 0 health becomes
+        // wreckage — it drops what it was carrying plus one salvage piece.
+        // Drops go into newScrap, the array the frame actually returns.
+        next.drones = next.drones.filter(d => {
+          if (d.health > 0) return true;
+          for (let di = 0; di < d.carrying + 1; di++) {
+            newScrap.push({
+              id: Math.random().toString(),
+              pos: { x: d.pos.x + (Math.random() - 0.5) * 30, y: d.pos.y + (Math.random() - 0.5) * 30 },
+              color: COLORS.SCRAP[Math.floor(Math.random() * COLORS.SCRAP.length)],
+            });
+          }
+          next.shakeAmount = Math.max(next.shakeAmount, 6);
+          return false;
         });
 
         // Update Turrets
@@ -698,7 +1215,7 @@ export const useGameLoop = (width: number, height: number) => {
 
         // Auto-Fire for stars
         [star, enemyStar].forEach(s => {
-          const target = s.type === 'home' ? enemyStar : ship;
+          const target = s.type === 'home' ? enemyStar : (next.decoy ? { pos: next.decoy.pos } : ship);
           const dx = target.pos.x - s.pos.x;
           const dy = target.pos.y - s.pos.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
@@ -743,6 +1260,11 @@ export const useGameLoop = (width: number, height: number) => {
   return { 
     state, 
     upgrade, 
+    buyItem, 
+    equipItem, 
+    depositBank, 
+    withdrawBank, 
+    deployDecoy, 
     restart, 
     setVirtualControl, 
     setAnalogStick, 

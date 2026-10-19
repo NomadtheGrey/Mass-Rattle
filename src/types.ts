@@ -19,6 +19,19 @@ export interface Ship extends GameObject {
   health: number;
   maxHealth: number;
   attractRadius: number;
+  /** performance.now() timestamp before which the equipped weapon cannot fire again. */
+  fireReadyAt?: number;
+  /** Deflector Shield: current pool and the last time it took a hit (loop clock). */
+  shield?: number;
+  shieldHitAt?: number;
+  /** Point-Defense Zap: next-ready time and the last zap's target (for the canvas arc). */
+  pdReadyAt?: number;
+  pdZapAt?: number;
+  pdZapTarget?: Vector2D;
+  // Arsenal (see src/loadout.ts): item id -> owned tier (0/absent = not owned),
+  // and the one equipped item id per category (null = slot empty).
+  arsenal: Record<string, number>;
+  loadout: { weapon: string | null; defense: string | null; hybrid: string | null };
   upgrades: {
     thrust: number;
     handling: number;
@@ -34,6 +47,29 @@ export interface Projectile {
   vel: Vector2D;
   owner: 'player' | 'enemy';
   life: number;
+  /**
+   * Ship-weapon fields (Slice 4). Turret bolts leave these undefined and
+   * fall back to PHYSICS.DEFENSE.DAMAGE, so old behavior is preserved
+   * wherever a field is absent.
+   */
+  damage?: number;
+  /** Weapon id that fired this (drives special effects, e.g. ion stun). */
+  kind?: string;
+  /** Rail Lance: pass through targets instead of dying on the first hit. */
+  pierce?: boolean;
+  /** Drone/star ids this piercing projectile has already hit. */
+  hitIds?: string[];
+  /** Drawn head size on the canvas. */
+  size?: number;
+}
+
+/** A proximity mine laid by the Mine Layer weapon (Slice 4). */
+export interface Mine {
+  id: string;
+  pos: Vector2D;
+  /** Hull damage dealt to everything hostile inside `radius`. */
+  damage: number;
+  radius: number;
 }
 
 export interface Star extends GameObject {
@@ -42,6 +78,32 @@ export interface Star extends GameObject {
   type: 'home' | 'enemy';
   integrity: number; // 0 to 1
   lastHitTime?: number;
+  /** CME timers (Slice 7), on the game loop's clock: next scheduled fire,
+   * the end of the current charge telegraph, and the locked aim angle. */
+  cmeNextAt?: number;
+  cmeChargeEndsAt?: number;
+  cmeAimAngle?: number;
+}
+
+/**
+ * A CME wavefront in flight (Slice 7). It expands from its star at a
+ * fixed speed and DISSIPATES: damage and knockback scale with
+ * (1 - radius / maxRange), so distance — or outrunning it — is defense.
+ * dirAngle null = all-directional (radial) expansion.
+ */
+export interface CmeWave {
+  id: string;
+  owner: 'home' | 'enemy';
+  pos: Vector2D;
+  dirAngle: number | null;
+  radius: number;
+  speed: number;
+  maxRange: number;
+  baseDamage: number;
+  baseKnockback: number;
+  milestone: number;
+  /** Ids already struck by this wave ('ship', 'decoy', or drone ids). */
+  hitIds: string[];
 }
 
 export interface Scrap {
@@ -57,6 +119,9 @@ export interface DeployedCargo extends Scrap {
 
 export interface Harvester {
   id: string;
+  // Drones gain health with the Arsenal slices: ship weapons need something
+  // to damage. 100 = a fresh drone; destroyed drones drop their cargo as scrap.
+  health: number;
   pos: Vector2D;
   vel: Vector2D;
   angle: number;
@@ -65,6 +130,8 @@ export interface Harvester {
   capacity: number;
   owner: 'player' | 'enemy';
   state: 'searching' | 'collecting' | 'returning';
+  /** Ion Blaster effect: frames remaining where this drone is rebooting (no movement). */
+  stunFrames?: number;
 }
 
 export interface GameState {
@@ -74,11 +141,26 @@ export interface GameState {
   scrap: Scrap[];
   deployedCargo: DeployedCargo[];
   projectiles: Projectile[];
+  /** Proximity mines laid by the player (Mine Layer weapon). */
+  mines: Mine[];
+  /** Active Decoy Beacon, if one is deployed (Decoy Beacon defense). */
+  decoy: { pos: Vector2D; health: number; lifeFrames: number } | null;
+  /** CME wavefronts currently in flight from either star (Slice 7). */
+  cmes: CmeWave[];
   drones: Harvester[];
   starOrbit: number;
   enemyStarOrbit: number;
   teamScrap: number;
+  // THE BANK (Adam, 2026-10-19): scrap saved up OUTSIDE the cargo hold.
+  // Banked scrap is NOT auto-fed to the home star on delivery flybys and
+  // does not count toward feeding milestones until it is withdrawn into
+  // the hold and actually delivered. Shop purchases draw on a combined
+  // wallet: hold first, then bank (see useGameLoop walletPay).
+  bankedScrap: number;
   isShopOpen: boolean;
+  /** Set when a shop-open attempt is refused (outside the star's well);
+   * the HUD shows a "return to your star" hint briefly after this time. */
+  shopRefusedAt?: number;
   lastUpgradeTime: number;
   glitchActive: boolean;
   lastGlitchTime: number;

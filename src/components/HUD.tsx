@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import React from 'react';
 import { PHYSICS } from '../constants';
+import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor } from '../loadout';
 
 interface NeedleGaugeProps {
   value: number;
@@ -66,6 +67,21 @@ interface HUDProps {
   upgrades: { thrust: number; handling: number; attractor: number; fuelCap: number; cargo: number };
   slip: number;
   onUpgrade: (type: 'thrust' | 'handling' | 'attractor' | 'fuel' | 'cargo') => void;
+  // Arsenal (weapons / defenses / hybrids): owned tiers + equipped loadout.
+  arsenal: Record<string, number>;
+  loadout: { weapon: string | null; defense: string | null; hybrid: string | null };
+  onBuyItem: (itemId: string) => void;
+  onEquipItem: (itemId: string) => void;
+  // The Bank: saved scrap balance + hold<->bank transfers.
+  bankedScrap: number;
+  bankInWell: boolean;
+  shopRefusedAt?: number;
+  shieldHp?: number;
+  decoyActive?: boolean;
+  cmeWarning?: boolean;
+  onDeployDecoy?: () => void;
+  onDepositBank: () => void;
+  onWithdrawBank: () => void;
   isMobileRadarOpen?: boolean;
   onToggleMobileRadar?: () => void;
   onCloseShop?: () => void;
@@ -94,15 +110,34 @@ export const HUD: React.FC<HUDProps> = ({
   upgrades,
   slip,
   onUpgrade,
+  arsenal,
+  loadout,
+  onBuyItem,
+  onEquipItem,
+  bankedScrap,
+  bankInWell,
+  shopRefusedAt,
+  shieldHp,
+  decoyActive,
+  cmeWarning,
+  onDeployDecoy,
+  onDepositBank,
+  onWithdrawBank,
   isMobileRadarOpen = false,
   onToggleMobileRadar,
   onCloseShop,
   onOpenShop,
   onToggleGauges
 }) => {
+  // COMBINED WALLET: shop affordability is judged on hold + bank together,
+  // matching walletPay in the game loop — but the bank is the home star's
+  // gravity well, so banked savings only count while inside it.
+  const funds = carrying + (bankInWell ? bankedScrap : 0);
   const growthProgress = (totalScrapInfused % 100);
   const starLevel = Math.floor(totalScrapInfused / 100) + 1;
   const [showSysCfg, setShowSysCfg] = React.useState(false);
+  // Workshop tabs: the five base ship tracks, then the Arsenal categories.
+  const [shopTab, setShopTab] = React.useState<'ship' | 'bank' | ArsenalCategory>('ship');
   const [localRadarOpen, setLocalRadarOpen] = React.useState(false);
 
   const radarActive = isMobileRadarOpen || localRadarOpen;
@@ -396,6 +431,7 @@ export const HUD: React.FC<HUDProps> = ({
           <div className="absolute bottom-0 right-0 w-24 flex flex-col gap-2 items-end">
             <div className="hud-panel w-16 p-2 flex flex-col items-center gap-4 border-2 bg-zinc-950/90 shadow-2xl pointer-events-auto">
               <div className="w-10 h-10 pitted-metal flex items-center justify-center text-red-600 text-[8px] text-center font-bold border border-red-900 bg-red-950/20">JETTISON [SPACE]</div>
+              <div className="w-10 h-10 pitted-metal flex items-center justify-center text-red-400 text-[8px] text-center font-bold border border-red-900 bg-red-950/20">FIRE [F]</div>
               <div className="w-10 h-10 pitted-metal flex items-center justify-center text-[#33ff33] text-[7px] text-center uppercase tracking-tighter">VAC [Q/E/R]</div>
               <div className="w-10 h-10 pitted-metal flex items-center justify-center text-cyan-500 text-[8px] text-center">FUEL OK</div>
               <button 
@@ -504,15 +540,15 @@ export const HUD: React.FC<HUDProps> = ({
                   <button 
                     key={u.type}
                     onClick={() => onUpgrade(u.type)}
-                    disabled={carrying < cost}
+                    disabled={funds < cost}
                     className={`pitted-metal w-16 min-w-[64px] flex flex-col items-center py-2 relative group transition-all ${
-                      carrying >= cost ? 'text-[#33ff33] opacity-100' : 'text-zinc-600 opacity-50 grayscale cursor-not-allowed'
+                      funds >= cost ? 'text-[#33ff33] opacity-100' : 'text-zinc-600 opacity-50 grayscale cursor-not-allowed'
                     }`}
                   >
                     <span className="text-[9px] font-bold uppercase tracking-tighter">[{u.key}] {u.label.substring(0,4)}</span>
                     <span className="text-[8px] opacity-60">Lvl {u.lvl}</span>
                     <div className="absolute -top-8 left-1/2 -translate-x-1/2 transition-all opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] bg-black border border-zinc-800 p-1 font-mono z-50">
-                      REQ: {cost} CARGO
+                      REQ: {cost} SCRAP (HOLD+BANK)
                     </div>
                   </button>
                 );
@@ -602,6 +638,104 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
       </main>
 
+      {/* SHOP-REFUSAL HINT (Adam's pin, 2026-10-19): trying to open the
+          workshop outside the well stamps shopRefusedAt; show the way home
+          for a few seconds. HUD re-renders every frame, so this fades on
+          its own when the stamp ages out. */}
+      {shopRefusedAt && Date.now() - shopRefusedAt < 2800 && (
+        <div className="fixed top-16 sm:top-20 left-1/2 -translate-x-1/2 z-[70] pointer-events-none">
+          <div className="hud-panel px-3 py-2 sm:px-4 rounded border-2 border-amber-500 bg-zinc-950/95 text-center shadow-[0_0_18px_rgba(245,158,11,0.35)]">
+            <div className="text-[10px] sm:text-xs font-mono font-bold text-amber-400 tracking-widest">⚠ WORKSHOP LOCKED</div>
+            <div className="text-[9px] sm:text-[10px] font-mono text-zinc-300">THE SHOP LIVES AT YOUR STAR — FLY INTO THE WELL (DASHED RING)</div>
+          </div>
+        </div>
+      )}
+
+      {/* CME WARNING: the enemy star is charging — its aim is locked, so
+          the play is to move out of the line or get distance and let the
+          wave dissipate before it reaches you. The sub-line shortens on
+          phones where the long copy would wrap. */}
+      {cmeWarning && (
+        <div className="fixed top-16 sm:top-20 left-1/2 -translate-x-1/2 z-[69] pointer-events-none">
+          <div className="hud-panel px-3 py-2 sm:px-4 rounded border-2 border-red-500 bg-zinc-950/95 text-center shadow-[0_0_18px_rgba(239,68,68,0.4)] animate-pulse">
+            <div className="text-[10px] sm:text-xs font-mono font-bold text-red-400 tracking-widest">⚠ CME INCOMING</div>
+            <div className="text-[9px] sm:text-[10px] font-mono text-zinc-300">
+              <span className="hidden sm:inline">BREAK THE AIM LINE — OR OUTRUN IT AND LET IT DISSIPATE</span>
+              <span className="sm:hidden">DODGE THE AIM LINE!</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DOCK PILLS: inside the well (and only there), one-tap Deposit and
+          Open Shop float above the loadout tiles — banking used to be
+          buried in the BANK tab; at the dock it is one tap. */}
+      {bankInWell && !isShopOpen && (
+        <div className="fixed bottom-[104px] sm:bottom-[76px] left-1/2 -translate-x-1/2 z-[56] flex gap-2">
+          <button
+            onClick={onDepositBank}
+            disabled={carrying <= 0}
+            className={`hud-panel px-3 py-1.5 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider ${carrying > 0 ? 'border-[#33ff33] text-[#33ff33] shadow-[0_0_10px_rgba(51,255,51,0.35)]' : 'border-zinc-800 text-zinc-600 opacity-50 cursor-not-allowed'}`}
+          >
+            🏦 DEPOSIT{carrying > 0 ? ` ${carrying}U` : ''}
+          </button>
+          <button
+            onClick={onOpenShop}
+            className="hud-panel px-3 py-1.5 rounded border border-pink-500 font-mono text-[10px] sm:text-[11px] font-bold tracking-wider text-pink-400 shadow-[0_0_10px_rgba(219,39,119,0.35)]"
+          >
+            🔧 OPEN SHOP
+          </button>
+        </div>
+      )}
+
+      {/* DECOY PILL: the beacon is a field tool, so its one-tap deploy
+          lives outside the well-gated dock pills. Shows only while the
+          Decoy Beacon is the equipped defense and none is live. */}
+      {loadout.defense === 'decoy_beacon' && !decoyActive && (
+        <div className={`fixed left-1/2 -translate-x-1/2 z-[56] ${bankInWell && !isShopOpen ? 'bottom-[146px] sm:bottom-[118px]' : 'bottom-[104px] sm:bottom-[76px]'}`}>
+          <button
+            onClick={onDeployDecoy}
+            className="hud-panel px-3 py-1.5 rounded border border-pink-500 font-mono text-[10px] sm:text-[11px] font-bold tracking-wider text-pink-400 shadow-[0_0_10px_rgba(219,39,119,0.35)]"
+          >
+            📡 DEPLOY DECOY [X]
+          </button>
+        </div>
+      )}
+
+      {/* LOADOUT TILES — the equipped trio's permanent spot on the HUD:
+          bottom-center, always visible, so the player can see their build
+          (and spot an empty slot) without opening the shop. */}
+      <div className="fixed bottom-24 sm:bottom-5 left-1/2 -translate-x-1/2 z-[55] flex gap-1.5 sm:gap-2 pointer-events-none">
+        <div className="hud-panel px-2 py-1 sm:px-3 sm:py-1.5 rounded border border-pink-500/50 text-center min-w-[64px] sm:min-w-[84px]">
+          <div className="text-[7px] sm:text-[8px] font-mono text-zinc-500 tracking-widest">BANK</div>
+          <div className="text-[9px] sm:text-[11px] font-bold uppercase text-pink-400 leading-tight">🏦 {bankedScrap}U</div>
+          <div className={`text-[7px] sm:text-[8px] font-mono ${bankInWell ? 'text-[#33ff33]' : 'text-zinc-500'}`}>{bankInWell ? 'IN THE WELL' : 'AT HOME STAR'}</div>
+        </div>
+        {([
+          { slot: 'weapon' as const, label: 'WPN' },
+          { slot: 'defense' as const, label: 'DEF' },
+          { slot: 'hybrid' as const, label: 'HYB' },
+        ]).map(({ slot, label }) => {
+          const def = getLoadoutItem(loadout[slot]);
+          const tier = def ? (arsenal[def.id] || 0) : 0;
+          return (
+            <div key={slot} className={`hud-panel px-2 py-1 sm:px-3 sm:py-1.5 rounded border text-center min-w-[64px] sm:min-w-[84px] ${def ? 'border-[#33ff33]/60' : 'border-zinc-800 opacity-50'}`}>
+              <div className="text-[7px] sm:text-[8px] font-mono text-zinc-500 tracking-widest">{label}</div>
+              <div className="text-[9px] sm:text-[11px] font-bold uppercase text-[#33ff33] leading-tight">
+                {def ? `${def.icon} ${def.name}` : '— EMPTY —'}
+              </div>
+              {def && <div className="text-[7px] sm:text-[8px] font-mono text-pink-400">TIER {tier}</div>}
+              {slot === 'defense' && def?.id === 'deflector_shield' && (
+                <div className="text-[7px] sm:text-[8px] font-mono text-cyan-300">POOL {Math.ceil(shieldHp || 0)}/{shieldMaxFor(tier)}</div>
+              )}
+              {slot === 'defense' && def?.id === 'decoy_beacon' && (
+                <div className="text-[7px] sm:text-[8px] font-mono text-pink-300">{decoyActive ? 'BEACON LIVE' : 'PRESS X / PILL'}</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
       {/* Workshop Overlay (Responsive for both Mobile and Desktop) */}
       {isShopOpen && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-2 sm:p-4 bg-black/75 backdrop-blur-md pointer-events-auto">
@@ -621,8 +755,8 @@ export const HUD: React.FC<HUDProps> = ({
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="text-right">
-                    <div className="text-pink-500 text-[10px] sm:text-xs font-mono">AVAILABLE CARGO</div>
-                    <div className="text-lg sm:text-xl font-bold text-pink-400 leading-none">{carrying}U</div>
+                    <div className="text-pink-500 text-[10px] sm:text-xs font-mono">HOLD {carrying}U · BANK {bankedScrap}U</div>
+                    <div className="text-lg sm:text-xl font-bold text-pink-400 leading-none">{funds}U {bankInWell ? 'TOTAL' : 'IN HOLD'}</div>
                   </div>
                   {onCloseShop && (
                     <button
@@ -635,7 +769,133 @@ export const HUD: React.FC<HUDProps> = ({
                 </div>
               </div>
 
+              {/* Shop Tabs: SHIP = the five base upgrade tracks;
+                  WEAPONS / DEFENSE / HYBRID = the Arsenal (src/loadout.ts) */}
+              <div className="flex gap-1.5 mb-3 sm:mb-4">
+                {([
+                  { key: 'ship', label: '🚀 SHIP' },
+                  { key: 'bank', label: '🏦 BANK' },
+                  { key: 'weapon', label: '🔫 WEAPONS' },
+                  { key: 'defense', label: '🛡️ DEFENSE' },
+                  { key: 'hybrid', label: '♻️ HYBRID' },
+                ] as const).map(tab => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setShopTab(tab.key)}
+                    className={`flex-1 px-1 py-1.5 rounded text-[9px] sm:text-[10px] font-mono font-bold border touch-manipulation active:scale-95 ${
+                      shopTab === tab.key
+                        ? 'bg-[#33ff33] text-black border-[#33ff33] shadow-[0_0_8px_#33ff33]'
+                        : 'bg-zinc-900 text-zinc-400 border-zinc-700'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {shopTab === 'bank' && (
+                <div className="flex flex-col gap-3 overflow-y-auto pr-1 max-h-[60vh] scrollbar-thin">
+                  <p className="text-[10px] sm:text-xs opacity-70 leading-snug">
+                    The bank is your star's <span className="text-[#33ff33] font-bold">gravity well</span> — banked scrap
+                    orbits the star (watch the motes in the ring) and is safe there: it is not auto-fed on delivery
+                    flybys and does not feed milestones until you withdraw it and deliver it.
+                    Banking — deposit, withdraw, and spending savings — only works <span className="text-[#33ff33] font-bold">inside the well</span>:
+                    fly home, stay outside the star's feeding reach (80U), and use the ring.
+                    {bankInWell
+                      ? <span className="block mt-1 text-[#33ff33] font-bold">YOU ARE IN THE WELL — BANK OPEN.</span>
+                      : <span className="block mt-1 text-amber-500 font-bold">YOU ARE NOT IN THE WELL — BANK CLOSED.</span>}
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 sm:gap-4">
+                    <div className="pitted-metal p-3 sm:p-4 rounded-lg border border-zinc-700 text-center">
+                      <div className="text-[9px] font-mono text-zinc-500 tracking-widest">IN HOLD</div>
+                      <div className="text-xl sm:text-2xl font-bold text-pink-400">{carrying}U</div>
+                    </div>
+                    <div className="pitted-metal p-3 sm:p-4 rounded-lg border border-[#33ff33]/50 text-center">
+                      <div className="text-[9px] font-mono text-zinc-500 tracking-widest">BANKED</div>
+                      <div className="text-xl sm:text-2xl font-bold text-[#33ff33]">{bankedScrap}U</div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={onDepositBank}
+                      disabled={!bankInWell || carrying <= 0}
+                      className={`flex-1 px-3 py-2 rounded text-[10px] sm:text-xs font-bold touch-manipulation active:scale-95 ${
+                        bankInWell && carrying > 0 ? 'bg-[#33ff33] text-black shadow-[0_0_8px_#33ff33]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                      }`}
+                    >
+                      ⬇ DEPOSIT ALL ({carrying}U)
+                    </button>
+                    <button
+                      onClick={onWithdrawBank}
+                      disabled={!bankInWell || bankedScrap <= 0}
+                      className={`flex-1 px-3 py-2 rounded text-[10px] sm:text-xs font-bold touch-manipulation active:scale-95 ${
+                        bankInWell && bankedScrap > 0 ? 'bg-pink-600 text-white shadow-[0_0_8px_rgba(219,39,119,0.6)]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                      }`}
+                    >
+                      ⬆ WITHDRAW (FILL HOLD)
+                    </button>
+                  </div>
+                  <p className="text-[9px] font-mono opacity-50">Withdraw fills the hold up to capacity (including the overload allowance). Deposit is unlimited — for now.</p>
+                </div>
+              )}
+
+              {shopTab !== 'ship' && shopTab !== 'bank' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 overflow-y-auto pr-1 max-h-[60vh] scrollbar-thin">
+                  {LOADOUT_ITEMS.filter(def => def.category === shopTab).map(def => {
+                    const owned = arsenal[def.id] || 0;
+                    const equipped = loadout[def.category] === def.id;
+                    const nextCost = itemTierCost(def, owned);
+                    const maxed = owned >= MAX_ITEM_TIER;
+                    const canBuy = !maxed && funds >= nextCost;
+                    // Swap pricing (Adam's pin): free into an empty slot,
+                    // otherwise 60 + 20 per tier beyond the first of the
+                    // item being swapped in.
+                    const slotFilled = loadout[def.category] !== null;
+                    const swapCost = slotFilled ? swapCostForTier(Math.max(1, owned)) : 0;
+                    const canEquip = owned > 0 && !equipped && funds >= swapCost;
+                    return (
+                      <div key={def.id} className={`pitted-metal p-3 sm:p-4 flex flex-col gap-1.5 sm:gap-2 relative rounded-lg text-left border ${equipped ? 'border-[#33ff33] shadow-[0_0_10px_rgba(51,255,51,0.25)]' : 'border-zinc-700'}`}>
+                        <div className="flex justify-between items-start">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-base">{def.icon}</span>
+                            <span className="text-xs sm:text-sm font-bold uppercase text-[#33ff33]">{def.name}</span>
+                          </div>
+                          <span className="text-[10px] sm:text-xs font-mono opacity-70 bg-zinc-800 px-1.5 py-0.5 rounded">
+                            {owned > 0 ? `TIER ${owned}/${MAX_ITEM_TIER}` : 'NOT OWNED'}
+                          </span>
+                        </div>
+                        <p className="text-[9px] sm:text-[10px] opacity-60 leading-tight">{def.desc}</p>
+                        <div className="flex gap-1.5 mt-1 pt-1.5 border-t border-zinc-800/50">
+                          <button
+                            onClick={() => onBuyItem(def.id)}
+                            disabled={!canBuy}
+                            className={`flex-1 px-2 py-1 rounded text-[9px] sm:text-[10px] font-bold touch-manipulation active:scale-95 ${
+                              canBuy ? 'bg-[#33ff33] text-black shadow-[0_0_8px_#33ff33]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                            }`}
+                          >
+                            {maxed ? 'MAX TIER' : owned > 0 ? `UPGRADE: ${nextCost}U` : `BUY: ${nextCost}U`}
+                          </button>
+                          {owned > 0 && (
+                            <button
+                              onClick={() => onEquipItem(def.id)}
+                              disabled={!canEquip}
+                              className={`flex-1 px-2 py-1 rounded text-[9px] sm:text-[10px] font-bold touch-manipulation active:scale-95 ${
+                                equipped ? 'bg-zinc-800 text-[#33ff33] cursor-default' :
+                                canEquip ? 'bg-pink-600 text-white shadow-[0_0_8px_rgba(219,39,119,0.6)]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                              }`}
+                            >
+                              {equipped ? 'EQUIPPED' : swapCost > 0 ? `SWAP IN: ${swapCost}U` : 'EQUIP (FREE)'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               {/* Upgrades List (Scrollable on small mobile screens) */}
+              {shopTab === 'ship' && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 overflow-y-auto pr-1 max-h-[60vh] scrollbar-thin">
                 {[
                   { type: 'thrust' as const, label: 'Thrust Vectoring', desc: 'Increases engine output & MAX VELOCITY', base: PHYSICS.UPGRADE_COSTS.THRUST, lvl: upgrades.thrust, icon: '🚀' },
@@ -645,7 +905,7 @@ export const HUD: React.FC<HUDProps> = ({
                   { type: 'cargo' as const, label: 'Hull Expansion', desc: 'Increases max cargo hold capacity', base: PHYSICS.UPGRADE_COSTS.CARGO, lvl: upgrades.cargo, icon: '📦' }
                 ].map(u => {
                   const cost = u.base + (u.lvl * Math.floor(u.base * 0.5));
-                  const canAfford = carrying >= cost;
+                  const canAfford = funds >= cost;
                   return (
                     <button 
                       key={u.type}
@@ -675,6 +935,7 @@ export const HUD: React.FC<HUDProps> = ({
                   );
                 })}
               </div>
+              )}
 
               {/* Workshop Footer */}
               <div className="mt-4 pt-3 border-t border-zinc-800 flex justify-between items-center text-[10px] font-mono opacity-60">

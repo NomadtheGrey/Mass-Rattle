@@ -1,6 +1,8 @@
 import React, { useRef, useEffect } from 'react';
 import { GameState } from '../types';
-import { COLORS } from '../constants';
+import { COLORS, PHYSICS } from '../constants';
+import { BANK_WELL_MARGIN } from '../bank';
+import { shieldMaxFor, PD_RANGE } from '../loadout';
 
 interface GameCanvasProps {
   state: GameState;
@@ -101,6 +103,76 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
       }
       ctx.restore();
 
+      // BANK WELL (home star only): the gravity-well ring that IS the bank,
+      // plus one orbiting mote per banked scrap (capped for readability) so
+      // savings are visible in the world, circling their star.
+      if (isHome) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(51, 255, 51, 0.25)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([6, 10]);
+        ctx.beginPath();
+        ctx.arc(0, 0, s.size + BANK_WELL_MARGIN, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        const motes = Math.min(state.bankedScrap, 24);
+        ctx.fillStyle = '#f472b6';
+        for (let i = 0; i < motes; i++) {
+          const mAngle = state.starOrbit * 0.6 + (i / Math.max(1, motes)) * Math.PI * 2;
+          const mRadius = s.size + 90 + (i % 3) * 60;
+          ctx.beginPath();
+          ctx.arc(Math.cos(mAngle) * mRadius, Math.sin(mAngle) * mRadius, 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      // CME CHARGE TELEGRAPH: the ring CONTRACTS as the charge completes, so
+      // it reads as a countdown — and the pulse quickens with it. An enemy
+      // star ramps white-hot in the final quarter: "about to fire" at a
+      // glance, mid-fight, on a phone screen. The aim dashes march toward
+      // the target with an arrowhead at the far end.
+      if (s.cmeChargeEndsAt && s.cmeChargeEndsAt > performance.now()) {
+        ctx.save();
+        const now = performance.now();
+        const remain = s.cmeChargeEndsAt - now;
+        const progress = Math.max(0, Math.min(1, 1 - remain / PHYSICS.CME.CHARGE_MS));
+        const aboutToFire = progress > 0.75;
+        const pulse = 0.5 + 0.5 * Math.sin(now / (60 - 36 * progress));
+        const ringCol = !isHome && aboutToFire ? '255, 255, 255' : (isHome ? '51, 255, 51' : '244, 63, 94');
+        ctx.strokeStyle = `rgba(${ringCol}, ${0.35 + 0.4 * pulse})`;
+        ctx.lineWidth = aboutToFire ? 3.5 : 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, s.size + 22 - progress * 16, 0, Math.PI * 2);
+        ctx.stroke();
+        if (s.cmeAimAngle !== undefined) {
+          const a = s.cmeAimAngle;
+          const x1 = Math.cos(a) * s.size, y1 = Math.sin(a) * s.size;
+          const x2 = Math.cos(a) * (s.size + 430), y2 = Math.sin(a) * (s.size + 430);
+          ctx.strokeStyle = isHome ? 'rgba(51, 255, 51, 0.32)' : 'rgba(244, 63, 94, 0.5)';
+          ctx.lineWidth = 2;
+          ctx.setLineDash([10, 7]);
+          ctx.lineDashOffset = -now / 22;
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = isHome ? 'rgba(51, 255, 51, 0.6)' : 'rgba(244, 63, 94, 0.75)';
+          ctx.save();
+          ctx.translate(x2, y2);
+          ctx.rotate(a);
+          ctx.beginPath();
+          ctx.moveTo(10, 0);
+          ctx.lineTo(-4, -6);
+          ctx.lineTo(-4, 6);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        }
+        ctx.restore();
+      }
+
       // Star Core
       const gradient = ctx.createRadialGradient(0, 0, s.size * 0.2, 0, 0, s.size);
       if (isHome) {
@@ -129,6 +201,51 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
       ctx.fillStyle = d.color;
       ctx.fillRect(d.pos.x - 2, d.pos.y - 2, 4, 4);
     });
+
+    // DRAW MINES: pink diamonds with a blinking core (blink rides the
+    // star-orbit clock so the render stays a pure function of state).
+    (state.mines || []).forEach(m => {
+      ctx.save();
+      ctx.translate(m.pos.x, m.pos.y);
+      ctx.rotate(Math.PI / 4);
+      ctx.strokeStyle = '#f472b6';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(-5, -5, 10, 10);
+      ctx.restore();
+      if (Math.sin(state.starOrbit * 6) > 0) {
+        ctx.fillStyle = '#f472b6';
+        ctx.beginPath();
+        ctx.arc(m.pos.x, m.pos.y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+
+    // DRAW DECOY BEACON: a blinking mast with an expanding scream-ring.
+    if (state.decoy) {
+      const d = state.decoy;
+      ctx.save();
+      ctx.translate(d.pos.x, d.pos.y);
+      ctx.strokeStyle = '#f472b6';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, 8);
+      ctx.lineTo(0, -8);
+      ctx.moveTo(-6, 8);
+      ctx.lineTo(6, 8);
+      ctx.stroke();
+      const pulse = (state.starOrbit * 30) % (Math.PI * 2);
+      // Twin scream-rings, phase-offset — the beacon "shouts" in stereo.
+      for (const phase of [pulse, (pulse + Math.PI) % (Math.PI * 2)]) {
+        ctx.strokeStyle = 'rgba(244, 114, 182, 0.35)';
+        ctx.beginPath();
+        ctx.arc(0, 0, 12 + (phase / (Math.PI * 2)) * 26, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#f472b6';
+      ctx.font = '8px monospace';
+      ctx.fillText('DECOY', -12, -14);
+      ctx.restore();
+    }
 
     // DRAW DRONES
     (state.drones || []).forEach(d => {
@@ -182,7 +299,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
       ctx.shadowBlur = 10;
       ctx.shadowColor = p.owner === 'player' ? '#33ff33' : '#f43f5e';
       
-      const headSize = p.owner === 'player' ? 3 : 4;
+      const headSize = p.size ?? (p.owner === 'player' ? 3 : 4);
       ctx.fillRect(p.pos.x - headSize/2, p.pos.y - headSize/2, headSize, headSize);
       
       // Trail
@@ -194,6 +311,66 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
       ctx.stroke();
       
       ctx.shadowBlur = 0;
+    });
+
+    // PD ZAP ARC: a jagged cyan line to the zapped target, gone in ~130 ms.
+    // (performance.now shares the game loop's clock, so this stays honest.)
+    if (ship.pdZapAt && ship.pdZapTarget && performance.now() - ship.pdZapAt < 130) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(103, 232, 249, 0.9)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(ship.pos.x, ship.pos.y);
+      const segs = 5;
+      for (let i = 1; i <= segs; i++) {
+        const t = i / segs;
+        const jx = i === segs ? 0 : (Math.random() - 0.5) * 14;
+        const jy = i === segs ? 0 : (Math.random() - 0.5) * 14;
+        ctx.lineTo(
+          ship.pos.x + (ship.pdZapTarget.x - ship.pos.x) * t + jx,
+          ship.pos.y + (ship.pdZapTarget.y - ship.pos.y) * t + jy,
+        );
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // CME WAVES: an expanding front that visibly fades as it dissipates —
+    // the alpha IS the falloff, so you can see how much teeth it has left.
+    // A bright hairline rides the exact front: its whiteness is the danger
+    // read. Directed arcs get end-cap dots so the wedge reads as a wedge,
+    // not a broken ring.
+    (state.cmes || []).forEach(w => {
+      const frac = Math.max(0, 1 - w.radius / w.maxRange);
+      const col = w.owner === 'home' ? '51, 255, 51' : '244, 63, 94';
+      const a0 = w.dirAngle === null ? 0 : w.dirAngle - 0.6;
+      const a1 = w.dirAngle === null ? Math.PI * 2 : w.dirAngle + 0.6;
+      ctx.save();
+      ctx.strokeStyle = `rgba(${col}, ${0.12 + 0.55 * frac})`;
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(w.pos.x, w.pos.y, w.radius, a0, a1);
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(${col}, ${0.25 + 0.45 * frac})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(w.pos.x, w.pos.y, Math.max(0, w.radius - 16), a0, a1);
+      ctx.stroke();
+      // Leading edge: bright hairline exactly at the front.
+      ctx.strokeStyle = `rgba(255, 255, 255, ${0.3 + 0.65 * frac})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(w.pos.x, w.pos.y, w.radius, a0, a1);
+      ctx.stroke();
+      if (w.dirAngle !== null) {
+        ctx.fillStyle = `rgba(255, 255, 255, ${0.35 + 0.55 * frac})`;
+        for (const ea of [a0, a1]) {
+          ctx.beginPath();
+          ctx.arc(w.pos.x + Math.cos(ea) * w.radius, w.pos.y + Math.sin(ea) * w.radius, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
     });
 
     // DRAW DEPLOYED CARGO
@@ -219,6 +396,26 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
     ctx.beginPath();
     ctx.arc(0, 0, ship.attractRadius, 0, Math.PI * 2);
     ctx.stroke();
+
+    // DEFENSE VISUALS (Slice 6): Deflector bubble (brightness = pool left)
+    // and the faint Point-Defense reach ring, when those are equipped.
+    if (ship.loadout.defense === 'deflector_shield' && ship.shield && ship.shield > 0) {
+      const sTier = ship.arsenal['deflector_shield'] || 1;
+      const frac = Math.max(0, Math.min(1, ship.shield / shieldMaxFor(sTier)));
+      ctx.strokeStyle = `rgba(103, 232, 249, ${0.25 + 0.55 * frac})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, ship.size + 9, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    if (ship.loadout.defense === 'pd_zap') {
+      ctx.strokeStyle = 'rgba(103, 232, 249, 0.10)';
+      ctx.setLineDash([3, 9]);
+      ctx.beginPath();
+      ctx.arc(0, 0, PD_RANGE, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
 
     ctx.rotate(ship.angle);
     
@@ -282,6 +479,41 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
     ctx.restore();
 
     ctx.restore(); // End Camera space
+
+    // OFF-SCREEN CHARGE CUE: the HUD banner says a CME is charging, but not
+    // WHERE. If the charging star is off-screen, a blinking edge arrow
+    // points toward it. Home star excluded — its CME is yours.
+    [star, enemyStar].forEach(s => {
+      if (s.type !== 'enemy') return;
+      if (!(s.cmeChargeEndsAt && s.cmeChargeEndsAt > performance.now())) return;
+      const camX = width / 2 - ship.pos.x;
+      const camY = height / 2 - ship.pos.y;
+      const sx = s.pos.x + camX;
+      const sy = s.pos.y + camY;
+      const m = 30;
+      if (sx > m && sx < width - m && sy > m && sy < height - m) return;
+      const px = Math.max(m, Math.min(width - m, sx));
+      const py = Math.max(m, Math.min(height - m, sy));
+      const ang = Math.atan2(sy - height / 2, sx - width / 2);
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(ang);
+      ctx.globalAlpha = 0.55 + 0.45 * Math.sin(performance.now() / 160);
+      ctx.fillStyle = '#f43f5e';
+      ctx.beginPath();
+      ctx.moveTo(13, 0);
+      ctx.lineTo(-6, -9);
+      ctx.lineTo(-6, 9);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.restore();
+      ctx.fillStyle = '#f43f5e';
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('CME', px, py + 26);
+      ctx.textAlign = 'start'; // restore canvas default for later world labels
+    });
 
     // Global Overlay Effects
     if (glitchActive) {

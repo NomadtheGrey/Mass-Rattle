@@ -9,6 +9,7 @@ import { HUD } from './components/HUD';
 import { ResultsOverlay } from './components/ResultsOverlay';
 import { MobileControls } from './components/MobileControls';
 import { useGameLoop } from './hooks/useGameLoop';
+import { inBankWell } from './bank';
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -32,6 +33,11 @@ export default function App() {
   const { 
     state, 
     upgrade, 
+    buyItem, 
+    equipItem, 
+    depositBank, 
+    withdrawBank, 
+    deployDecoy, 
     restart, 
     setVirtualControl, 
     setAnalogStick, 
@@ -40,6 +46,9 @@ export default function App() {
   } = useGameLoop(dimensions.width, dimensions.height);
 
   const shipVelocity = Math.sqrt(state.ship.vel.x ** 2 + state.ship.vel.y ** 2);
+  // The bank is the home star's gravity well: HUD affordability and the
+  // BANK tab key off this one check, matching the game loop's gating.
+  const bankInWell = inBankWell(state.ship.pos, state.star.pos, state.star.size);
 
   const handleToggleMobileRadar = useCallback(() => {
     setIsMobileRadarOpen(prev => !prev);
@@ -77,6 +86,19 @@ export default function App() {
         upgrades={state.ship.upgrades}
         slip={state.slip}
         onUpgrade={upgrade}
+        arsenal={state.ship.arsenal}
+        loadout={state.ship.loadout}
+        onBuyItem={buyItem}
+        onEquipItem={equipItem}
+        bankedScrap={state.bankedScrap}
+        bankInWell={bankInWell}
+        shopRefusedAt={state.shopRefusedAt}
+        shieldHp={state.ship.shield}
+        decoyActive={!!state.decoy}
+        cmeWarning={!!(state.enemyStar.cmeChargeEndsAt && state.enemyStar.cmeChargeEndsAt > performance.now())}
+        onDeployDecoy={deployDecoy}
+        onDepositBank={depositBank}
+        onWithdrawBank={withdrawBank}
         isMobileRadarOpen={isMobileRadarOpen}
         onToggleMobileRadar={handleToggleMobileRadar}
         onCloseShop={() => toggleShop(false)}
@@ -94,6 +116,14 @@ export default function App() {
         carrying={state.ship.carrying}
         fuel={state.ship.fuel}
         maxFuel={state.ship.maxFuel}
+        weaponId={state.ship.loadout.weapon}
+        inWell={bankInWell}
+        bankedScrap={state.bankedScrap}
+        onDepositBank={depositBank}
+        onWithdrawBank={withdrawBank}
+        decoyEquipped={state.ship.loadout.defense === 'decoy_beacon'}
+        decoyActive={!!state.decoy}
+        onDeployDecoy={deployDecoy}
       />
 
       {/* Main Game Surface with Thick Frame */}
@@ -116,7 +146,7 @@ export default function App() {
       {/* Controls Help (Desktop only) */}
       <div className="hidden md:flex fixed bottom-4 left-4 text-[10px] opacity-20 uppercase tracking-widest pointer-events-none z-[60] flex-col">
         <span>[WASD/ARROWS] THRUST/ROTATION | [Q/E/R] MANUAL VAC PULL</span>
-        <span>[1-5] UPGRADES | [SPACE] EJECT CARGO PULSE (SABOTAGE ENEMY / INFUSE HOME) | [TAB/U] WORKSHOP</span>
+        <span>[1-5] UPGRADES | [SPACE] EJECT CARGO PULSE (SABOTAGE ENEMY / INFUSE HOME) | [TAB/U] WORKSHOP (SHIP / WEAPONS / DEFENSE / HYBRID)</span>
       </div>
     </div>
   );
