@@ -34,6 +34,8 @@ export default function App() {
     upgrade, 
     buyItem, 
     equipItem, 
+    depositBank, 
+    withdrawBank, 
     restart, 
     setVirtualControl, 
     setAnalogStick, 
@@ -83,6 +85,9 @@ export default function App() {
         loadout={state.ship.loadout}
         onBuyItem={buyItem}
         onEquipItem={equipItem}
+        bankedScrap={state.bankedScrap}
+        onDepositBank={depositBank}
+        onWithdrawBank={withdrawBank}
         isMobileRadarOpen={isMobileRadarOpen}
         onToggleMobileRadar={handleToggleMobileRadar}
         onCloseShop={() => toggleShop(false)}

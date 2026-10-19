@@ -3,6 +3,21 @@ import { GameState, Vector2D } from '../types';
 import { PHYSICS, COLORS } from '../constants';
 import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER } from '../loadout';
 
+/**
+ * COMBINED WALLET — every purchase in the game (base upgrades, Arsenal
+ * tiers, loadout swaps) is checked against hold + bank TOGETHER and paid
+ * hold-first, then bank. This is what makes prices above the hold's
+ * physical capacity (15 scrap at start) reachable at all: you save in
+ * the bank, then spend across both. Returns null when the wallet cannot
+ * cover the cost; otherwise returns the post-payment balances.
+ */
+const walletTotal = (carrying: number, banked: number) => carrying + banked;
+const walletPay = (carrying: number, banked: number, cost: number) => {
+  if (walletTotal(carrying, banked) < cost) return null;
+  const fromHold = Math.min(carrying, cost);
+  return { carrying: carrying - fromHold, banked: banked - (cost - fromHold) };
+};
+
 export const useGameLoop = (width: number, height: number) => {
   const [state, setState] = useState<GameState>({
     ship: {
@@ -53,6 +68,7 @@ export const useGameLoop = (width: number, height: number) => {
     starOrbit: 0,
     enemyStarOrbit: 0,
     teamScrap: 0,
+    bankedScrap: 0,
     isShopOpen: false,
     lastUpgradeTime: 0,
     glitchActive: false,
@@ -107,11 +123,13 @@ export const useGameLoop = (width: number, height: number) => {
       const currentLevel = type === 'fuel' ? prev.ship.upgrades.fuelCap : (prev.ship.upgrades as any)[type];
       const cost = baseCost + (currentLevel * Math.floor(baseCost * 0.5));
       
-      if (prev.ship.carrying < cost) return prev;
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost);
+      if (!payment) return prev;
 
       const next = { ...prev };
       const ship = { ...next.ship };
-      ship.carrying -= cost;
+      ship.carrying = payment.carrying;
+      next.bankedScrap = payment.banked;
       const upgradeKey = type === 'fuel' ? 'fuelCap' : type;
       ship.upgrades = { ...ship.upgrades, [upgradeKey]: (ship.upgrades as any)[upgradeKey] + 1 };
       
@@ -145,10 +163,11 @@ export const useGameLoop = (width: number, height: number) => {
       const owned = prev.ship.arsenal[itemId] || 0;
       if (owned >= MAX_ITEM_TIER) return prev;
       const cost = itemTierCost(def, owned);
-      if (prev.ship.carrying < cost) return prev;
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost);
+      if (!payment) return prev;
 
       const ship = { ...prev.ship };
-      ship.carrying -= cost;
+      ship.carrying = payment.carrying;
       ship.arsenal = { ...ship.arsenal, [itemId]: owned + 1 };
       // First purchase auto-equips ONLY into an empty slot (free: it is
       // part of the purchase). If the slot is taken, the player swaps
@@ -156,7 +175,7 @@ export const useGameLoop = (width: number, height: number) => {
       if (owned === 0 && !ship.loadout[def.category]) {
         ship.loadout = { ...ship.loadout, [def.category]: itemId };
       }
-      return { ...prev, ship, glitchActive: true, lastGlitchTime: performance.now() };
+      return { ...prev, ship, bankedScrap: payment.banked, glitchActive: true, lastGlitchTime: performance.now() };
     });
   }, []);
 
@@ -171,15 +190,45 @@ export const useGameLoop = (width: number, height: number) => {
       if (current === itemId) return prev; // already equipped
 
       const ship = { ...prev.ship };
+      let banked = prev.bankedScrap;
       // Adam's pin: swapping costs 60 + 20 per tier beyond the first,
       // priced on the INCOMING item's tier. Empty slot = free equip.
+      // Paid from the combined wallet like every other purchase.
       if (current !== null) {
-        const cost = swapCostForTier(owned);
-        if (ship.carrying < cost) return prev;
-        ship.carrying -= cost;
+        const payment = walletPay(prev.ship.carrying, prev.bankedScrap, swapCostForTier(owned));
+        if (!payment) return prev;
+        ship.carrying = payment.carrying;
+        banked = payment.banked;
       }
       ship.loadout = { ...ship.loadout, [slot]: itemId };
-      return { ...prev, ship, glitchActive: true, lastGlitchTime: performance.now() };
+      return { ...prev, ship, bankedScrap: banked, glitchActive: true, lastGlitchTime: performance.now() };
+    });
+  }, []);
+
+  // ------------------------------------------------------------------
+  // BANK: move scrap between hold and bank. Banking is what lets a
+  // player SAVE UP past the hold's physical capacity — and banked scrap
+  // survives flybys of the home star that would auto-feed the hold.
+  // Withdraw is limited by free hold space (capacity incl. overload).
+  // ------------------------------------------------------------------
+  const depositBank = useCallback(() => {
+    setState(prev => {
+      if (prev.ship.carrying <= 0) return prev;
+      const ship = { ...prev.ship, carrying: 0 };
+      return { ...prev, ship, bankedScrap: prev.bankedScrap + prev.ship.carrying, glitchActive: true, lastGlitchTime: performance.now() };
+    });
+  }, []);
+
+  const withdrawBank = useCallback(() => {
+    setState(prev => {
+      if (prev.bankedScrap <= 0) return prev;
+      const regularCapacity = PHYSICS.CARGO.BASE_CAPACITY + prev.ship.upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS;
+      const totalCapacity = regularCapacity + Math.floor(regularCapacity * PHYSICS.CARGO.OVERLOAD_RATIO);
+      const space = Math.max(0, totalCapacity - prev.ship.carrying);
+      const moved = Math.min(space, prev.bankedScrap);
+      if (moved <= 0) return prev;
+      const ship = { ...prev.ship, carrying: prev.ship.carrying + moved };
+      return { ...prev, ship, bankedScrap: prev.bankedScrap - moved, glitchActive: true, lastGlitchTime: performance.now() };
     });
   }, []);
 
@@ -800,6 +849,8 @@ export const useGameLoop = (width: number, height: number) => {
     upgrade, 
     buyItem, 
     equipItem, 
+    depositBank, 
+    withdrawBank, 
     restart, 
     setVirtualControl, 
     setAnalogStick, 

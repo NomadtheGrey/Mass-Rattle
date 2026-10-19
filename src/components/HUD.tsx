@@ -72,6 +72,10 @@ interface HUDProps {
   loadout: { weapon: string | null; defense: string | null; hybrid: string | null };
   onBuyItem: (itemId: string) => void;
   onEquipItem: (itemId: string) => void;
+  // The Bank: saved scrap balance + hold<->bank transfers.
+  bankedScrap: number;
+  onDepositBank: () => void;
+  onWithdrawBank: () => void;
   isMobileRadarOpen?: boolean;
   onToggleMobileRadar?: () => void;
   onCloseShop?: () => void;
@@ -104,17 +108,23 @@ export const HUD: React.FC<HUDProps> = ({
   loadout,
   onBuyItem,
   onEquipItem,
+  bankedScrap,
+  onDepositBank,
+  onWithdrawBank,
   isMobileRadarOpen = false,
   onToggleMobileRadar,
   onCloseShop,
   onOpenShop,
   onToggleGauges
 }) => {
+  // COMBINED WALLET: shop affordability is judged on hold + bank together,
+  // matching walletPay in the game loop. Hold-only amounts are labelled as such.
+  const funds = carrying + bankedScrap;
   const growthProgress = (totalScrapInfused % 100);
   const starLevel = Math.floor(totalScrapInfused / 100) + 1;
   const [showSysCfg, setShowSysCfg] = React.useState(false);
   // Workshop tabs: the five base ship tracks, then the Arsenal categories.
-  const [shopTab, setShopTab] = React.useState<'ship' | ArsenalCategory>('ship');
+  const [shopTab, setShopTab] = React.useState<'ship' | 'bank' | ArsenalCategory>('ship');
   const [localRadarOpen, setLocalRadarOpen] = React.useState(false);
 
   const radarActive = isMobileRadarOpen || localRadarOpen;
@@ -516,15 +526,15 @@ export const HUD: React.FC<HUDProps> = ({
                   <button 
                     key={u.type}
                     onClick={() => onUpgrade(u.type)}
-                    disabled={carrying < cost}
+                    disabled={funds < cost}
                     className={`pitted-metal w-16 min-w-[64px] flex flex-col items-center py-2 relative group transition-all ${
-                      carrying >= cost ? 'text-[#33ff33] opacity-100' : 'text-zinc-600 opacity-50 grayscale cursor-not-allowed'
+                      funds >= cost ? 'text-[#33ff33] opacity-100' : 'text-zinc-600 opacity-50 grayscale cursor-not-allowed'
                     }`}
                   >
                     <span className="text-[9px] font-bold uppercase tracking-tighter">[{u.key}] {u.label.substring(0,4)}</span>
                     <span className="text-[8px] opacity-60">Lvl {u.lvl}</span>
                     <div className="absolute -top-8 left-1/2 -translate-x-1/2 transition-all opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] bg-black border border-zinc-800 p-1 font-mono z-50">
-                      REQ: {cost} CARGO
+                      REQ: {cost} SCRAP (HOLD+BANK)
                     </div>
                   </button>
                 );
@@ -618,6 +628,11 @@ export const HUD: React.FC<HUDProps> = ({
           bottom-center, always visible, so the player can see their build
           (and spot an empty slot) without opening the shop. */}
       <div className="fixed bottom-24 sm:bottom-5 left-1/2 -translate-x-1/2 z-[55] flex gap-1.5 sm:gap-2 pointer-events-none">
+        <div className="hud-panel px-2 py-1 sm:px-3 sm:py-1.5 rounded border border-pink-500/50 text-center min-w-[64px] sm:min-w-[84px]">
+          <div className="text-[7px] sm:text-[8px] font-mono text-zinc-500 tracking-widest">BANK</div>
+          <div className="text-[9px] sm:text-[11px] font-bold uppercase text-pink-400 leading-tight">🏦 {bankedScrap}U</div>
+          <div className="text-[7px] sm:text-[8px] font-mono text-zinc-500">SAVED</div>
+        </div>
         {([
           { slot: 'weapon' as const, label: 'WPN' },
           { slot: 'defense' as const, label: 'DEF' },
@@ -656,8 +671,8 @@ export const HUD: React.FC<HUDProps> = ({
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="text-right">
-                    <div className="text-pink-500 text-[10px] sm:text-xs font-mono">AVAILABLE CARGO</div>
-                    <div className="text-lg sm:text-xl font-bold text-pink-400 leading-none">{carrying}U</div>
+                    <div className="text-pink-500 text-[10px] sm:text-xs font-mono">HOLD {carrying}U · BANK {bankedScrap}U</div>
+                    <div className="text-lg sm:text-xl font-bold text-pink-400 leading-none">{funds}U TOTAL</div>
                   </div>
                   {onCloseShop && (
                     <button
@@ -675,6 +690,7 @@ export const HUD: React.FC<HUDProps> = ({
               <div className="flex gap-1.5 mb-3 sm:mb-4">
                 {([
                   { key: 'ship', label: '🚀 SHIP' },
+                  { key: 'bank', label: '🏦 BANK' },
                   { key: 'weapon', label: '🔫 WEAPONS' },
                   { key: 'defense', label: '🛡️ DEFENSE' },
                   { key: 'hybrid', label: '♻️ HYBRID' },
@@ -693,20 +709,62 @@ export const HUD: React.FC<HUDProps> = ({
                 ))}
               </div>
 
-              {shopTab !== 'ship' && (
+              {shopTab === 'bank' && (
+                <div className="flex flex-col gap-3 overflow-y-auto pr-1 max-h-[60vh] scrollbar-thin">
+                  <p className="text-[10px] sm:text-xs opacity-70 leading-snug">
+                    The hold is small and your star eats whatever you carry home.
+                    Banked scrap is <span className="text-[#33ff33] font-bold">safe</span>: it is not auto-fed on
+                    delivery flybys and does not feed milestones until you withdraw it and deliver it.
+                    The shop spends hold first, then bank — so savings are how big prices get paid.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 sm:gap-4">
+                    <div className="pitted-metal p-3 sm:p-4 rounded-lg border border-zinc-700 text-center">
+                      <div className="text-[9px] font-mono text-zinc-500 tracking-widest">IN HOLD</div>
+                      <div className="text-xl sm:text-2xl font-bold text-pink-400">{carrying}U</div>
+                    </div>
+                    <div className="pitted-metal p-3 sm:p-4 rounded-lg border border-[#33ff33]/50 text-center">
+                      <div className="text-[9px] font-mono text-zinc-500 tracking-widest">BANKED</div>
+                      <div className="text-xl sm:text-2xl font-bold text-[#33ff33]">{bankedScrap}U</div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={onDepositBank}
+                      disabled={carrying <= 0}
+                      className={`flex-1 px-3 py-2 rounded text-[10px] sm:text-xs font-bold touch-manipulation active:scale-95 ${
+                        carrying > 0 ? 'bg-[#33ff33] text-black shadow-[0_0_8px_#33ff33]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                      }`}
+                    >
+                      ⬇ DEPOSIT ALL ({carrying}U)
+                    </button>
+                    <button
+                      onClick={onWithdrawBank}
+                      disabled={bankedScrap <= 0}
+                      className={`flex-1 px-3 py-2 rounded text-[10px] sm:text-xs font-bold touch-manipulation active:scale-95 ${
+                        bankedScrap > 0 ? 'bg-pink-600 text-white shadow-[0_0_8px_rgba(219,39,119,0.6)]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                      }`}
+                    >
+                      ⬆ WITHDRAW (FILL HOLD)
+                    </button>
+                  </div>
+                  <p className="text-[9px] font-mono opacity-50">Withdraw fills the hold up to capacity (including the overload allowance). Deposit is unlimited — for now.</p>
+                </div>
+              )}
+
+              {shopTab !== 'ship' && shopTab !== 'bank' && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 overflow-y-auto pr-1 max-h-[60vh] scrollbar-thin">
                   {LOADOUT_ITEMS.filter(def => def.category === shopTab).map(def => {
                     const owned = arsenal[def.id] || 0;
                     const equipped = loadout[def.category] === def.id;
                     const nextCost = itemTierCost(def, owned);
                     const maxed = owned >= MAX_ITEM_TIER;
-                    const canBuy = !maxed && carrying >= nextCost;
+                    const canBuy = !maxed && funds >= nextCost;
                     // Swap pricing (Adam's pin): free into an empty slot,
                     // otherwise 60 + 20 per tier beyond the first of the
                     // item being swapped in.
                     const slotFilled = loadout[def.category] !== null;
                     const swapCost = slotFilled ? swapCostForTier(Math.max(1, owned)) : 0;
-                    const canEquip = owned > 0 && !equipped && carrying >= swapCost;
+                    const canEquip = owned > 0 && !equipped && funds >= swapCost;
                     return (
                       <div key={def.id} className={`pitted-metal p-3 sm:p-4 flex flex-col gap-1.5 sm:gap-2 relative rounded-lg text-left border ${equipped ? 'border-[#33ff33] shadow-[0_0_10px_rgba(51,255,51,0.25)]' : 'border-zinc-700'}`}>
                         <div className="flex justify-between items-start">
@@ -759,7 +817,7 @@ export const HUD: React.FC<HUDProps> = ({
                   { type: 'cargo' as const, label: 'Hull Expansion', desc: 'Increases max cargo hold capacity', base: PHYSICS.UPGRADE_COSTS.CARGO, lvl: upgrades.cargo, icon: '📦' }
                 ].map(u => {
                   const cost = u.base + (u.lvl * Math.floor(u.base * 0.5));
-                  const canAfford = carrying >= cost;
+                  const canAfford = funds >= cost;
                   return (
                     <button 
                       key={u.type}

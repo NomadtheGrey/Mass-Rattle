@@ -85,6 +85,12 @@ export interface GameState {
   starOrbit: number;
   enemyStarOrbit: number;
   teamScrap: number;
+  // THE BANK (Adam, 2026-10-19): scrap saved up OUTSIDE the cargo hold.
+  // Banked scrap is NOT auto-fed to the home star on delivery flybys and
+  // does not count toward feeding milestones until it is withdrawn into
+  // the hold and actually delivered. Shop purchases draw on a combined
+  // wallet: hold first, then bank (see useGameLoop walletPay).
+  bankedScrap: number;
   isShopOpen: boolean;
   lastUpgradeTime: number;
   glitchActive: boolean;
