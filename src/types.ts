@@ -19,6 +19,8 @@ export interface Ship extends GameObject {
   health: number;
   maxHealth: number;
   attractRadius: number;
+  /** performance.now() timestamp before which the equipped weapon cannot fire again. */
+  fireReadyAt?: number;
   // Arsenal (see src/loadout.ts): item id -> owned tier (0/absent = not owned),
   // and the one equipped item id per category (null = slot empty).
   arsenal: Record<string, number>;
@@ -38,6 +40,29 @@ export interface Projectile {
   vel: Vector2D;
   owner: 'player' | 'enemy';
   life: number;
+  /**
+   * Ship-weapon fields (Slice 4). Turret bolts leave these undefined and
+   * fall back to PHYSICS.DEFENSE.DAMAGE, so old behavior is preserved
+   * wherever a field is absent.
+   */
+  damage?: number;
+  /** Weapon id that fired this (drives special effects, e.g. ion stun). */
+  kind?: string;
+  /** Rail Lance: pass through targets instead of dying on the first hit. */
+  pierce?: boolean;
+  /** Drone/star ids this piercing projectile has already hit. */
+  hitIds?: string[];
+  /** Drawn head size on the canvas. */
+  size?: number;
+}
+
+/** A proximity mine laid by the Mine Layer weapon (Slice 4). */
+export interface Mine {
+  id: string;
+  pos: Vector2D;
+  /** Hull damage dealt to everything hostile inside `radius`. */
+  damage: number;
+  radius: number;
 }
 
 export interface Star extends GameObject {
@@ -72,6 +97,8 @@ export interface Harvester {
   capacity: number;
   owner: 'player' | 'enemy';
   state: 'searching' | 'collecting' | 'returning';
+  /** Ion Blaster effect: frames remaining where this drone is rebooting (no movement). */
+  stunFrames?: number;
 }
 
 export interface GameState {
@@ -81,6 +108,8 @@ export interface GameState {
   scrap: Scrap[];
   deployedCargo: DeployedCargo[];
   projectiles: Projectile[];
+  /** Proximity mines laid by the player (Mine Layer weapon). */
+  mines: Mine[];
   drones: Harvester[];
   starOrbit: number;
   enemyStarOrbit: number;

@@ -144,3 +144,62 @@ export const itemTierCost = (def: LoadoutItemDef, ownedTier: number): number => 
  */
 export const swapCostForTier = (incomingTier: number): number =>
   60 + 20 * Math.max(0, incomingTier - 1);
+
+/**
+ * WEAPON STATS — how each weapon actually behaves when fired (Slice 4).
+ * =====================================================================
+ * Draft numbers, tuned to feel distinct rather than balanced-perfect;
+ * Adam playtests and we adjust. Damage scales per owned tier via
+ * damagePerTier so upgrading a weapon is real, not cosmetic.
+ *
+ * kind:
+ *  - 'bolt'   : straight projectiles down the ship's nose (flak = many
+ *               pellets with spread; rail = pierce; ion = low damage
+ *               but stuns drones and makes them drop their scrap).
+ *  - 'seeker' : a homing torpedo that steers toward the nearest enemy
+ *               drone. Costs 1 cargo scrap per shot (scrapCost).
+ *  - 'mine'   : no projectile — drops a proximity mine at the ship,
+ *               also costing 1 cargo scrap (scrapCost).
+ */
+export interface WeaponStats {
+  kind: 'bolt' | 'seeker' | 'mine';
+  /** Hull damage at tier 1 (drones have 100). */
+  damage: number;
+  /** Extra damage per tier above the first. */
+  damagePerTier: number;
+  /** Projectile speed (units/frame). Unused for mines. */
+  speed: number;
+  /** Minimum milliseconds between shots. */
+  cooldownMs: number;
+  /** Projectile lifetime in frames (range = speed x life). */
+  life: number;
+  /** Projectiles per shot (flak). Default 1. */
+  pellets?: number;
+  /** Total spread cone in radians across the pellets (flak). */
+  spread?: number;
+  /** True = passes through targets, hitting each once (rail). */
+  pierce?: boolean;
+  /** Drawn size of the projectile head (canvas). */
+  size?: number;
+  /** Cargo scrap consumed per shot (seeker, mines). */
+  scrapCost?: number;
+  /** Explosion radius for mines. */
+  radius?: number;
+}
+
+export const WEAPON_STATS: Record<string, WeaponStats> = {
+  bolt_cannon:     { kind: 'bolt',   damage: 12, damagePerTier: 3,  speed: 14,   cooldownMs: 170, life: 50, size: 3 },
+  flak_cannon:     { kind: 'bolt',   damage: 4,  damagePerTier: 1,  speed: 11,   cooldownMs: 430, life: 34, pellets: 6, spread: 0.76, size: 2 },
+  rail_lance:      { kind: 'bolt',   damage: 45, damagePerTier: 12, speed: 26,   cooldownMs: 900, life: 50, pierce: true, size: 4 },
+  ion_blaster:     { kind: 'bolt',   damage: 3,  damagePerTier: 1,  speed: 13,   cooldownMs: 230, life: 50, size: 3 },
+  seeker_torpedoes:{ kind: 'seeker', damage: 30, damagePerTier: 8,  speed: 9.5,  cooldownMs: 750, life: 120, size: 6, scrapCost: 1 },
+  mine_layer:      { kind: 'mine',   damage: 40, damagePerTier: 10, speed: 0,    cooldownMs: 500, life: 0, scrapCost: 1, radius: 115 },
+};
+
+/** Stats for a weapon at a given owned tier, damage scaled. Null for non-weapons. */
+export const weaponStatsFor = (id: string | null, tier: number): (WeaponStats & { damage: number }) | null => {
+  if (!id) return null;
+  const base = WEAPON_STATS[id];
+  if (!base) return null;
+  return { ...base, damage: base.damage + base.damagePerTier * Math.max(0, tier - 1) };
+};

@@ -155,6 +155,24 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
       ctx.fillRect(d.pos.x - 2, d.pos.y - 2, 4, 4);
     });
 
+    // DRAW MINES: pink diamonds with a blinking core (blink rides the
+    // star-orbit clock so the render stays a pure function of state).
+    (state.mines || []).forEach(m => {
+      ctx.save();
+      ctx.translate(m.pos.x, m.pos.y);
+      ctx.rotate(Math.PI / 4);
+      ctx.strokeStyle = '#f472b6';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(-5, -5, 10, 10);
+      ctx.restore();
+      if (Math.sin(state.starOrbit * 6) > 0) {
+        ctx.fillStyle = '#f472b6';
+        ctx.beginPath();
+        ctx.arc(m.pos.x, m.pos.y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+
     // DRAW DRONES
     (state.drones || []).forEach(d => {
       ctx.save();
@@ -207,7 +225,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
       ctx.shadowBlur = 10;
       ctx.shadowColor = p.owner === 'player' ? '#33ff33' : '#f43f5e';
       
-      const headSize = p.owner === 'player' ? 3 : 4;
+      const headSize = p.size ?? (p.owner === 'player' ? 3 : 4);
       ctx.fillRect(p.pos.x - headSize/2, p.pos.y - headSize/2, headSize, headSize);
       
       // Trail

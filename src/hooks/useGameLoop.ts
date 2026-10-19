@@ -3,6 +3,7 @@ import { GameState, Vector2D } from '../types';
 import { PHYSICS, COLORS } from '../constants';
 import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER } from '../loadout';
 import { inBankWell } from '../bank';
+import { weaponStatsFor } from '../loadout';
 
 /**
  * COMBINED WALLET — every purchase in the game (base upgrades, Arsenal
@@ -68,6 +69,7 @@ export const useGameLoop = (width: number, height: number) => {
     scrap: [],
     deployedCargo: [],
     projectiles: [],
+    mines: [],
     drones: [],
     starOrbit: 0,
     enemyStarOrbit: 0,
@@ -91,6 +93,7 @@ export const useGameLoop = (width: number, height: number) => {
     rotateRight: boolean;
     vac: boolean;
     jettison: boolean;
+    fire: boolean;
     analogStick: { x: number; y: number } | null;
   }>({
     thrust: false,
@@ -98,10 +101,11 @@ export const useGameLoop = (width: number, height: number) => {
     rotateRight: false,
     vac: false,
     jettison: false,
+    fire: false,
     analogStick: null,
   });
 
-  const setVirtualControl = useCallback((action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison', active: boolean) => {
+  const setVirtualControl = useCallback((action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison' | 'fire', active: boolean) => {
     touchInputs.current[action] = active;
   }, []);
 
@@ -608,6 +612,53 @@ export const useGameLoop = (width: number, height: number) => {
           });
         }
 
+        // SHIP WEAPON FIRE (Slice 4): the equipped weapon shoots down the
+        // ship's nose. Hold F on desktop or the FIRE button on mobile.
+        // Stats and tier scaling: src/loadout.ts WEAPON_STATS.
+        const wantsFire = keys.current.has('KeyF') || touchInputs.current.fire;
+        const weaponId = ship.loadout.weapon;
+        const wStats = weaponStatsFor(weaponId, weaponId ? (ship.arsenal[weaponId] || 0) : 0);
+        if (wantsFire && wStats && time >= (ship.fireReadyAt || 0)) {
+          const cost = wStats.scrapCost || 0;
+          if (cost <= 0 || ship.carrying >= cost) {
+            if (cost > 0) ship.carrying -= cost;
+            ship.fireReadyAt = time + wStats.cooldownMs;
+            if (wStats.kind === 'mine') {
+              // Mine Layer: no projectile — a mine drops at the ship's tail.
+              (next.mines = next.mines || []).push({
+                id: Math.random().toString(),
+                pos: { ...ship.pos },
+                damage: wStats.damage,
+                radius: wStats.radius || 115,
+              });
+            } else {
+              const pellets = wStats.pellets || 1;
+              for (let pi = 0; pi < pellets; pi++) {
+                const spreadOffset = pellets > 1 ? (pi / (pellets - 1) - 0.5) * (wStats.spread || 0) : 0;
+                const a = ship.angle + spreadOffset;
+                next.projectiles.push({
+                  id: Math.random().toString(),
+                  pos: {
+                    x: ship.pos.x + Math.cos(ship.angle) * (ship.size + 4),
+                    y: ship.pos.y + Math.sin(ship.angle) * (ship.size + 4),
+                  },
+                  vel: {
+                    x: Math.cos(a) * wStats.speed + ship.vel.x * 0.5,
+                    y: Math.sin(a) * wStats.speed + ship.vel.y * 0.5,
+                  },
+                  owner: 'player',
+                  life: wStats.life,
+                  damage: wStats.damage,
+                  kind: weaponId || undefined,
+                  pierce: wStats.pierce,
+                  size: wStats.size,
+                  hitIds: wStats.pierce ? [] : undefined,
+                });
+              }
+            }
+          }
+        }
+
         // Update Deployed Cargo
         next.deployedCargo = (next.deployedCargo || []).filter(c => {
           c.pos.x += c.vel.x;
@@ -682,6 +733,12 @@ export const useGameLoop = (width: number, height: number) => {
         // 5. Drones Logic
         next.drones = (next.drones || []).map(drone => {
           const droneStar = drone.owner === 'player' ? star : enemyStar;
+
+          // Ion stun: a rebooting drone hangs dead in space, timer ticking.
+          if (drone.stunFrames && drone.stunFrames > 0) {
+            drone.stunFrames -= 1;
+            return drone;
+          }
           
           if (drone.state === 'searching') {
             // Find closest scrap
@@ -772,8 +829,51 @@ export const useGameLoop = (width: number, height: number) => {
           return drone;
         });
 
+        // MINES (Slice 4): an enemy drone wandering inside a mine's radius
+        // trips it — everything hostile in the blast takes the damage,
+        // including the enemy star if it is somehow close.
+        next.mines = (next.mines || []).filter(mine => {
+          const tripped = next.drones.some(d => d.owner === 'enemy' &&
+            Math.hypot(d.pos.x - mine.pos.x, d.pos.y - mine.pos.y) < mine.radius);
+          if (!tripped) return true;
+          next.drones.forEach(d => {
+            if (d.owner === 'enemy' && Math.hypot(d.pos.x - mine.pos.x, d.pos.y - mine.pos.y) < mine.radius) {
+              d.health -= mine.damage;
+            }
+          });
+          if (Math.hypot(enemyStar.pos.x - mine.pos.x, enemyStar.pos.y - mine.pos.y) < mine.radius + enemyStar.size) {
+            enemyStar.integrity -= mine.damage * 0.002;
+            enemyStar.lastHitTime = time;
+          }
+          next.shakeAmount = Math.max(next.shakeAmount, 12);
+          return false;
+        });
+
         // 6. Projectiles and Defense
         next.projectiles = (next.projectiles || []).filter(p => {
+          // Seeker torpedoes steer toward the nearest enemy drone,
+          // turning at most 0.15 rad/frame so they arc rather than snap.
+          if (p.kind === 'seeker_torpedoes') {
+            let best: any = null;
+            let bestD = 700;
+            next.drones.forEach(d => {
+              if (d.owner !== 'enemy') return;
+              const dd = Math.hypot(d.pos.x - p.pos.x, d.pos.y - p.pos.y);
+              if (dd < bestD) { bestD = dd; best = d; }
+            });
+            if (best) {
+              const cur = Math.atan2(p.vel.y, p.vel.x);
+              const want = Math.atan2(best.pos.y - p.pos.y, best.pos.x - p.pos.x);
+              let diff = want - cur;
+              while (diff > Math.PI) diff -= Math.PI * 2;
+              while (diff < -Math.PI) diff += Math.PI * 2;
+              const turn = Math.max(-0.15, Math.min(0.15, diff));
+              const spd = Math.hypot(p.vel.x, p.vel.y) || 9.5;
+              p.vel.x = Math.cos(cur + turn) * spd;
+              p.vel.y = Math.sin(cur + turn) * spd;
+            }
+          }
+
           p.pos.x += p.vel.x;
           p.pos.y += p.vel.y;
           p.life -= 1;
@@ -789,17 +889,71 @@ export const useGameLoop = (width: number, height: number) => {
             return false;
           }
 
+          // Collision with enemy DRONES (ship weapons only — turret bolts
+          // carry no damage field and keep their old pass-through behavior)
+          if (p.owner === 'player' && p.damage !== undefined) {
+            const hitDrone = next.drones.find(d => d.owner === 'enemy' &&
+              !(p.hitIds || []).includes(d.id) &&
+              Math.hypot(d.pos.x - p.pos.x, d.pos.y - p.pos.y) < 14);
+            if (hitDrone) {
+              hitDrone.health -= p.damage;
+              if (p.kind === 'ion_blaster') {
+                // Ion disable: the drone reboots (stunned, no movement)
+                // and drops whatever scrap it was carrying.
+                hitDrone.stunFrames = 90;
+                for (let di = 0; di < hitDrone.carrying; di++) {
+                  newScrap.push({
+                    id: Math.random().toString(),
+                    pos: { x: hitDrone.pos.x + (Math.random() - 0.5) * 24, y: hitDrone.pos.y + (Math.random() - 0.5) * 24 },
+                    color: COLORS.SCRAP[Math.floor(Math.random() * COLORS.SCRAP.length)],
+                  });
+                }
+                hitDrone.carrying = 0;
+              }
+              if (p.pierce) {
+                (p.hitIds = p.hitIds || []).push(hitDrone.id);
+              } else {
+                return false;
+              }
+            }
+          }
+
           // Collision with Enemy Star (Player Star defense helps)
           if (p.owner === 'player') {
             const edx = enemyStar.pos.x - p.pos.x;
             const edy = enemyStar.pos.y - p.pos.y;
-            if (Math.sqrt(edx * edx + edy * edy) < enemyStar.size) {
-              enemyStar.integrity -= PHYSICS.DEFENSE.DAMAGE * 0.5; // Star defense is weaker than manual attacks
-              return false;
+            if (Math.sqrt(edx * edx + edy * edy) < enemyStar.size && !(p.hitIds || []).includes('enemy-star')) {
+              // REPAIR (Slice 4): this used to subtract DAMAGE x 0.5 = 5 from
+              // a 0..1 integrity scale — a single turret hit would have ended
+              // the game outright. Star damage is now damage x 0.002 for every
+              // shooter: a T1 bolt chips 0.024, a T5 rail lance lands 0.186.
+              enemyStar.integrity -= (p.damage !== undefined ? p.damage : PHYSICS.DEFENSE.DAMAGE) * 0.002;
+              enemyStar.lastHitTime = time;
+              if (p.pierce) {
+                (p.hitIds = p.hitIds || []).push('enemy-star');
+              } else {
+                return false;
+              }
             }
           }
 
           return p.life > 0;
+        });
+
+        // DRONE DEATHS (Slice 4): a drone shot or mined to 0 health becomes
+        // wreckage — it drops what it was carrying plus one salvage piece.
+        // Drops go into newScrap, the array the frame actually returns.
+        next.drones = next.drones.filter(d => {
+          if (d.health > 0) return true;
+          for (let di = 0; di < d.carrying + 1; di++) {
+            newScrap.push({
+              id: Math.random().toString(),
+              pos: { x: d.pos.x + (Math.random() - 0.5) * 30, y: d.pos.y + (Math.random() - 0.5) * 30 },
+              color: COLORS.SCRAP[Math.floor(Math.random() * COLORS.SCRAP.length)],
+            });
+          }
+          next.shakeAmount = Math.max(next.shakeAmount, 6);
+          return false;
         });
 
         // Update Turrets

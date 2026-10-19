@@ -1,8 +1,8 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
-import { Rocket, Magnet, Disc, Wrench, Navigation, Gauge, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Rocket, Magnet, Disc, Wrench, Navigation, Gauge, ChevronLeft, ChevronRight, Crosshair } from 'lucide-react';
 
 interface MobileControlsProps {
-  onControlChange: (action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison', active: boolean) => void;
+  onControlChange: (action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison' | 'fire', active: boolean) => void;
   onAnalogStick: (stick: { x: number; y: number } | null) => void;
   onOpenWorkshop: () => void;
   onToggleRadar: () => void;
@@ -86,7 +86,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
     }
   };
 
-  const createTouchButtonHandler = (action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison') => {
+  const createTouchButtonHandler = (action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison' | 'fire') => {
     return {
       onPointerDown: (e: React.PointerEvent) => {
         e.preventDefault();
@@ -106,6 +106,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
     };
   };
 
+  const fireHandlers = createTouchButtonHandler('fire');
   const thrustHandlers = createTouchButtonHandler('thrust');
   const vacHandlers = createTouchButtonHandler('vac');
   const jettisonHandlers = createTouchButtonHandler('jettison');
@@ -271,7 +272,17 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
             </button>
           </div>
 
-          {/* Column 2: Big Primary THRUST Button */}
+          {/* Column 2: FIRE Button (hold to shoot the equipped weapon) */}
+          <button
+            {...fireHandlers}
+            className="w-14 h-26 sm:w-16 sm:h-28 pitted-metal rounded-xl border-2 border-red-600/80 bg-gradient-to-b from-red-950/60 to-zinc-950 text-red-400 active:from-red-700 active:to-red-900 active:border-red-400 active:text-white active:scale-95 flex flex-col items-center justify-center gap-1 shadow-[0_0_20px_rgba(239,68,68,0.3)] touch-none"
+          >
+            <Crosshair size={24} className="text-red-400" />
+            <span className="text-[10px] font-mono font-black uppercase tracking-wider text-red-300">FIRE</span>
+            <span className="text-[7px] font-mono opacity-60">HOLD GUN</span>
+          </button>
+
+          {/* Column 3: Big Primary THRUST Button */}
           <button
             {...thrustHandlers}
             className="w-18 h-26 sm:w-20 sm:h-28 pitted-metal rounded-xl border-2 border-orange-600/80 bg-gradient-to-b from-orange-950/60 to-zinc-950 text-orange-400 active:from-orange-700 active:to-orange-900 active:border-orange-400 active:text-white active:scale-95 flex flex-col items-center justify-center gap-1 shadow-[0_0_20px_rgba(234,88,12,0.3)] touch-none relative overflow-hidden"
