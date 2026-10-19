@@ -84,7 +84,8 @@ Adam: ship weapons are to be added. Marlowe's draft, for reaction:
 
 ## Open questions
 
-1. Turret start count: 1 at spawn (this doc's reading) or 0?
+1. ~~Turret start count: 1 at spawn or 0?~~ **SETTLED (Adam, 2026-10-19): the starter
+   turret is kept — the star spawns with 1 turret, and M1 completes the inner shell at 2.**
 2. Phase D: round-robin tiering, or all-eight-together every few milestones?
 3. Heal rate numbers, and the per-tier "beefier" numbers — settle in playtesting.
 4. Ship weapons: one track or two? Bought like other ship upgrades, or earned another way?
