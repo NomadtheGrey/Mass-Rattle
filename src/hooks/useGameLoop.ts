@@ -2,18 +2,22 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { GameState, Vector2D } from '../types';
 import { PHYSICS, COLORS } from '../constants';
 import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER } from '../loadout';
+import { inBankWell } from '../bank';
 
 /**
  * COMBINED WALLET — every purchase in the game (base upgrades, Arsenal
  * tiers, loadout swaps) is checked against hold + bank TOGETHER and paid
  * hold-first, then bank. This is what makes prices above the hold's
- * physical capacity (15 scrap at start) reachable at all: you save in
- * the bank, then spend across both. Returns null when the wallet cannot
- * cover the cost; otherwise returns the post-payment balances.
+ * physical capacity (15 scrap at start) reachable at all.
+ *
+ * BANK ACCESS (Adam, 2026-10-19): the bank IS the home star's gravity
+ * well — savings can only be SPENT from inside the well (see src/bank.ts).
+ * Outside it, bankAccessible is false and the wallet is the hold alone.
+ * Returns null when the accessible wallet cannot cover the cost.
  */
-const walletTotal = (carrying: number, banked: number) => carrying + banked;
-const walletPay = (carrying: number, banked: number, cost: number) => {
-  if (walletTotal(carrying, banked) < cost) return null;
+const walletPay = (carrying: number, banked: number, cost: number, bankAccessible: boolean) => {
+  const accessible = carrying + (bankAccessible ? banked : 0);
+  if (accessible < cost) return null;
   const fromHold = Math.min(carrying, cost);
   return { carrying: carrying - fromHold, banked: banked - (cost - fromHold) };
 };
@@ -123,7 +127,7 @@ export const useGameLoop = (width: number, height: number) => {
       const currentLevel = type === 'fuel' ? prev.ship.upgrades.fuelCap : (prev.ship.upgrades as any)[type];
       const cost = baseCost + (currentLevel * Math.floor(baseCost * 0.5));
       
-      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost);
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost, inBankWell(prev.ship.pos, prev.star.pos, prev.star.size));
       if (!payment) return prev;
 
       const next = { ...prev };
@@ -163,7 +167,7 @@ export const useGameLoop = (width: number, height: number) => {
       const owned = prev.ship.arsenal[itemId] || 0;
       if (owned >= MAX_ITEM_TIER) return prev;
       const cost = itemTierCost(def, owned);
-      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost);
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost, inBankWell(prev.ship.pos, prev.star.pos, prev.star.size));
       if (!payment) return prev;
 
       const ship = { ...prev.ship };
@@ -195,7 +199,7 @@ export const useGameLoop = (width: number, height: number) => {
       // priced on the INCOMING item's tier. Empty slot = free equip.
       // Paid from the combined wallet like every other purchase.
       if (current !== null) {
-        const payment = walletPay(prev.ship.carrying, prev.bankedScrap, swapCostForTier(owned));
+        const payment = walletPay(prev.ship.carrying, prev.bankedScrap, swapCostForTier(owned), inBankWell(prev.ship.pos, prev.star.pos, prev.star.size));
         if (!payment) return prev;
         ship.carrying = payment.carrying;
         banked = payment.banked;
@@ -213,6 +217,7 @@ export const useGameLoop = (width: number, height: number) => {
   // ------------------------------------------------------------------
   const depositBank = useCallback(() => {
     setState(prev => {
+      if (!inBankWell(prev.ship.pos, prev.star.pos, prev.star.size)) return prev; // banking happens at home
       if (prev.ship.carrying <= 0) return prev;
       const ship = { ...prev.ship, carrying: 0 };
       return { ...prev, ship, bankedScrap: prev.bankedScrap + prev.ship.carrying, glitchActive: true, lastGlitchTime: performance.now() };
@@ -221,6 +226,7 @@ export const useGameLoop = (width: number, height: number) => {
 
   const withdrawBank = useCallback(() => {
     setState(prev => {
+      if (!inBankWell(prev.ship.pos, prev.star.pos, prev.star.size)) return prev; // banking happens at home
       if (prev.bankedScrap <= 0) return prev;
       const regularCapacity = PHYSICS.CARGO.BASE_CAPACITY + prev.ship.upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS;
       const totalCapacity = regularCapacity + Math.floor(regularCapacity * PHYSICS.CARGO.OVERLOAD_RATIO);

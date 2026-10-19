@@ -74,6 +74,7 @@ interface HUDProps {
   onEquipItem: (itemId: string) => void;
   // The Bank: saved scrap balance + hold<->bank transfers.
   bankedScrap: number;
+  bankInWell: boolean;
   onDepositBank: () => void;
   onWithdrawBank: () => void;
   isMobileRadarOpen?: boolean;
@@ -109,6 +110,7 @@ export const HUD: React.FC<HUDProps> = ({
   onBuyItem,
   onEquipItem,
   bankedScrap,
+  bankInWell,
   onDepositBank,
   onWithdrawBank,
   isMobileRadarOpen = false,
@@ -118,8 +120,9 @@ export const HUD: React.FC<HUDProps> = ({
   onToggleGauges
 }) => {
   // COMBINED WALLET: shop affordability is judged on hold + bank together,
-  // matching walletPay in the game loop. Hold-only amounts are labelled as such.
-  const funds = carrying + bankedScrap;
+  // matching walletPay in the game loop — but the bank is the home star's
+  // gravity well, so banked savings only count while inside it.
+  const funds = carrying + (bankInWell ? bankedScrap : 0);
   const growthProgress = (totalScrapInfused % 100);
   const starLevel = Math.floor(totalScrapInfused / 100) + 1;
   const [showSysCfg, setShowSysCfg] = React.useState(false);
@@ -631,7 +634,7 @@ export const HUD: React.FC<HUDProps> = ({
         <div className="hud-panel px-2 py-1 sm:px-3 sm:py-1.5 rounded border border-pink-500/50 text-center min-w-[64px] sm:min-w-[84px]">
           <div className="text-[7px] sm:text-[8px] font-mono text-zinc-500 tracking-widest">BANK</div>
           <div className="text-[9px] sm:text-[11px] font-bold uppercase text-pink-400 leading-tight">🏦 {bankedScrap}U</div>
-          <div className="text-[7px] sm:text-[8px] font-mono text-zinc-500">SAVED</div>
+          <div className={`text-[7px] sm:text-[8px] font-mono ${bankInWell ? 'text-[#33ff33]' : 'text-zinc-500'}`}>{bankInWell ? 'IN THE WELL' : 'AT HOME STAR'}</div>
         </div>
         {([
           { slot: 'weapon' as const, label: 'WPN' },
@@ -672,7 +675,7 @@ export const HUD: React.FC<HUDProps> = ({
                 <div className="flex items-center gap-3">
                   <div className="text-right">
                     <div className="text-pink-500 text-[10px] sm:text-xs font-mono">HOLD {carrying}U · BANK {bankedScrap}U</div>
-                    <div className="text-lg sm:text-xl font-bold text-pink-400 leading-none">{funds}U TOTAL</div>
+                    <div className="text-lg sm:text-xl font-bold text-pink-400 leading-none">{funds}U {bankInWell ? 'TOTAL' : 'IN HOLD'}</div>
                   </div>
                   {onCloseShop && (
                     <button
@@ -712,10 +715,14 @@ export const HUD: React.FC<HUDProps> = ({
               {shopTab === 'bank' && (
                 <div className="flex flex-col gap-3 overflow-y-auto pr-1 max-h-[60vh] scrollbar-thin">
                   <p className="text-[10px] sm:text-xs opacity-70 leading-snug">
-                    The hold is small and your star eats whatever you carry home.
-                    Banked scrap is <span className="text-[#33ff33] font-bold">safe</span>: it is not auto-fed on
-                    delivery flybys and does not feed milestones until you withdraw it and deliver it.
-                    The shop spends hold first, then bank — so savings are how big prices get paid.
+                    The bank is your star's <span className="text-[#33ff33] font-bold">gravity well</span> — banked scrap
+                    orbits the star (watch the motes in the ring) and is safe there: it is not auto-fed on delivery
+                    flybys and does not feed milestones until you withdraw it and deliver it.
+                    Banking — deposit, withdraw, and spending savings — only works <span className="text-[#33ff33] font-bold">inside the well</span>:
+                    fly home, stay outside the star's feeding reach (80U), and use the ring.
+                    {bankInWell
+                      ? <span className="block mt-1 text-[#33ff33] font-bold">YOU ARE IN THE WELL — BANK OPEN.</span>
+                      : <span className="block mt-1 text-amber-500 font-bold">YOU ARE NOT IN THE WELL — BANK CLOSED.</span>}
                   </p>
                   <div className="grid grid-cols-2 gap-2 sm:gap-4">
                     <div className="pitted-metal p-3 sm:p-4 rounded-lg border border-zinc-700 text-center">
@@ -730,18 +737,18 @@ export const HUD: React.FC<HUDProps> = ({
                   <div className="flex gap-2">
                     <button
                       onClick={onDepositBank}
-                      disabled={carrying <= 0}
+                      disabled={!bankInWell || carrying <= 0}
                       className={`flex-1 px-3 py-2 rounded text-[10px] sm:text-xs font-bold touch-manipulation active:scale-95 ${
-                        carrying > 0 ? 'bg-[#33ff33] text-black shadow-[0_0_8px_#33ff33]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                        bankInWell && carrying > 0 ? 'bg-[#33ff33] text-black shadow-[0_0_8px_#33ff33]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
                       }`}
                     >
                       ⬇ DEPOSIT ALL ({carrying}U)
                     </button>
                     <button
                       onClick={onWithdrawBank}
-                      disabled={bankedScrap <= 0}
+                      disabled={!bankInWell || bankedScrap <= 0}
                       className={`flex-1 px-3 py-2 rounded text-[10px] sm:text-xs font-bold touch-manipulation active:scale-95 ${
-                        bankedScrap > 0 ? 'bg-pink-600 text-white shadow-[0_0_8px_rgba(219,39,119,0.6)]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                        bankInWell && bankedScrap > 0 ? 'bg-pink-600 text-white shadow-[0_0_8px_rgba(219,39,119,0.6)]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
                       }`}
                     >
                       ⬆ WITHDRAW (FILL HOLD)

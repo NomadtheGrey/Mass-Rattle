@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { GameState } from '../types';
 import { COLORS } from '../constants';
+import { BANK_WELL_MARGIN } from '../bank';
 
 interface GameCanvasProps {
   state: GameState;
@@ -100,6 +101,30 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
         ctx.restore();
       }
       ctx.restore();
+
+      // BANK WELL (home star only): the gravity-well ring that IS the bank,
+      // plus one orbiting mote per banked scrap (capped for readability) so
+      // savings are visible in the world, circling their star.
+      if (isHome) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(51, 255, 51, 0.25)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([6, 10]);
+        ctx.beginPath();
+        ctx.arc(0, 0, s.size + BANK_WELL_MARGIN, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        const motes = Math.min(state.bankedScrap, 24);
+        ctx.fillStyle = '#f472b6';
+        for (let i = 0; i < motes; i++) {
+          const mAngle = state.starOrbit * 0.6 + (i / Math.max(1, motes)) * Math.PI * 2;
+          const mRadius = s.size + 90 + (i % 3) * 60;
+          ctx.beginPath();
+          ctx.arc(Math.cos(mAngle) * mRadius, Math.sin(mAngle) * mRadius, 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
 
       // Star Core
       const gradient = ctx.createRadialGradient(0, 0, s.size * 0.2, 0, 0, s.size);

@@ -9,6 +9,7 @@ import { HUD } from './components/HUD';
 import { ResultsOverlay } from './components/ResultsOverlay';
 import { MobileControls } from './components/MobileControls';
 import { useGameLoop } from './hooks/useGameLoop';
+import { inBankWell } from './bank';
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -44,6 +45,9 @@ export default function App() {
   } = useGameLoop(dimensions.width, dimensions.height);
 
   const shipVelocity = Math.sqrt(state.ship.vel.x ** 2 + state.ship.vel.y ** 2);
+  // The bank is the home star's gravity well: HUD affordability and the
+  // BANK tab key off this one check, matching the game loop's gating.
+  const bankInWell = inBankWell(state.ship.pos, state.star.pos, state.star.size);
 
   const handleToggleMobileRadar = useCallback(() => {
     setIsMobileRadarOpen(prev => !prev);
@@ -86,6 +90,7 @@ export default function App() {
         onBuyItem={buyItem}
         onEquipItem={equipItem}
         bankedScrap={state.bankedScrap}
+        bankInWell={bankInWell}
         onDepositBank={depositBank}
         onWithdrawBank={withdrawBank}
         isMobileRadarOpen={isMobileRadarOpen}
