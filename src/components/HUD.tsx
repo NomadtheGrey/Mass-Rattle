@@ -294,7 +294,7 @@ export const HUD: React.FC<HUDProps> = ({
 
           <div className="flex items-center gap-2">
             <span className="text-cyan-400 font-bold bg-cyan-950/60 px-1 py-0.5 rounded border border-cyan-800">
-              BANK: {teamScrap}U
+              FED: {teamScrap}U
             </span>
             <button
               onClick={() => setShowSysCfg(true)}
@@ -432,7 +432,7 @@ export const HUD: React.FC<HUDProps> = ({
               {velocity > 4 && <p className="text-red-500">[WARN] SPEED EXCEEDS BUFFER</p>}
               {carrying > (PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS) && <p className="text-yellow-500">[WARN] CARGO OVERLOAD</p>}
               {carrying > 0 && <p className="text-pink-500 font-bold">[INFO] SCRAP LOAD: {carrying}U</p>}
-              <p className="text-cyan-400 font-bold bg-cyan-950/40 px-1 border-l-2 border-cyan-500">[BANK] {teamScrap} CREDITS</p>
+              <p className="text-cyan-400 font-bold bg-cyan-950/40 px-1 border-l-2 border-cyan-500">[FED] {teamScrap}U DELIVERED</p>
               {fuel < 20 && <p className="text-red-600 animate-pulse font-bold">[ERR] FUEL DEPLETED</p>}
               {glitch && <p className="text-yellow-600">[DATA] SENSORS RECALIBRATING...</p>}
               <p className="opacity-30">PINGS: {Math.floor(Math.random()*100)}ms</p>
