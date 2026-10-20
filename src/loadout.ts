@@ -235,3 +235,27 @@ export const decoyHealthFor = (tier: number): number => 20 + 15 * tier;
 export const decoyLifeFramesFor = (tier: number): number => (12 + 4 * tier) * 60;
 /** Grav Dampers: gravity on the ship is multiplied by this — T1 0.88, T5 0.40. */
 export const gravFactorFor = (tier: number): number => 1 - 0.12 * tier;
+
+/**
+ * HYBRID NUMBERS (Phase 1b) — one helper per hybrid, tier-driven, same
+ * draft-tuning spirit as the tables above. The game loop consumes these;
+ * it never hardcodes a hybrid's behavior.
+ */
+
+/** Mirror Sail: damage of a reflected bolt, which flies back as a player
+ * projectile — T1 10 (exactly a turret bolt's own damage), +2/tier, T5 18. */
+export const mirrorReflectDamageFor = (tier: number): number => 8 + 2 * tier;
+/** Mirror Sail: the sail catches a star's light inside this range. */
+export const SAIL_RANGE = 900;
+/** Mirror Sail light pressure (a force — the loop divides by ship mass,
+ * like engine thrust): T1 0.03, +0.01/tier, T5 0.07, fading to 0 at range. */
+export const sailThrustFor = (tier: number): number => 0.02 + 0.01 * tier;
+/** Siphon VAC: fuel gained per enemy projectile eaten — T1 2, +1/tier, T5 6. */
+export const siphonFuelFor = (tier: number): number => 1 + tier;
+/** Thorn Hull: damage handed back — T1 10, +4/tier, T5 26. Against the
+ * star it lands as integrity damage on the universal x0.002 star scale
+ * (per bolt that reaches the hull; per second inside the burn zone);
+ * drones in hull contact take it per second. */
+export const thornDamageFor = (tier: number): number => 6 + 4 * tier;
+/** Scrap Aegis: hull damage soaked per scrap of cargo burned — T1 6, +2/tier, T5 14. */
+export const aegisAbsorbFor = (tier: number): number => 4 + 2 * tier;

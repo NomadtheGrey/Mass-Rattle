@@ -28,6 +28,10 @@ export interface Ship extends GameObject {
   pdReadyAt?: number;
   pdZapAt?: number;
   pdZapTarget?: Vector2D;
+  /** Scrap Aegis: leftover damage-soak credit from the last burned scrap,
+   * so fractional damage (star burn) burns cargo at the table's rate
+   * instead of a whole scrap per frame. Loop-managed. */
+  aegisCredit?: number;
   // Arsenal (see src/loadout.ts): item id -> owned tier (0/absent = not owned),
   // and the one equipped item id per category (null = slot empty).
   arsenal: Record<string, number>;

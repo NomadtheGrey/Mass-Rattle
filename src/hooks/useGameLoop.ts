@@ -4,7 +4,7 @@ import { PHYSICS, COLORS } from '../constants';
 import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER } from '../loadout';
 import { inBankWell } from '../bank';
 import { infuseStar, milestonesForInfused } from '../starGrowth';
-import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, cmeReductionFor } from '../loadout';
+import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, cmeReductionFor, mirrorReflectDamageFor, SAIL_RANGE, sailThrustFor, siphonFuelFor, thornDamageFor, aegisAbsorbFor } from '../loadout';
 
 /**
  * COMBINED WALLET — every purchase in the game (base upgrades, Arsenal
@@ -416,6 +416,43 @@ export const useGameLoop = (width: number, height: number) => {
         const gravFactor = defId === 'grav_dampers' ? gravFactorFor(defTier) : 1;
         const thrustFactor = defId === 'armor_plating' ? armorThrustFactor(defTier) : 1;
 
+        // HYBRID STATE (Phase 1b): the equipped hybrid, resolved once per
+        // frame exactly like the defense above — effects key off the
+        // EQUIPPED item and its owned tier; owning without equipping
+        // does nothing.
+        const hyId = ship.loadout.hybrid;
+        const hyTier = hyId ? (ship.arsenal[hyId] || 0) : 0;
+
+        // SCRAP AEGIS plumbing: ablative armor made of cargo. Every point
+        // of hull damage is offered to the hold first: each scrap soaks
+        // aegisAbsorbFor(tier) damage, and a partly used scrap's leftover
+        // soak is remembered (ship.aegisCredit) so fractional damage —
+        // the star burn — burns cargo at the same rate instead of a
+        // scrap per frame. Returns the damage the hull actually takes
+        // (0 while cargo lasts). Layering: the Deflector pool absorbs
+        // first where it already does (it recharges free), the aegis
+        // second (it costs cargo), the hull last.
+        const aegisAbsorb = (dmg: number): number => {
+          if (hyId !== 'scrap_aegis' || dmg <= 0) return dmg;
+          let remaining = dmg;
+          let credit = ship.aegisCredit || 0;
+          if (credit > 0) {
+            const used = Math.min(credit, remaining);
+            credit -= used;
+            remaining -= used;
+          }
+          const per = aegisAbsorbFor(hyTier);
+          while (remaining > 0 && ship.carrying > 0) {
+            ship.carrying -= 1;
+            credit += per;
+            const used = Math.min(credit, remaining);
+            credit -= used;
+            remaining -= used;
+          }
+          ship.aegisCredit = credit;
+          return remaining;
+        };
+
         // 1. Fuel & Inputs
         const stick = touchInputs.current.analogStick;
         const stickDist = stick ? Math.sqrt(stick.x * stick.x + stick.y * stick.y) : 0;
@@ -462,7 +499,16 @@ export const useGameLoop = (width: number, height: number) => {
         // midpoint where it needs it.)
 
         if (eDist < enemyStar.size + 150) {
-          ship.health -= 0.15 * (1 - (eDist / (enemyStar.size + 150)));
+          // The burn still bypasses the Deflector (heat, not bolts), but
+          // the Scrap Aegis is armor, not shield — it soaks burn too.
+          ship.health -= aegisAbsorb(0.15 * (1 - (eDist / (enemyStar.size + 150))));
+          // THORN HULL at point blank (Phase 1b): sitting in the burn is
+          // the star point-blanking you, and the armor bites back —
+          // thorn damage per second on the universal x0.002 star scale.
+          if (hyId === 'thorn_hull') {
+            enemyStar.integrity = Math.max(0, enemyStar.integrity - (thornDamageFor(hyTier) * 0.002) / 60);
+            enemyStar.lastHitTime = time;
+          }
           if (Math.random() < 0.05) next.shakeAmount = 3;
         }
         // (The old deep-space drain past 6,000 from the midpoint is
@@ -535,6 +581,27 @@ export const useGameLoop = (width: number, height: number) => {
             }
           }
         });
+
+        // MIRROR SAIL light-catch (Phase 1b): near a bright star the sail
+        // turns starlight into thrust — radiation pressure, a gentle push
+        // straight AWAY from the star, strongest close in and gone past
+        // SAIL_RANGE. It is not gravity, so Grav Dampers neither cut it
+        // nor are cut by it; and like engine thrust it is divided by ship
+        // mass, so a heavy hold catches less push. Always on — a sail
+        // catches light whether or not the engine is burning.
+        if (hyId === 'mirror_sail') {
+          const sailForce = sailThrustFor(hyTier);
+          [star, enemyStar].forEach(s => {
+            const dx = ship.pos.x - s.pos.x;
+            const dy = ship.pos.y - s.pos.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > 1 && dist < SAIL_RANGE) {
+              const push = (sailForce * (1 - dist / SAIL_RANGE)) / currentMass;
+              ship.vel.x += (dx / dist) * push;
+              ship.vel.y += (dy / dist) * push;
+            }
+          });
+        }
 
         // Inertia & Friction (Handling improvements)
         const currentFriction = Math.max(PHYSICS.FRICTION - ship.upgrades.handling * 0.01, PHYSICS.FRICTION_MAX);
@@ -952,6 +1019,21 @@ export const useGameLoop = (width: number, height: number) => {
           p.pos.y += p.vel.y;
           p.life -= 1;
 
+          // SIPHON VAC (Phase 1b): while the VAC runs, the tractor beam
+          // eats enemy projectiles that cross its field and converts them
+          // into a trickle of fuel. INTERPRETATION (flagged for Adam):
+          // the description names the tractor beam, and in this code the
+          // beam's deliberate mode is ACTIVE VAC (Q/E/R) — so eating is
+          // gated on VAC being held, over the same radius that hauls
+          // scrap while VAC is on (attractRadius x 1.6). Ungated, the
+          // passive attract field would eat every bolt near the ship and
+          // quietly retire the Deflector Shield's whole job.
+          if (hyId === 'siphon_vac' && p.owner === 'enemy' && isVacActive &&
+              Math.hypot(ship.pos.x - p.pos.x, ship.pos.y - p.pos.y) < ship.attractRadius * 1.6) {
+            ship.fuel = Math.min(ship.maxFuel, ship.fuel + siphonFuelFor(hyTier));
+            return false;
+          }
+
           // Collision with the DECOY beacon (Slice 6): bolts meant for the
           // ship eat the beacon instead, until it is shot down.
           if (p.owner === 'enemy' && next.decoy &&
@@ -965,6 +1047,23 @@ export const useGameLoop = (width: number, height: number) => {
           const sdx = ship.pos.x - p.pos.x;
           const sdy = ship.pos.y - p.pos.y;
           if (p.owner === 'enemy' && Math.sqrt(sdx * sdx + sdy * sdy) < ship.size) {
+            // MIRROR SAIL (Phase 1b): the bolt never lands — the sail
+            // throws it back the way it came, as a player projectile with
+            // tier-scaled damage ("defense that is offense"), keeping
+            // whatever flight life it had left. The Deflector never sees
+            // it: reflection happens at the sail, outside the bubble.
+            // Falling out of this branch with the bolt mutated, it flows
+            // on into the drone/star hit checks below as a player shot.
+            if (hyId === 'mirror_sail') {
+              p.owner = 'player';
+              p.vel.x = -p.vel.x;
+              p.vel.y = -p.vel.y;
+              p.damage = mirrorReflectDamageFor(hyTier);
+              p.kind = 'mirror_sail';
+              next.shakeAmount = Math.max(next.shakeAmount, 5);
+              next.glitchActive = true;
+              next.lastGlitchTime = time;
+            } else {
             let dmg = PHYSICS.DEFENSE.DAMAGE;
             // Deflector Shield eats bolts before they reach the hull;
             // whatever overflows the pool is what the hull feels.
@@ -974,15 +1073,30 @@ export const useGameLoop = (width: number, height: number) => {
               dmg -= absorbed;
               ship.shieldHitAt = time;
             }
+            // Scrap Aegis burns cargo for whatever gets past the shield.
+            if (dmg > 0) dmg = aegisAbsorb(dmg);
             if (dmg > 0) {
               ship.health -= dmg;
+              // THORN HULL (Phase 1b): a bolt that reaches the hull was
+              // fired point blank — the armor bites the firing star back
+              // on the universal x0.002 scale. Bolts the shield or aegis
+              // ate never touch the armor, so they don't bite.
+              if (hyId === 'thorn_hull') {
+                enemyStar.integrity -= thornDamageFor(hyTier) * 0.002;
+                enemyStar.lastHitTime = time;
+              }
               next.shakeAmount = 15;
             } else {
               next.shakeAmount = Math.max(next.shakeAmount, 5);
             }
-            next.glitchActive = true;
-            next.lastGlitchTime = time;
-            return false;
+            } // (end of the non-mirror damage path)
+            if (hyId !== 'mirror_sail') {
+              next.glitchActive = true;
+              next.lastGlitchTime = time;
+              return false;
+            }
+            // A reflected bolt falls through: the checks below now treat
+            // it as the player shot it has become.
           }
 
           // Collision with enemy DRONES (ship weapons only — turret bolts
@@ -1062,6 +1176,21 @@ export const useGameLoop = (width: number, height: number) => {
             ship.pdZapAt = time;
             ship.pdZapTarget = { x: zapTarget.x, y: zapTarget.y };
           }
+        }
+
+        // THORN HULL contact (Phase 1b): enemy drones that ram the ship —
+        // inside hull contact range (ship radius + the same 14 the
+        // projectile checks use for drones) — get bitten continuously,
+        // thorn damage per second for as long as they stay in reach.
+        // Kills are swept up by the drone-death pass below, drops and all.
+        if (hyId === 'thorn_hull') {
+          const thornPerFrame = thornDamageFor(hyTier) / 60;
+          next.drones.forEach(d => {
+            if (d.owner !== 'enemy') return;
+            if (Math.hypot(d.pos.x - ship.pos.x, d.pos.y - ship.pos.y) < ship.size + 14) {
+              d.health -= thornPerFrame;
+            }
+          });
         }
 
         // CME — CORONAL MASS EJECTIONS (Slice 7). Each star fires one
@@ -1163,6 +1292,8 @@ export const useGameLoop = (width: number, height: number) => {
                 dmg -= absorbed;
                 ship.shieldHitAt = time;
               }
+              // Scrap Aegis burns cargo for whatever gets past the shield.
+              if (dmg > 0) dmg = aegisAbsorb(dmg);
               if (dmg > 0) ship.health -= dmg;
               const kb = w.baseKnockback * falloff * (1 - red) * gravFactor;
               const sv = shoveVec(ship.pos, kb);
