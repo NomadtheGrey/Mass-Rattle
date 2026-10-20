@@ -1,5 +1,5 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
-import { Rocket, Magnet, Disc, Wrench, Navigation, Gauge, ChevronLeft, ChevronRight, Download, Upload, Landmark, Radio, Info } from 'lucide-react';
+import { Rocket, Magnet, Disc, Wrench, Navigation, Gauge, ChevronLeft, ChevronRight, Download, Upload, Landmark, Radio, Info, Star } from 'lucide-react';
 import { getLoadoutItem } from '../loadout';
 
 interface MobileControlsProps {
@@ -18,6 +18,7 @@ interface MobileControlsProps {
   /** True inside the home star's bank well: the combat cluster becomes the dock. */
   inWell: boolean;
   bankedScrap: number;
+  onFeedCargo: () => void;
   onDepositBank: () => void;
   onWithdrawBank: () => void;
   /** Decoy Beacon equipped + not yet out: the one manual DEPLOY tile shows. */
@@ -38,6 +39,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
   weaponId,
   inWell,
   bankedScrap,
+  onFeedCargo,
   onDepositBank,
   onWithdrawBank,
   decoyEquipped,
@@ -212,7 +214,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
               { label: 'VAC PULL · HOLD', keys: 'COLLECT SCRAP' },
               { label: 'EJECT', keys: 'CARGO PULSE — SHOWS WHEN CARRYING' },
               ...(decoyEquipped ? [{ label: 'DECOY ▸ DROP', keys: 'DROPS THE BEACON' }] : []),
-              { label: 'IN THE WELL', keys: 'DEPOSIT · WITHDRAW · WORKSHOP' },
+              { label: 'IN THE WELL', keys: 'FEED · BANK · WITHDRAW · WORKSHOP' },
               { label: 'WORKSHOP', keys: 'SHOP + UPGRADES — AT YOUR STAR' },
             ].map(row => (
               <div key={row.label} className={`flex justify-between gap-3 text-[9px] font-mono ${row.dim ? 'opacity-40' : ''}`}>
@@ -316,18 +318,29 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
         <div className="flex items-center gap-2 sm:gap-3">
 
           {inWell ? (
-            /* Column 1 (docked): BANK ACTIONS — deposit/withdraw live here
-               because both only work inside the well anyway. The WORKSHOP
-               button in the top row opens the (well-gated) shop itself. */
+            /* Column 1 (docked): THE CHOICE (Adam's pin, 2026-10-20) —
+               FEED the star or BANK the load, both one tap, both only
+               inside the well anyway. The WORKSHOP button in the top row
+               opens the (well-gated) shop itself. */
             <div className="flex flex-col gap-2">
+              {carrying > 0 && (
+                <button
+                  onClick={() => { triggerHaptic(20); onFeedCargo(); }}
+                  className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-amber-500/80 bg-amber-950/40 text-amber-300 active:bg-amber-900/60 active:scale-95 flex flex-col items-center justify-center shadow-[0_0_12px_rgba(251,191,36,0.3)] touch-none"
+                >
+                  <Star size={16} className="text-amber-300" />
+                  <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">FEED</span>
+                  <span className="text-[8px] font-mono opacity-90">ALL {carrying}U</span>
+                </button>
+              )}
               {carrying > 0 && (
                 <button
                   onClick={() => { triggerHaptic(20); onDepositBank(); }}
                   className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-pink-600/80 bg-pink-950/40 text-pink-400 active:bg-pink-900/60 active:scale-95 flex flex-col items-center justify-center shadow-[0_0_12px_rgba(236,72,153,0.3)] touch-none"
                 >
                   <Download size={16} className="text-pink-400" />
-                  <span className="text-[8px] font-mono font-bold uppercase tracking-tight mt-0.5">DEPOSIT</span>
-                  <span className="text-[7px] font-mono opacity-70">ALL {carrying}U</span>
+                  <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">BANK</span>
+                  <span className="text-[8px] font-mono opacity-90">ALL {carrying}U</span>
                 </button>
               )}
               {bankedScrap > 0 && (
@@ -336,14 +349,14 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                   className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-cyan-600/80 bg-cyan-950/40 text-cyan-300 active:bg-cyan-900/60 active:scale-95 flex flex-col items-center justify-center shadow-[0_0_12px_rgba(34,211,238,0.25)] touch-none"
                 >
                   <Upload size={16} className="text-cyan-300" />
-                  <span className="text-[8px] font-mono font-bold uppercase tracking-tight mt-0.5">WITHDRAW</span>
-                  <span className="text-[7px] font-mono opacity-70">BANK {bankedScrap}U</span>
+                  <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">WITHDRAW</span>
+                  <span className="text-[8px] font-mono opacity-90">BANK {bankedScrap}U</span>
                 </button>
               )}
               {carrying <= 0 && bankedScrap <= 0 && (
                 <div className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-zinc-800 bg-zinc-950/50 text-zinc-500 flex flex-col items-center justify-center">
                   <Landmark size={16} />
-                  <span className="text-[8px] font-mono font-bold uppercase tracking-tight mt-0.5">DOCKED</span>
+                  <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">DOCKED</span>
                 </div>
               )}
             </div>
@@ -355,10 +368,10 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
               {carrying > 0 && (
                 <button
                   {...jettisonHandlers}
-                  className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-red-600 bg-red-950/40 text-red-500 active:bg-red-900 active:scale-95 flex flex-col items-center justify-center transition-all touch-none shadow-[0_0_12px_rgba(239,68,68,0.3)]"
+                  className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-red-600 bg-red-950/40 text-red-400 active:bg-red-900 active:scale-95 flex flex-col items-center justify-center transition-all touch-none shadow-[0_0_12px_rgba(239,68,68,0.3)]"
                 >
                   <Disc size={16} className="text-red-400 animate-spin" />
-                  <span className="text-[8px] font-mono font-bold uppercase tracking-tight mt-0.5">EJECT</span>
+                  <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">EJECT</span>
                 </button>
               )}
 
@@ -368,7 +381,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                 className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-emerald-600/80 bg-emerald-950/30 text-[#33ff33] active:bg-emerald-900/60 active:border-[#33ff33] active:scale-95 flex flex-col items-center justify-center shadow-[0_0_12px_rgba(51,255,51,0.2)] touch-none"
               >
                 <Magnet size={16} className="text-[#33ff33]" />
-                <span className="text-[8px] font-mono font-bold uppercase tracking-tight mt-0.5">VAC PULL</span>
+                <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">VAC PULL</span>
               </button>
 
               {/* DECOY deploy tile — the one manual deployable wears its own
@@ -379,7 +392,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                   className="w-14 h-10 sm:w-16 pitted-metal rounded-lg border-2 border-amber-600/80 bg-amber-950/40 text-amber-300 active:bg-amber-900/60 active:scale-95 flex flex-col items-center justify-center shadow-[0_0_12px_rgba(245,158,11,0.25)] touch-none"
                 >
                   <Radio size={14} className="text-amber-300" />
-                  <span className="text-[8px] font-mono font-bold uppercase tracking-tight mt-0.5">DECOY ▸ DROP</span>
+                  <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">DECOY ▸ DROP</span>
                 </button>
               )}
             </div>
@@ -396,7 +409,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
             >
               <span className="text-[22px] leading-none" aria-hidden>{weaponDef.icon}</span>
               <span className="text-[10px] font-mono font-black uppercase tracking-wider text-red-300">{isMineLayer ? 'DROP' : 'FIRE'}</span>
-              <span className="text-[6px] font-mono opacity-60 uppercase text-center leading-tight px-0.5">{weaponDef.name}</span>
+              <span className="text-[7px] font-mono opacity-90 uppercase text-center leading-tight px-0.5 text-red-200">{weaponDef.name}</span>
             </button>
           )}
 
@@ -408,7 +421,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
             <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-orange-500 animate-ping opacity-75" />
             <Rocket size={26} className="text-orange-400 transform -rotate-45" />
             <span className="text-[11px] font-mono font-black uppercase tracking-wider text-orange-300">THRUST</span>
-            <span className="text-[7px] font-mono opacity-60">HOLD ENG</span>
+            <span className="text-[8px] font-mono opacity-90">HOLD ENG</span>
           </button>
         </div>
 
