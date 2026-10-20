@@ -229,6 +229,24 @@ export const HUD: React.FC<HUDProps> = ({
 
   const radarActive = isMobileRadarOpen || localRadarOpen;
 
+  // ESC = the X, everywhere (Adam, 2026-10-20): every dialog that shows
+  // an X also answers to Escape, closing the topmost one first. The
+  // results screen is deliberately NOT in this chain — it is the match
+  // end, and its exit is the restart button, not a dismissal.
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (showSysCfg) { setShowSysCfg(false); return; }
+      if (isShopOpen && onCloseShop) { onCloseShop(); return; }
+      if (radarActive) {
+        if (onToggleMobileRadar) onToggleMobileRadar();
+        setLocalRadarOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showSysCfg, isShopOpen, onCloseShop, radarActive, onToggleMobileRadar]);
+
   // CONTROLS CARD rows (desktop, bottom-left of the play area): the whole
   // key set in one readable place. Contextual like the rest of the HUD —
   // FIRE wears the equipped weapon, the DECOY row exists only while a
@@ -898,8 +916,9 @@ export const HUD: React.FC<HUDProps> = ({
 
       {/* Workshop Overlay (Responsive for both Mobile and Desktop) */}
       {isShopOpen && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-2 sm:p-4 bg-black/75 backdrop-blur-md pointer-events-auto">
+        <div onClick={onCloseShop} className="fixed inset-0 z-[110] flex items-center justify-center p-2 sm:p-4 bg-black/75 backdrop-blur-md pointer-events-auto">
           <motion.div 
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             className="w-full max-w-xl max-h-[90vh] flex flex-col hud-panel p-4 sm:p-6 md:p-8 border-4 relative overflow-hidden bg-zinc-950/95 shadow-[0_0_50px_rgba(51,255,51,0.15)] rounded-lg"
