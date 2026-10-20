@@ -35,6 +35,7 @@ export default function App() {
     upgrade, 
     buyItem, 
     equipItem, 
+    feedCargo,
     depositBank, 
     withdrawBank, 
     deployDecoy, 
@@ -97,6 +98,7 @@ export default function App() {
         decoyActive={!!state.decoy}
         cmeWarning={!!(state.enemyStar.cmeChargeEndsAt && state.enemyStar.cmeChargeEndsAt > performance.now())}
         onDeployDecoy={deployDecoy}
+        onFeedCargo={feedCargo}
         onDepositBank={depositBank}
         onWithdrawBank={withdrawBank}
         isMobileRadarOpen={isMobileRadarOpen}
@@ -119,6 +121,7 @@ export default function App() {
         weaponId={state.ship.loadout.weapon}
         inWell={bankInWell}
         bankedScrap={state.bankedScrap}
+        onFeedCargo={feedCargo}
         onDepositBank={depositBank}
         onWithdrawBank={withdrawBank}
         decoyEquipped={state.ship.loadout.defense === 'decoy_beacon'}

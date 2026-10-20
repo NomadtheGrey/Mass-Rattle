@@ -81,6 +81,7 @@ interface HUDProps {
   decoyActive?: boolean;
   cmeWarning?: boolean;
   onDeployDecoy?: () => void;
+  onFeedCargo: () => void;
   onDepositBank: () => void;
   onWithdrawBank: () => void;
   isMobileRadarOpen?: boolean;
@@ -122,6 +123,7 @@ export const HUD: React.FC<HUDProps> = ({
   decoyActive,
   cmeWarning,
   onDeployDecoy,
+  onFeedCargo,
   onDepositBank,
   onWithdrawBank,
   isMobileRadarOpen = false,
@@ -709,9 +711,11 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
       )}
 
-      {/* DOCK PILLS: inside the well (and only there), one-tap Deposit and
-          Open Shop float above the loadout tiles — banking used to be
-          buried in the BANK tab; at the dock it is one tap.
+      {/* DOCK PILLS — THE CHOICE (Adam's pin, 2026-10-20): inside the
+          well (and only there), the player decides where the hold goes:
+          FEED it to the star, BANK it, or open the WORKSHOP. The row
+          appears the moment the ship enters the star's influence and is
+          gone when it leaves — no permanent clutter, no buried menus.
           pointer-events-auto on the container is LOAD-BEARING: the HUD
           root is pointer-events-none, so without it the pills render and
           glow but clicks pass through to the canvas (Adam's bug report,
@@ -719,17 +723,24 @@ export const HUD: React.FC<HUDProps> = ({
       {bankInWell && !isShopOpen && (
         <div className="fixed bottom-[104px] sm:bottom-[76px] left-1/2 -translate-x-1/2 z-[56] flex gap-2 pointer-events-auto">
           <button
+            onClick={onFeedCargo}
+            disabled={carrying <= 0}
+            className={`hud-panel px-3 py-1.5 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider ${carrying > 0 ? 'border-amber-400 text-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.35)]' : 'border-zinc-800 text-zinc-600 opacity-50 cursor-not-allowed'}`}
+          >
+            ⭐ FEED{carrying > 0 ? ` ${carrying}U` : ''}
+          </button>
+          <button
             onClick={onDepositBank}
             disabled={carrying <= 0}
             className={`hud-panel px-3 py-1.5 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider ${carrying > 0 ? 'border-[#33ff33] text-[#33ff33] shadow-[0_0_10px_rgba(51,255,51,0.35)]' : 'border-zinc-800 text-zinc-600 opacity-50 cursor-not-allowed'}`}
           >
-            🏦 DEPOSIT{carrying > 0 ? ` ${carrying}U` : ''}
+            🏦 BANK{carrying > 0 ? ` ${carrying}U` : ''}
           </button>
           <button
             onClick={onOpenShop}
             className="hud-panel px-3 py-1.5 rounded border border-pink-500 font-mono text-[10px] sm:text-[11px] font-bold tracking-wider text-pink-400 shadow-[0_0_10px_rgba(219,39,119,0.35)]"
           >
-            🔧 OPEN SHOP
+            🔧 WORKSHOP
           </button>
         </div>
       )}

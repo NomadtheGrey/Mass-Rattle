@@ -244,11 +244,27 @@ export const useGameLoop = (width: number, height: number) => {
   }, []);
 
   // ------------------------------------------------------------------
-  // BANK: move scrap between hold and bank. Banking is what lets a
-  // player SAVE UP past the hold's physical capacity — and banked scrap
-  // survives flybys of the home star that would auto-feed the hold.
+  // FEED vs BANK (Adam's pin, 2026-10-20): where the hold goes is the
+  // PLAYER'S CHOICE, made at the dock — the star no longer auto-feeds
+  // the hold on a flyby (see the retired delivery block in the frame
+  // loop). feedCargo delivers the whole hold to the home star (the
+  // same infusion + heal the old flyby ran); depositBank saves it
+  // instead. Both live at the dock because both only work in the well.
   // Withdraw is limited by free hold space (capacity incl. overload).
   // ------------------------------------------------------------------
+  const feedCargo = useCallback(() => {
+    setState(prev => {
+      if (!inBankWell(prev.ship.pos, prev.star.pos, prev.star.size)) return prev; // feeding happens at home
+      if (prev.ship.carrying <= 0) return prev;
+      const amount = prev.ship.carrying;
+      const star = { ...prev.star };
+      infuseStar(star, amount);
+      applyDeliveryHeal(star, amount);
+      const ship = { ...prev.ship, carrying: 0 };
+      return { ...prev, ship, star, teamScrap: prev.teamScrap + amount, glitchActive: true, lastGlitchTime: performance.now() };
+    });
+  }, []);
+
   const depositBank = useCallback(() => {
     setState(prev => {
       if (!inBankWell(prev.ship.pos, prev.star.pos, prev.star.size)) return prev; // banking happens at home
@@ -698,26 +714,16 @@ export const useGameLoop = (width: number, height: number) => {
           }
         }
 
-        // Home Delivery
-        const hdx = star.pos.x - ship.pos.x;
-        const hdy = star.pos.y - ship.pos.y;
-        const hDist = Math.sqrt(hdx * hdx + hdy * hdy);
-        
+        // Home Delivery — RETIRED (Adam's pin, 2026-10-20): the ship's
+        // hold used to auto-feed inside DELIVERY_RADIUS, which made the
+        // feed-vs-bank decision for the player (and forced banking to
+        // happen from the ring before the star grabbed the load).
+        // Feeding is now the player's choice at the dock: the FEED
+        // action (feedCargo, above) runs this same infusion on demand,
+        // anywhere in the well. Drones and deployed cargo still deliver
+        // themselves below — they were never the one choosing.
         let glitch = prev.glitchActive;
         let teamScrap = prev.teamScrap;
-        
-        if (ship.carrying > 0 && hDist < PHYSICS.DELIVERY_RADIUS) {
-          const amount = ship.carrying;
-          // Rising milestone costs + per-crossing growth: see starGrowth.ts.
-          infuseStar(star, amount);
-          // Symmetric milestone-scaled integrity heal: see starDefense.ts.
-          applyDeliveryHeal(star, amount);
-          teamScrap += amount;
-          ship.carrying = 0;
-
-          glitch = true;
-          next.lastGlitchTime = time;
-        }
 
         // 277. Enemy Sabotage (Legacy check - we'll replace this with the projectile system)
         const wantsJettison = keys.current.has('Space') || touchInputs.current.jettison;
@@ -1416,6 +1422,7 @@ export const useGameLoop = (width: number, height: number) => {
     upgrade, 
     buyItem, 
     equipItem, 
+    feedCargo,
     depositBank, 
     withdrawBank, 
     deployDecoy, 
