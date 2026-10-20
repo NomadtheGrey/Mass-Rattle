@@ -4,6 +4,7 @@ import { PHYSICS, COLORS } from '../constants';
 import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER } from '../loadout';
 import { inBankWell } from '../bank';
 import { infuseStar, milestonesForInfused } from '../starGrowth';
+import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, applyDeliveryHeal } from '../starDefense';
 import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, cmeReductionFor, mirrorReflectDamageFor, SAIL_RANGE, sailThrustFor, siphonFuelFor, thornDamageFor, aegisAbsorbFor } from '../loadout';
 
 /**
@@ -57,6 +58,7 @@ export const useGameLoop = (width: number, height: number) => {
       totalScrapInfused: 0,
       type: 'home',
       integrity: 1,
+      turrets: turretsForMilestones(0),
     },
     enemyStar: {
       pos: { x: width / 2 + 3000, y: height / 2 + 1000 },
@@ -66,6 +68,7 @@ export const useGameLoop = (width: number, height: number) => {
       totalScrapInfused: 0,
       type: 'enemy',
       integrity: 1,
+      turrets: turretsForMilestones(0),
     },
     scrap: [],
     deployedCargo: [],
@@ -707,6 +710,8 @@ export const useGameLoop = (width: number, height: number) => {
           const amount = ship.carrying;
           // Rising milestone costs + per-crossing growth: see starGrowth.ts.
           infuseStar(star, amount);
+          // Symmetric milestone-scaled integrity heal: see starDefense.ts.
+          applyDeliveryHeal(star, amount);
           teamScrap += amount;
           ship.carrying = 0;
 
@@ -800,6 +805,7 @@ export const useGameLoop = (width: number, height: number) => {
               const amount = 1;
               if (s.type === 'home') {
                 infuseStar(star, amount);
+                applyDeliveryHeal(star, amount);
                 next.teamScrap += amount;
               } else {
                 enemyStar.integrity = Math.max(0, enemyStar.integrity - 0.01);
@@ -947,14 +953,16 @@ export const useGameLoop = (width: number, height: number) => {
               const amount = drone.carrying;
               if (drone.owner === 'player') {
                 infuseStar(star, amount);
+                applyDeliveryHeal(star, amount);
                 teamScrap += amount;
               } else {
                 // The enemy star grows through the SAME rising milestone
                 // system (starGrowth.ts) — no more per-delivery x1.01 creep.
-                // Its per-delivery integrity heal is a separate system and
-                // stays exactly as it was.
+                // Its integrity heal is now the SAME symmetric rule the
+                // home star gets (starDefense.ts), replacing the old
+                // enemy-only flat +0.005/scrap.
                 infuseStar(enemyStar, amount);
-                enemyStar.integrity = Math.min(1, enemyStar.integrity + 0.005 * amount);
+                applyDeliveryHeal(enemyStar, amount);
               }
               drone.carrying = 0;
               drone.state = 'searching';
@@ -1038,7 +1046,9 @@ export const useGameLoop = (width: number, height: number) => {
           // ship eat the beacon instead, until it is shot down.
           if (p.owner === 'enemy' && next.decoy &&
               Math.hypot(next.decoy.pos.x - p.pos.x, next.decoy.pos.y - p.pos.y) < 12) {
-            next.decoy = { ...next.decoy, health: next.decoy.health - PHYSICS.DEFENSE.DAMAGE };
+            // The bolt's own damage — star turret bolts carry their tier
+            // damage (Phase 1c); absent a field, the stock DEFENSE damage.
+            next.decoy = { ...next.decoy, health: next.decoy.health - (p.damage !== undefined ? p.damage : PHYSICS.DEFENSE.DAMAGE) };
             if (next.decoy.health <= 0) next.decoy = null;
             return false;
           }
@@ -1064,7 +1074,10 @@ export const useGameLoop = (width: number, height: number) => {
               next.glitchActive = true;
               next.lastGlitchTime = time;
             } else {
-            let dmg = PHYSICS.DEFENSE.DAMAGE;
+            // The bolt's own damage — enemy bolts are star turret bolts
+            // and carry their tier damage (Phase 1c); the fallback keeps
+            // the stock DEFENSE damage where a field is absent.
+            let dmg = p.damage !== undefined ? p.damage : PHYSICS.DEFENSE.DAMAGE;
             // Deflector Shield eats bolts before they reach the hull;
             // whatever overflows the pool is what the hull feels.
             if (ship.shield && ship.shield > 0) {
@@ -1099,9 +1112,12 @@ export const useGameLoop = (width: number, height: number) => {
             // it as the player shot it has become.
           }
 
-          // Collision with enemy DRONES (ship weapons only — turret bolts
-          // carry no damage field and keep their old pass-through behavior)
-          if (p.owner === 'player' && p.damage !== undefined) {
+          // Collision with enemy DRONES (ship weapons only — the gate
+          // keys on `kind`, which ship weapons and mirror-reflected
+          // bolts carry and star turret bolts never do; turret bolts
+          // carry damage since Phase 1c but keep their old pass-through
+          // behavior against drones)
+          if (p.owner === 'player' && p.damage !== undefined && p.kind !== undefined) {
             const hitDrone = next.drones.find(d => d.owner === 'enemy' &&
               !(p.hitIds || []).includes(d.id) &&
               Math.hypot(d.pos.x - p.pos.x, d.pos.y - p.pos.y) < 14);
@@ -1330,29 +1346,50 @@ export const useGameLoop = (width: number, height: number) => {
         next.starOrbit += 0.01;
         next.enemyStarOrbit += 0.015;
 
-        // Auto-Fire for stars
+        // Auto-Fire for stars — STAR DEFENSE LADDER (Phase 1c,
+        // src/starDefense.ts): a star's turret list is a deterministic
+        // function of its milestone count, reconciled here every frame
+        // so a milestone crossing takes effect the moment it lands.
+        [star, enemyStar].forEach(s => {
+          s.turrets = turretsForMilestones(milestonesForInfused(s.totalScrapInfused));
+        });
+        // TARGETING (unchanged from the single-turret era, and shared by
+        // every turret on a star): the home star aims at the enemy star;
+        // the enemy star aims at the Decoy Beacon while one is deployed,
+        // else at the ship; turrets may fire only while that target is
+        // within DEFENSE.RANGE of the star's CENTER. What changed: EVERY
+        // turret now rolls its own tier fire chance and fires
+        // independently, from its own ring position (radius per the
+        // PHYSICS.STAR_DEFENSE formula), aiming from there, and its bolt
+        // carries its own tier damage.
         [star, enemyStar].forEach(s => {
           const target = s.type === 'home' ? enemyStar : (next.decoy ? { pos: next.decoy.pos } : ship);
           const dx = target.pos.x - s.pos.x;
           const dy = target.pos.y - s.pos.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
 
-          if (dist < PHYSICS.DEFENSE.RANGE && Math.random() < 0.01) {
-            const angle = Math.atan2(dy, dx);
+          if (dist >= PHYSICS.DEFENSE.RANGE) return;
+
+          s.turrets.forEach(t => {
+            if (Math.random() >= turretFireChanceFor(t.tier)) return;
+            const ring = turretRingRadius(s.size, t.shell);
+            const origin = {
+              x: s.pos.x + Math.cos(t.angle) * ring,
+              y: s.pos.y + Math.sin(t.angle) * ring,
+            };
+            const aim = Math.atan2(target.pos.y - origin.y, target.pos.x - origin.x);
             next.projectiles.push({
               id: Math.random().toString(),
-              pos: { 
-                x: s.pos.x + Math.cos(angle) * s.size, 
-                y: s.pos.y + Math.sin(angle) * s.size 
-              },
+              pos: origin,
               vel: {
-                x: Math.cos(angle) * PHYSICS.DEFENSE.BOLT_SPEED,
-                y: Math.sin(angle) * PHYSICS.DEFENSE.BOLT_SPEED,
+                x: Math.cos(aim) * PHYSICS.DEFENSE.BOLT_SPEED,
+                y: Math.sin(aim) * PHYSICS.DEFENSE.BOLT_SPEED,
               },
               owner: s.type === 'home' ? 'player' : 'enemy',
-              life: 180
+              life: 180,
+              damage: turretDamageFor(t.tier),
             });
-          }
+          });
         });
 
         return {

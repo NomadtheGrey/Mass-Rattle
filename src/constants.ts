@@ -47,9 +47,37 @@ export const PHYSICS = {
   },
   DEFENSE: {
     RANGE: 1200,
-    FIRERATE_MIN: 120, // frames
+    FIRERATE_MIN: 120, // frames (dead constant — fire is a per-frame chance roll)
     BOLT_SPEED: 8,
     DAMAGE: 10,
+  },
+  /**
+   * STAR DEFENSE LADDER (Phase 1c) — the electron shells from
+   * src/starDefense.ts: an INNER shell of 2 turrets and an OUTER shell
+   * of 8 around each star, grown by feeding milestones.
+   *
+   * RING RADIUS FORMULA (the canvas derives hub positions with this
+   * same formula, so it is pinned here):
+   *   ring radius = star.size + (shell === 'inner' ? 15 : 90)
+   * The inner pad (15) is where the canvas has always drawn the starter
+   * hub; the outer pad puts the second ring 75 units beyond the inner.
+   *
+   * TIER STATS (draft numbers from the design doc): a turret's bolt
+   * damage = DEFENSE.DAMAGE + 2 x (tier - 1); its fire chance per frame
+   * = 1% + 0.2pp x (tier - 1). Bolt speed and range never scale.
+   *
+   * HEAL (DRAFT, UNPINNED): integrity healed per scrap delivered =
+   * min(0.005, 0.0005 x milestones) — 0 at M0, rising each milestone,
+   * reaching the old enemy-only rate (0.005) at M10.
+   */
+  STAR_DEFENSE: {
+    INNER_RING_PAD: 15,
+    OUTER_RING_PAD: 90,
+    TURRET_BASE_FIRE_CHANCE: 0.01,
+    TURRET_FIRE_CHANCE_PER_TIER: 0.002,
+    TURRET_DAMAGE_PER_TIER: 2,
+    HEAL_PER_SCRAP_PER_MILESTONE: 0.0005,
+    HEAL_PER_SCRAP_MAX: 0.005,
   },
   /**
    * CME (Slice 7) — a star's periodic coronal mass ejection.
