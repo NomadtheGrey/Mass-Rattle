@@ -116,6 +116,15 @@ export default function App() {
         onCloseShop={() => toggleShop(false)}
         onOpenShop={() => toggleShop(true)}
         onToggleGauges={toggleGauges}
+        shipLine={state.ship.line}
+        typeTier={state.ship.typeTier}
+        hullSteps={state.ship.hullSteps}
+        lineSwitchesUsed={state.ship.lineSwitchesUsed}
+        playerDrones={state.drones.filter(d => d.owner === 'player').length}
+        onBuyType={buyType}
+        onBuyHullStep={buyHullStep}
+        onSwitchLine={switchLine}
+        onBuildDrone={buildDrone}
       />
 
       {/* Touch Screen Mobile Controller (iPhones / Androids) */}
