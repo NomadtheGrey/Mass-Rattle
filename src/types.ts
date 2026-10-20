@@ -21,6 +21,9 @@ export interface Ship extends GameObject {
   health: number;
   maxHealth: number;
   attractRadius: number;
+  /** Seat-scoped ownerId (Phase 2, src/sim/ownership.ts): the seat
+   * that owns this entity for the whole match, whoever controls it. */
+  ownerId: string;
   /** performance.now() timestamp before which the equipped weapon cannot fire again. */
   fireReadyAt?: number;
   /** Deflector Shield: current pool and the last time it took a hit (loop clock). */
@@ -66,6 +69,9 @@ export interface Projectile {
   pos: Vector2D;
   vel: Vector2D;
   owner: 'player' | 'enemy';
+  /** Seat-scoped ownerId (Phase 2, src/sim/ownership.ts): the seat
+   * that owns this entity for the whole match, whoever controls it. */
+  ownerId: string;
   life: number;
   /**
    * Ship-weapon fields (Slice 4). Where a field is absent, readers fall
@@ -90,6 +96,9 @@ export interface Projectile {
 export interface Mine {
   id: string;
   pos: Vector2D;
+  /** Seat-scoped ownerId (Phase 2, src/sim/ownership.ts): the seat
+   * that owns this entity for the whole match, whoever controls it. */
+  ownerId: string;
   /** Hull damage dealt to everything hostile inside `radius`. */
   damage: number;
   radius: number;
@@ -112,6 +121,9 @@ export interface Star extends GameObject {
   mass: number;
   totalScrapInfused: number;
   type: 'home' | 'enemy';
+  /** Seat-scoped ownerId (Phase 2, src/sim/ownership.ts): the seat
+   * that owns this entity for the whole match, whoever controls it. */
+  ownerId: string;
   integrity: number; // 0 to 1
   /**
    * The star's defense-ladder turrets. A deterministic function of the
@@ -137,6 +149,9 @@ export interface Star extends GameObject {
 export interface CmeWave {
   id: string;
   owner: 'home' | 'enemy';
+  /** Seat-scoped ownerId (Phase 2, src/sim/ownership.ts): the seat
+   * that owns this entity for the whole match, whoever controls it. */
+  ownerId: string;
   pos: Vector2D;
   dirAngle: number | null;
   radius: number;
@@ -158,6 +173,9 @@ export interface Scrap {
 export interface DeployedCargo extends Scrap {
   vel: Vector2D;
   life: number;
+  /** Seat-scoped ownerId (Phase 2, src/sim/ownership.ts): the seat
+   * that owns this entity for the whole match, whoever controls it. */
+  ownerId: string;
 }
 
 export interface Harvester {
@@ -172,6 +190,9 @@ export interface Harvester {
   carrying: number;
   capacity: number;
   owner: 'player' | 'enemy';
+  /** Seat-scoped ownerId (Phase 2, src/sim/ownership.ts): the seat
+   * that owns this entity for the whole match, whoever controls it. */
+  ownerId: string;
   state: 'searching' | 'collecting' | 'returning';
   /** Ion Blaster effect: frames remaining where this drone is rebooting (no movement). */
   stunFrames?: number;
@@ -187,7 +208,7 @@ export interface GameState {
   /** Proximity mines laid by the player (Mine Layer weapon). */
   mines: Mine[];
   /** Active Decoy Beacon, if one is deployed (Decoy Beacon defense). */
-  decoy: { pos: Vector2D; health: number; lifeFrames: number } | null;
+  decoy: { pos: Vector2D; health: number; lifeFrames: number; ownerId: string } | null;
   /** CME wavefronts currently in flight from either star (Slice 7). */
   cmes: CmeWave[];
   drones: Harvester[];

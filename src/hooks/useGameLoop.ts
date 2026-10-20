@@ -4,6 +4,8 @@ import { PHYSICS, COLORS } from '../constants';
 import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER } from '../loadout';
 import { inBankWell } from '../bank';
 import { infuseStar, milestonesForInfused } from '../starGrowth';
+import { ownerIdForSeat } from '../sim/ownership';
+import { createMatchLayout, DEFAULT_MATCH_SEED } from '../sim/matchInit';
 import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, applyDeliveryHeal } from '../starDefense';
 import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, cmeReductionFor, mirrorReflectDamageFor, SAIL_RANGE, sailThrustFor, siphonFuelFor, thornDamageFor, aegisAbsorbFor } from '../loadout';
 import { ShipLine, TypeTier, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, EXTRA_MOUNT_DAMAGE, AUTO_GUN } from '../shipProgression';
@@ -38,6 +40,22 @@ const walletPay = (carrying: number, banked: number, cost: number, bankAccessibl
 };
 
 export const useGameLoop = (width: number, height: number) => {
+  // MATCH GEOMETRY (Phase 2, src/sim/matchInit.ts): SP plays the
+  // two-star layout at the default seed, whose star offsets relative
+  // to the arena center are exactly the shipped (-1500, -500) /
+  // (+1500, +500) — so the arena center here is the shipped midpoint
+  // (home at width/2, height/2; enemy at +3000, +1000 from it) and the
+  // positions computed below are the shipped ones, unchanged.
+  const initialLayout = createMatchLayout(DEFAULT_MATCH_SEED, 2);
+  const initialArenaCenter = { x: width / 2 + 1500, y: height / 2 + 500 };
+  const initialStarPos = {
+    x: initialArenaCenter.x + initialLayout.stars[0].pos.x,
+    y: initialArenaCenter.y + initialLayout.stars[0].pos.y,
+  };
+  const initialEnemyStarPos = {
+    x: initialArenaCenter.x + initialLayout.stars[1].pos.x,
+    y: initialArenaCenter.y + initialLayout.stars[1].pos.y,
+  };
   const [state, setState] = useState<GameState>({
     ship: {
       pos: { x: 100, y: 100 },
@@ -52,6 +70,7 @@ export const useGameLoop = (width: number, height: number) => {
       health: 100,
       maxHealth: 100,
       attractRadius: PHYSICS.BASE_ATTRACT_RADIUS,
+      ownerId: ownerIdForSeat(0),
       arsenal: {},
       loadout: { weapon: null, defense: null, hybrid: null },
       upgrades: {
@@ -67,22 +86,24 @@ export const useGameLoop = (width: number, height: number) => {
       lineSwitchesUsed: 0,
     },
     star: {
-      pos: { x: width / 2, y: height / 2 },
+      pos: initialStarPos,
       vel: { x: 0, y: 0 },
       size: 40,
       mass: 400,
       totalScrapInfused: 0,
       type: 'home',
+      ownerId: initialLayout.stars[0].ownerId,
       integrity: 1,
       turrets: turretsForMilestones(0),
     },
     enemyStar: {
-      pos: { x: width / 2 + 3000, y: height / 2 + 1000 },
+      pos: initialEnemyStarPos,
       vel: { x: 0, y: 0 },
       size: 120,
       mass: 4000,
       totalScrapInfused: 0,
       type: 'enemy',
+      ownerId: initialLayout.stars[1].ownerId,
       integrity: 1,
       turrets: turretsForMilestones(0),
     },
@@ -161,7 +182,7 @@ export const useGameLoop = (width: number, height: number) => {
       if (tier <= 0 || prev.decoy) return prev;
       return {
         ...prev,
-        decoy: { pos: { ...prev.ship.pos }, health: decoyHealthFor(tier), lifeFrames: decoyLifeFramesFor(tier) },
+        decoy: { pos: { ...prev.ship.pos }, health: decoyHealthFor(tier), lifeFrames: decoyLifeFramesFor(tier), ownerId: prev.ship.ownerId },
       };
     });
   }, []);
@@ -403,6 +424,7 @@ export const useGameLoop = (width: number, height: number) => {
         carrying: 0,
         capacity: PHYSICS.DRONES.CAPACITY,
         owner: 'player' as const,
+        ownerId: prev.ship.ownerId,
         state: 'searching' as const,
         health: 100,
       };
@@ -471,6 +493,7 @@ export const useGameLoop = (width: number, height: number) => {
           carrying: 0,
           capacity: PHYSICS.DRONES.CAPACITY,
           owner: 'player',
+          ownerId: s.star.ownerId,
           state: 'searching',
           health: 100
         },
@@ -483,6 +506,7 @@ export const useGameLoop = (width: number, height: number) => {
           carrying: 0,
           capacity: PHYSICS.DRONES.CAPACITY,
           owner: 'enemy',
+          ownerId: s.enemyStar.ownerId,
           state: 'searching',
           health: 100
         }
@@ -870,6 +894,7 @@ export const useGameLoop = (width: number, height: number) => {
               y: ship.vel.y + Math.sin(kickDir) * kickForce,
             },
             color: '#f472b6',
+            ownerId: ship.ownerId,
             life: 200, // frames
           });
         }
@@ -903,6 +928,7 @@ export const useGameLoop = (width: number, height: number) => {
                   },
                   damage: wStats.damage,
                   radius: wStats.radius || 115,
+                  ownerId: ship.ownerId,
                 });
               }
             }
@@ -941,6 +967,7 @@ export const useGameLoop = (width: number, height: number) => {
                     y: Math.sin(a) * wStats.speed + ship.vel.y * 0.5,
                   },
                   owner: 'player',
+                  ownerId: ship.ownerId,
                   life: wStats.life,
                   damage: wStats.damage * dmgScale,
                   kind: weaponId || undefined,
@@ -1232,6 +1259,7 @@ export const useGameLoop = (width: number, height: number) => {
             // on into the drone/star hit checks below as a player shot.
             if (hyId === 'mirror_sail') {
               p.owner = 'player';
+              p.ownerId = ship.ownerId;
               p.vel.x = -p.vel.x;
               p.vel.y = -p.vel.y;
               p.damage = mirrorReflectDamageFor(hyTier);
@@ -1397,6 +1425,7 @@ export const useGameLoop = (width: number, height: number) => {
                   y: Math.sin(aim) * AUTO_GUN.boltSpeed,
                 },
                 owner: 'player',
+                ownerId: ship.ownerId,
                 life: AUTO_GUN.life,
                 damage: AUTO_GUN.damage,
                 kind: 'auto_gun',
@@ -1454,6 +1483,7 @@ export const useGameLoop = (width: number, height: number) => {
             (next.cmes = next.cmes || []).push({
               id: Math.random().toString(),
               owner: s.type,
+              ownerId: s.ownerId,
               pos: { ...s.pos },
               dirAngle: radial ? null : (s.cmeAimAngle ?? 0),
               radius: s.size,
@@ -1598,6 +1628,7 @@ export const useGameLoop = (width: number, height: number) => {
                 y: Math.sin(aim) * PHYSICS.DEFENSE.BOLT_SPEED,
               },
               owner: s.type === 'home' ? 'player' : 'enemy',
+              ownerId: s.ownerId,
               life: 180,
               damage: turretDamageFor(t.tier),
             });
