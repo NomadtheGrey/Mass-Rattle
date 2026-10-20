@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import React from 'react';
 import { PHYSICS } from '../constants';
+import { milestonesForInfused, progressIntoNextMilestone, nextMilestoneCost } from '../starGrowth';
 import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor } from '../loadout';
 
 interface NeedleGaugeProps {
@@ -133,8 +134,12 @@ export const HUD: React.FC<HUDProps> = ({
   // matching walletPay in the game loop — but the bank is the home star's
   // gravity well, so banked savings only count while inside it.
   const funds = carrying + (bankInWell ? bankedScrap : 0);
-  const growthProgress = (totalScrapInfused % 100);
-  const starLevel = Math.floor(totalScrapInfused / 100) + 1;
+  // Star growth readouts follow the RISING milestone costs (starGrowth.ts):
+  // progress is scrap into the CURRENT milestone, judged against that
+  // milestone's own cost — e.g. 40/125 while working on M2, not x/100.
+  const growthProgress = progressIntoNextMilestone(totalScrapInfused);
+  const growthCost = nextMilestoneCost(totalScrapInfused);
+  const starLevel = milestonesForInfused(totalScrapInfused) + 1;
   const [showSysCfg, setShowSysCfg] = React.useState(false);
   // Workshop tabs: the five base ship tracks, then the Arsenal categories.
   const [shopTab, setShopTab] = React.useState<'ship' | 'bank' | ArsenalCategory>('ship');
@@ -289,7 +294,7 @@ export const HUD: React.FC<HUDProps> = ({
 
           <div className="flex items-center gap-2">
             <span className="text-cyan-400 font-bold bg-cyan-950/60 px-1 py-0.5 rounded border border-cyan-800">
-              BANK: {teamScrap}U
+              FED: {teamScrap}U
             </span>
             <button
               onClick={() => setShowSysCfg(true)}
@@ -377,12 +382,12 @@ export const HUD: React.FC<HUDProps> = ({
             <div>
               <div className="flex justify-between text-[10px] mb-1">
                 <span>HOME STAR GROWTH</span>
-                <span className="text-[#ea580c]">{totalScrapInfused} INFUSED</span>
+                <span className="text-[#ea580c]">{growthProgress}/{growthCost} · {totalScrapInfused} INFUSED</span>
               </div>
               <div className="vu-meter h-2 bg-orange-950/20">
                 <motion.div 
                   className="h-full bg-gradient-to-r from-orange-800 to-orange-400 shadow-[0_0_8px_orange]"
-                  animate={{ width: `${growthProgress}%` }}
+                  animate={{ width: `${(growthProgress / growthCost) * 100}%` }}
                 />
               </div>
             </div>
@@ -427,7 +432,7 @@ export const HUD: React.FC<HUDProps> = ({
               {velocity > 4 && <p className="text-red-500">[WARN] SPEED EXCEEDS BUFFER</p>}
               {carrying > (PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS) && <p className="text-yellow-500">[WARN] CARGO OVERLOAD</p>}
               {carrying > 0 && <p className="text-pink-500 font-bold">[INFO] SCRAP LOAD: {carrying}U</p>}
-              <p className="text-cyan-400 font-bold bg-cyan-950/40 px-1 border-l-2 border-cyan-500">[BANK] {teamScrap} CREDITS</p>
+              <p className="text-cyan-400 font-bold bg-cyan-950/40 px-1 border-l-2 border-cyan-500">[FED] {teamScrap}U DELIVERED</p>
               {fuel < 20 && <p className="text-red-600 animate-pulse font-bold">[ERR] FUEL DEPLETED</p>}
               {glitch && <p className="text-yellow-600">[DATA] SENSORS RECALIBRATING...</p>}
               <p className="opacity-30">PINGS: {Math.floor(Math.random()*100)}ms</p>
@@ -706,9 +711,13 @@ export const HUD: React.FC<HUDProps> = ({
 
       {/* DOCK PILLS: inside the well (and only there), one-tap Deposit and
           Open Shop float above the loadout tiles — banking used to be
-          buried in the BANK tab; at the dock it is one tap. */}
+          buried in the BANK tab; at the dock it is one tap.
+          pointer-events-auto on the container is LOAD-BEARING: the HUD
+          root is pointer-events-none, so without it the pills render and
+          glow but clicks pass through to the canvas (Adam's bug report,
+          2026-10-20). The DECOY pill below needs the same class. */}
       {bankInWell && !isShopOpen && (
-        <div className="fixed bottom-[104px] sm:bottom-[76px] left-1/2 -translate-x-1/2 z-[56] flex gap-2">
+        <div className="fixed bottom-[104px] sm:bottom-[76px] left-1/2 -translate-x-1/2 z-[56] flex gap-2 pointer-events-auto">
           <button
             onClick={onDepositBank}
             disabled={carrying <= 0}
@@ -729,7 +738,7 @@ export const HUD: React.FC<HUDProps> = ({
           lives outside the well-gated dock pills. Shows only while the
           Decoy Beacon is the equipped defense and none is live. */}
       {loadout.defense === 'decoy_beacon' && !decoyActive && (
-        <div className={`fixed left-1/2 -translate-x-1/2 z-[56] ${bankInWell && !isShopOpen ? 'bottom-[146px] sm:bottom-[118px]' : 'bottom-[104px] sm:bottom-[76px]'}`}>
+        <div className={`fixed left-1/2 -translate-x-1/2 z-[56] pointer-events-auto ${bankInWell && !isShopOpen ? 'bottom-[146px] sm:bottom-[118px]' : 'bottom-[104px] sm:bottom-[76px]'}`}>
           <button
             onClick={onDeployDecoy}
             className="hud-panel px-3 py-1.5 rounded border border-pink-500 font-mono text-[10px] sm:text-[11px] font-bold tracking-wider text-pink-400 shadow-[0_0_10px_rgba(219,39,119,0.35)]"

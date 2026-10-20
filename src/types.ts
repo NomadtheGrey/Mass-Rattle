@@ -28,6 +28,10 @@ export interface Ship extends GameObject {
   pdReadyAt?: number;
   pdZapAt?: number;
   pdZapTarget?: Vector2D;
+  /** Scrap Aegis: leftover damage-soak credit from the last burned scrap,
+   * so fractional damage (star burn) burns cargo at the table's rate
+   * instead of a whole scrap per frame. Loop-managed. */
+  aegisCredit?: number;
   // Arsenal (see src/loadout.ts): item id -> owned tier (0/absent = not owned),
   // and the one equipped item id per category (null = slot empty).
   arsenal: Record<string, number>;
@@ -48,9 +52,12 @@ export interface Projectile {
   owner: 'player' | 'enemy';
   life: number;
   /**
-   * Ship-weapon fields (Slice 4). Turret bolts leave these undefined and
-   * fall back to PHYSICS.DEFENSE.DAMAGE, so old behavior is preserved
-   * wherever a field is absent.
+   * Ship-weapon fields (Slice 4). Where a field is absent, readers fall
+   * back to PHYSICS.DEFENSE.DAMAGE, so old behavior is preserved.
+   * Star turret bolts (Phase 1c) set `damage` (tier-scaled, from
+   * starDefense.ts) but leave `kind` undefined — the drone-collision
+   * gate keys on `kind`, which is how turret bolts keep their historic
+   * pass-through behavior against drones while ship weapons connect.
    */
   damage?: number;
   /** Weapon id that fired this (drives special effects, e.g. ion stun). */
@@ -72,11 +79,31 @@ export interface Mine {
   radius: number;
 }
 
+/**
+ * One turret on a star's defense ladder (Phase 1c, src/starDefense.ts).
+ * The canvas draws hubs from this list verbatim. `angle` is the
+ * turret's fixed position on its shell ring around the star, in
+ * radians, ABSOLUTE (no starOrbit rotation baked in); the ring radius
+ * derives from the star's size — see PHYSICS.STAR_DEFENSE.
+ */
+export interface StarTurret {
+  shell: 'inner' | 'outer';
+  angle: number;
+  tier: number;
+}
+
 export interface Star extends GameObject {
   mass: number;
   totalScrapInfused: number;
   type: 'home' | 'enemy';
   integrity: number; // 0 to 1
+  /**
+   * The star's defense-ladder turrets. A deterministic function of the
+   * star's milestone count (turretsForMilestones in starDefense.ts) —
+   * the game loop reconciles this list to that function every frame,
+   * so it is never edited by hand and needs no save/sync bookkeeping.
+   */
+  turrets: StarTurret[];
   lastHitTime?: number;
   /** CME timers (Slice 7), on the game loop's clock: next scheduled fire,
    * the end of the current charge telegraph, and the locked aim angle. */

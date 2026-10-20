@@ -3,7 +3,9 @@ import { GameState, Vector2D } from '../types';
 import { PHYSICS, COLORS } from '../constants';
 import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER } from '../loadout';
 import { inBankWell } from '../bank';
-import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, cmeReductionFor } from '../loadout';
+import { infuseStar, milestonesForInfused } from '../starGrowth';
+import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, applyDeliveryHeal } from '../starDefense';
+import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, cmeReductionFor, mirrorReflectDamageFor, SAIL_RANGE, sailThrustFor, siphonFuelFor, thornDamageFor, aegisAbsorbFor } from '../loadout';
 
 /**
  * COMBINED WALLET — every purchase in the game (base upgrades, Arsenal
@@ -56,6 +58,7 @@ export const useGameLoop = (width: number, height: number) => {
       totalScrapInfused: 0,
       type: 'home',
       integrity: 1,
+      turrets: turretsForMilestones(0),
     },
     enemyStar: {
       pos: { x: width / 2 + 3000, y: height / 2 + 1000 },
@@ -65,6 +68,7 @@ export const useGameLoop = (width: number, height: number) => {
       totalScrapInfused: 0,
       type: 'enemy',
       integrity: 1,
+      turrets: turretsForMilestones(0),
     },
     scrap: [],
     deployedCargo: [],
@@ -415,6 +419,43 @@ export const useGameLoop = (width: number, height: number) => {
         const gravFactor = defId === 'grav_dampers' ? gravFactorFor(defTier) : 1;
         const thrustFactor = defId === 'armor_plating' ? armorThrustFactor(defTier) : 1;
 
+        // HYBRID STATE (Phase 1b): the equipped hybrid, resolved once per
+        // frame exactly like the defense above — effects key off the
+        // EQUIPPED item and its owned tier; owning without equipping
+        // does nothing.
+        const hyId = ship.loadout.hybrid;
+        const hyTier = hyId ? (ship.arsenal[hyId] || 0) : 0;
+
+        // SCRAP AEGIS plumbing: ablative armor made of cargo. Every point
+        // of hull damage is offered to the hold first: each scrap soaks
+        // aegisAbsorbFor(tier) damage, and a partly used scrap's leftover
+        // soak is remembered (ship.aegisCredit) so fractional damage —
+        // the star burn — burns cargo at the same rate instead of a
+        // scrap per frame. Returns the damage the hull actually takes
+        // (0 while cargo lasts). Layering: the Deflector pool absorbs
+        // first where it already does (it recharges free), the aegis
+        // second (it costs cargo), the hull last.
+        const aegisAbsorb = (dmg: number): number => {
+          if (hyId !== 'scrap_aegis' || dmg <= 0) return dmg;
+          let remaining = dmg;
+          let credit = ship.aegisCredit || 0;
+          if (credit > 0) {
+            const used = Math.min(credit, remaining);
+            credit -= used;
+            remaining -= used;
+          }
+          const per = aegisAbsorbFor(hyTier);
+          while (remaining > 0 && ship.carrying > 0) {
+            ship.carrying -= 1;
+            credit += per;
+            const used = Math.min(credit, remaining);
+            credit -= used;
+            remaining -= used;
+          }
+          ship.aegisCredit = credit;
+          return remaining;
+        };
+
         // 1. Fuel & Inputs
         const stick = touchInputs.current.analogStick;
         const stickDist = stick ? Math.sqrt(stick.x * stick.x + stick.y * stick.y) : 0;
@@ -461,7 +502,16 @@ export const useGameLoop = (width: number, height: number) => {
         // midpoint where it needs it.)
 
         if (eDist < enemyStar.size + 150) {
-          ship.health -= 0.15 * (1 - (eDist / (enemyStar.size + 150)));
+          // The burn still bypasses the Deflector (heat, not bolts), but
+          // the Scrap Aegis is armor, not shield — it soaks burn too.
+          ship.health -= aegisAbsorb(0.15 * (1 - (eDist / (enemyStar.size + 150))));
+          // THORN HULL at point blank (Phase 1b): sitting in the burn is
+          // the star point-blanking you, and the armor bites back —
+          // thorn damage per second on the universal x0.002 star scale.
+          if (hyId === 'thorn_hull') {
+            enemyStar.integrity = Math.max(0, enemyStar.integrity - (thornDamageFor(hyTier) * 0.002) / 60);
+            enemyStar.lastHitTime = time;
+          }
           if (Math.random() < 0.05) next.shakeAmount = 3;
         }
         // (The old deep-space drain past 6,000 from the midpoint is
@@ -534,6 +584,27 @@ export const useGameLoop = (width: number, height: number) => {
             }
           }
         });
+
+        // MIRROR SAIL light-catch (Phase 1b): near a bright star the sail
+        // turns starlight into thrust — radiation pressure, a gentle push
+        // straight AWAY from the star, strongest close in and gone past
+        // SAIL_RANGE. It is not gravity, so Grav Dampers neither cut it
+        // nor are cut by it; and like engine thrust it is divided by ship
+        // mass, so a heavy hold catches less push. Always on — a sail
+        // catches light whether or not the engine is burning.
+        if (hyId === 'mirror_sail') {
+          const sailForce = sailThrustFor(hyTier);
+          [star, enemyStar].forEach(s => {
+            const dx = ship.pos.x - s.pos.x;
+            const dy = ship.pos.y - s.pos.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > 1 && dist < SAIL_RANGE) {
+              const push = (sailForce * (1 - dist / SAIL_RANGE)) / currentMass;
+              ship.vel.x += (dx / dist) * push;
+              ship.vel.y += (dy / dist) * push;
+            }
+          });
+        }
 
         // Inertia & Friction (Handling improvements)
         const currentFriction = Math.max(PHYSICS.FRICTION - ship.upgrades.handling * 0.01, PHYSICS.FRICTION_MAX);
@@ -637,18 +708,13 @@ export const useGameLoop = (width: number, height: number) => {
         
         if (ship.carrying > 0 && hDist < PHYSICS.DELIVERY_RADIUS) {
           const amount = ship.carrying;
-          const oldInfused = star.totalScrapInfused;
-          star.totalScrapInfused += amount;
+          // Rising milestone costs + per-crossing growth: see starGrowth.ts.
+          infuseStar(star, amount);
+          // Symmetric milestone-scaled integrity heal: see starDefense.ts.
+          applyDeliveryHeal(star, amount);
           teamScrap += amount;
           ship.carrying = 0;
 
-          const newMilestone = Math.floor(star.totalScrapInfused / PHYSICS.STAR_GROWTH_THRESHOLD);
-          const oldMilestone = Math.floor(oldInfused / PHYSICS.STAR_GROWTH_THRESHOLD);
-          
-          if (newMilestone > oldMilestone) {
-            star.mass *= 1.25;
-            star.size *= 1.15;
-          }
           glitch = true;
           next.lastGlitchTime = time;
         }
@@ -738,16 +804,9 @@ export const useGameLoop = (width: number, height: number) => {
             if (dist < s.size + 10) {
               const amount = 1;
               if (s.type === 'home') {
-                const oldInfused = star.totalScrapInfused;
-                star.totalScrapInfused += amount;
+                infuseStar(star, amount);
+                applyDeliveryHeal(star, amount);
                 next.teamScrap += amount;
-                
-                const newMilestone = Math.floor(star.totalScrapInfused / PHYSICS.STAR_GROWTH_THRESHOLD);
-                const oldMilestone = Math.floor(oldInfused / PHYSICS.STAR_GROWTH_THRESHOLD);
-                if (newMilestone > oldMilestone) {
-                  star.mass *= 1.25;
-                  star.size *= 1.15;
-                }
               } else {
                 enemyStar.integrity = Math.max(0, enemyStar.integrity - 0.01);
                 enemyStar.mass *= 0.99; // Each bit of cargo damages it
@@ -893,21 +952,17 @@ export const useGameLoop = (width: number, height: number) => {
             if (dist < droneStar.size + PHYSICS.DRONES.DEPOSIT_RADIUS) {
               const amount = drone.carrying;
               if (drone.owner === 'player') {
-                const oldInfused = star.totalScrapInfused;
-                star.totalScrapInfused += amount;
+                infuseStar(star, amount);
+                applyDeliveryHeal(star, amount);
                 teamScrap += amount;
-                const newMilestone = Math.floor(star.totalScrapInfused / PHYSICS.STAR_GROWTH_THRESHOLD);
-                const oldMilestone = Math.floor(oldInfused / PHYSICS.STAR_GROWTH_THRESHOLD);
-                if (newMilestone > oldMilestone) {
-                  star.mass *= 1.25;
-                  star.size *= 1.15;
-                }
               } else {
-                enemyStar.totalScrapInfused += amount;
-                // Healing or growth for enemy star
-                enemyStar.integrity = Math.min(1, enemyStar.integrity + 0.005 * amount);
-                enemyStar.size *= 1.01;
-                enemyStar.mass *= 1.01;
+                // The enemy star grows through the SAME rising milestone
+                // system (starGrowth.ts) — no more per-delivery x1.01 creep.
+                // Its integrity heal is now the SAME symmetric rule the
+                // home star gets (starDefense.ts), replacing the old
+                // enemy-only flat +0.005/scrap.
+                infuseStar(enemyStar, amount);
+                applyDeliveryHeal(enemyStar, amount);
               }
               drone.carrying = 0;
               drone.state = 'searching';
@@ -972,11 +1027,28 @@ export const useGameLoop = (width: number, height: number) => {
           p.pos.y += p.vel.y;
           p.life -= 1;
 
+          // SIPHON VAC (Phase 1b): while the VAC runs, the tractor beam
+          // eats enemy projectiles that cross its field and converts them
+          // into a trickle of fuel. INTERPRETATION (flagged for Adam):
+          // the description names the tractor beam, and in this code the
+          // beam's deliberate mode is ACTIVE VAC (Q/E/R) — so eating is
+          // gated on VAC being held, over the same radius that hauls
+          // scrap while VAC is on (attractRadius x 1.6). Ungated, the
+          // passive attract field would eat every bolt near the ship and
+          // quietly retire the Deflector Shield's whole job.
+          if (hyId === 'siphon_vac' && p.owner === 'enemy' && isVacActive &&
+              Math.hypot(ship.pos.x - p.pos.x, ship.pos.y - p.pos.y) < ship.attractRadius * 1.6) {
+            ship.fuel = Math.min(ship.maxFuel, ship.fuel + siphonFuelFor(hyTier));
+            return false;
+          }
+
           // Collision with the DECOY beacon (Slice 6): bolts meant for the
           // ship eat the beacon instead, until it is shot down.
           if (p.owner === 'enemy' && next.decoy &&
               Math.hypot(next.decoy.pos.x - p.pos.x, next.decoy.pos.y - p.pos.y) < 12) {
-            next.decoy = { ...next.decoy, health: next.decoy.health - PHYSICS.DEFENSE.DAMAGE };
+            // The bolt's own damage — star turret bolts carry their tier
+            // damage (Phase 1c); absent a field, the stock DEFENSE damage.
+            next.decoy = { ...next.decoy, health: next.decoy.health - (p.damage !== undefined ? p.damage : PHYSICS.DEFENSE.DAMAGE) };
             if (next.decoy.health <= 0) next.decoy = null;
             return false;
           }
@@ -985,7 +1057,27 @@ export const useGameLoop = (width: number, height: number) => {
           const sdx = ship.pos.x - p.pos.x;
           const sdy = ship.pos.y - p.pos.y;
           if (p.owner === 'enemy' && Math.sqrt(sdx * sdx + sdy * sdy) < ship.size) {
-            let dmg = PHYSICS.DEFENSE.DAMAGE;
+            // MIRROR SAIL (Phase 1b): the bolt never lands — the sail
+            // throws it back the way it came, as a player projectile with
+            // tier-scaled damage ("defense that is offense"), keeping
+            // whatever flight life it had left. The Deflector never sees
+            // it: reflection happens at the sail, outside the bubble.
+            // Falling out of this branch with the bolt mutated, it flows
+            // on into the drone/star hit checks below as a player shot.
+            if (hyId === 'mirror_sail') {
+              p.owner = 'player';
+              p.vel.x = -p.vel.x;
+              p.vel.y = -p.vel.y;
+              p.damage = mirrorReflectDamageFor(hyTier);
+              p.kind = 'mirror_sail';
+              next.shakeAmount = Math.max(next.shakeAmount, 5);
+              next.glitchActive = true;
+              next.lastGlitchTime = time;
+            } else {
+            // The bolt's own damage — enemy bolts are star turret bolts
+            // and carry their tier damage (Phase 1c); the fallback keeps
+            // the stock DEFENSE damage where a field is absent.
+            let dmg = p.damage !== undefined ? p.damage : PHYSICS.DEFENSE.DAMAGE;
             // Deflector Shield eats bolts before they reach the hull;
             // whatever overflows the pool is what the hull feels.
             if (ship.shield && ship.shield > 0) {
@@ -994,20 +1086,38 @@ export const useGameLoop = (width: number, height: number) => {
               dmg -= absorbed;
               ship.shieldHitAt = time;
             }
+            // Scrap Aegis burns cargo for whatever gets past the shield.
+            if (dmg > 0) dmg = aegisAbsorb(dmg);
             if (dmg > 0) {
               ship.health -= dmg;
+              // THORN HULL (Phase 1b): a bolt that reaches the hull was
+              // fired point blank — the armor bites the firing star back
+              // on the universal x0.002 scale. Bolts the shield or aegis
+              // ate never touch the armor, so they don't bite.
+              if (hyId === 'thorn_hull') {
+                enemyStar.integrity -= thornDamageFor(hyTier) * 0.002;
+                enemyStar.lastHitTime = time;
+              }
               next.shakeAmount = 15;
             } else {
               next.shakeAmount = Math.max(next.shakeAmount, 5);
             }
-            next.glitchActive = true;
-            next.lastGlitchTime = time;
-            return false;
+            } // (end of the non-mirror damage path)
+            if (hyId !== 'mirror_sail') {
+              next.glitchActive = true;
+              next.lastGlitchTime = time;
+              return false;
+            }
+            // A reflected bolt falls through: the checks below now treat
+            // it as the player shot it has become.
           }
 
-          // Collision with enemy DRONES (ship weapons only — turret bolts
-          // carry no damage field and keep their old pass-through behavior)
-          if (p.owner === 'player' && p.damage !== undefined) {
+          // Collision with enemy DRONES (ship weapons only — the gate
+          // keys on `kind`, which ship weapons and mirror-reflected
+          // bolts carry and star turret bolts never do; turret bolts
+          // carry damage since Phase 1c but keep their old pass-through
+          // behavior against drones)
+          if (p.owner === 'player' && p.damage !== undefined && p.kind !== undefined) {
             const hitDrone = next.drones.find(d => d.owner === 'enemy' &&
               !(p.hitIds || []).includes(d.id) &&
               Math.hypot(d.pos.x - p.pos.x, d.pos.y - p.pos.y) < 14);
@@ -1084,6 +1194,21 @@ export const useGameLoop = (width: number, height: number) => {
           }
         }
 
+        // THORN HULL contact (Phase 1b): enemy drones that ram the ship —
+        // inside hull contact range (ship radius + the same 14 the
+        // projectile checks use for drones) — get bitten continuously,
+        // thorn damage per second for as long as they stay in reach.
+        // Kills are swept up by the drone-death pass below, drops and all.
+        if (hyId === 'thorn_hull') {
+          const thornPerFrame = thornDamageFor(hyTier) / 60;
+          next.drones.forEach(d => {
+            if (d.owner !== 'enemy') return;
+            if (Math.hypot(d.pos.x - ship.pos.x, d.pos.y - ship.pos.y) < ship.size + 14) {
+              d.health -= thornPerFrame;
+            }
+          });
+        }
+
         // CME — CORONAL MASS EJECTIONS (Slice 7). Each star fires one
         // about every 30 s (Adam's pin), stronger each of its milestones.
         // Telegraph: CHARGE_MS before firing, the star charges and LOCKS
@@ -1112,7 +1237,7 @@ export const useGameLoop = (width: number, height: number) => {
             }
           }
           if (s.cmeChargeEndsAt && time >= s.cmeChargeEndsAt) {
-            const M = Math.floor(s.totalScrapInfused / PHYSICS.STAR_GROWTH_THRESHOLD);
+            const M = milestonesForInfused(s.totalScrapInfused);
             const radial = Math.random() < Math.min(0.9, 0.1 * M);
             (next.cmes = next.cmes || []).push({
               id: Math.random().toString(),
@@ -1183,6 +1308,8 @@ export const useGameLoop = (width: number, height: number) => {
                 dmg -= absorbed;
                 ship.shieldHitAt = time;
               }
+              // Scrap Aegis burns cargo for whatever gets past the shield.
+              if (dmg > 0) dmg = aegisAbsorb(dmg);
               if (dmg > 0) ship.health -= dmg;
               const kb = w.baseKnockback * falloff * (1 - red) * gravFactor;
               const sv = shoveVec(ship.pos, kb);
@@ -1219,29 +1346,50 @@ export const useGameLoop = (width: number, height: number) => {
         next.starOrbit += 0.01;
         next.enemyStarOrbit += 0.015;
 
-        // Auto-Fire for stars
+        // Auto-Fire for stars — STAR DEFENSE LADDER (Phase 1c,
+        // src/starDefense.ts): a star's turret list is a deterministic
+        // function of its milestone count, reconciled here every frame
+        // so a milestone crossing takes effect the moment it lands.
+        [star, enemyStar].forEach(s => {
+          s.turrets = turretsForMilestones(milestonesForInfused(s.totalScrapInfused));
+        });
+        // TARGETING (unchanged from the single-turret era, and shared by
+        // every turret on a star): the home star aims at the enemy star;
+        // the enemy star aims at the Decoy Beacon while one is deployed,
+        // else at the ship; turrets may fire only while that target is
+        // within DEFENSE.RANGE of the star's CENTER. What changed: EVERY
+        // turret now rolls its own tier fire chance and fires
+        // independently, from its own ring position (radius per the
+        // PHYSICS.STAR_DEFENSE formula), aiming from there, and its bolt
+        // carries its own tier damage.
         [star, enemyStar].forEach(s => {
           const target = s.type === 'home' ? enemyStar : (next.decoy ? { pos: next.decoy.pos } : ship);
           const dx = target.pos.x - s.pos.x;
           const dy = target.pos.y - s.pos.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
 
-          if (dist < PHYSICS.DEFENSE.RANGE && Math.random() < 0.01) {
-            const angle = Math.atan2(dy, dx);
+          if (dist >= PHYSICS.DEFENSE.RANGE) return;
+
+          s.turrets.forEach(t => {
+            if (Math.random() >= turretFireChanceFor(t.tier)) return;
+            const ring = turretRingRadius(s.size, t.shell);
+            const origin = {
+              x: s.pos.x + Math.cos(t.angle) * ring,
+              y: s.pos.y + Math.sin(t.angle) * ring,
+            };
+            const aim = Math.atan2(target.pos.y - origin.y, target.pos.x - origin.x);
             next.projectiles.push({
               id: Math.random().toString(),
-              pos: { 
-                x: s.pos.x + Math.cos(angle) * s.size, 
-                y: s.pos.y + Math.sin(angle) * s.size 
-              },
+              pos: origin,
               vel: {
-                x: Math.cos(angle) * PHYSICS.DEFENSE.BOLT_SPEED,
-                y: Math.sin(angle) * PHYSICS.DEFENSE.BOLT_SPEED,
+                x: Math.cos(aim) * PHYSICS.DEFENSE.BOLT_SPEED,
+                y: Math.sin(aim) * PHYSICS.DEFENSE.BOLT_SPEED,
               },
               owner: s.type === 'home' ? 'player' : 'enemy',
-              life: 180
+              life: 180,
+              damage: turretDamageFor(t.tier),
             });
-          }
+          });
         });
 
         return {

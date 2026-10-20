@@ -12,7 +12,15 @@ export const PHYSICS = {
   BASE_ATTRACT_RADIUS: 140,
   AUTO_COLLECT_RADIUS: 35,
   FRICTION_MAX: 0.90, 
-  STAR_GROWTH_THRESHOLD: 100,
+  // STAR GROWTH (Adam's pin, 2026-10-20): milestone costs RISE — milestone
+  // N costs BASE + STEP x (N-1): M1 100, M2 125, M3 150, M4 175 ...
+  // (cumulative thresholds 100 / 225 / 375 / 550 / 750 ...). Each crossed
+  // milestone compounds the star's mass x1.25 and size x1.15. The math
+  // lives in src/starGrowth.ts — never re-derive it inline.
+  STAR_GROWTH_BASE_COST: 100,
+  STAR_GROWTH_COST_STEP: 25,
+  STAR_GROWTH_MASS_MULT: 1.25,
+  STAR_GROWTH_SIZE_MULT: 1.15,
   MASS_PER_CARGO: 0.35, 
   FUEL_CONSUMPTION: 0.08,
   FUEL_REGEN: 0.06,
@@ -39,9 +47,37 @@ export const PHYSICS = {
   },
   DEFENSE: {
     RANGE: 1200,
-    FIRERATE_MIN: 120, // frames
+    FIRERATE_MIN: 120, // frames (dead constant — fire is a per-frame chance roll)
     BOLT_SPEED: 8,
     DAMAGE: 10,
+  },
+  /**
+   * STAR DEFENSE LADDER (Phase 1c) — the electron shells from
+   * src/starDefense.ts: an INNER shell of 2 turrets and an OUTER shell
+   * of 8 around each star, grown by feeding milestones.
+   *
+   * RING RADIUS FORMULA (the canvas derives hub positions with this
+   * same formula, so it is pinned here):
+   *   ring radius = star.size + (shell === 'inner' ? 15 : 90)
+   * The inner pad (15) is where the canvas has always drawn the starter
+   * hub; the outer pad puts the second ring 75 units beyond the inner.
+   *
+   * TIER STATS (draft numbers from the design doc): a turret's bolt
+   * damage = DEFENSE.DAMAGE + 2 x (tier - 1); its fire chance per frame
+   * = 1% + 0.2pp x (tier - 1). Bolt speed and range never scale.
+   *
+   * HEAL (DRAFT, UNPINNED): integrity healed per scrap delivered =
+   * min(0.005, 0.0005 x milestones) — 0 at M0, rising each milestone,
+   * reaching the old enemy-only rate (0.005) at M10.
+   */
+  STAR_DEFENSE: {
+    INNER_RING_PAD: 15,
+    OUTER_RING_PAD: 90,
+    TURRET_BASE_FIRE_CHANCE: 0.01,
+    TURRET_FIRE_CHANCE_PER_TIER: 0.002,
+    TURRET_DAMAGE_PER_TIER: 2,
+    HEAL_PER_SCRAP_PER_MILESTONE: 0.0005,
+    HEAL_PER_SCRAP_MAX: 0.005,
   },
   /**
    * CME (Slice 7) — a star's periodic coronal mass ejection.

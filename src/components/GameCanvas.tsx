@@ -3,6 +3,7 @@ import { GameState } from '../types';
 import { COLORS, PHYSICS } from '../constants';
 import { BANK_WELL_MARGIN } from '../bank';
 import { shieldMaxFor, PD_RANGE } from '../loadout';
+import { turretRingRadius } from '../starDefense';
 
 interface GameCanvasProps {
   state: GameState;
@@ -117,31 +118,30 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
           }
         }
 
-      // Turret Hubs (Orbiting defenses) — TRUTH PASS: each star actually
-      // fields ONE starter turret today (the electron-shell ladder that
-      // grows this to 2 + 8 is pinned but not built, and the loop models
-      // no turret count in state). Draw the one that's real; when the
-      // ladder lands a count in state, read it from there instead.
-      ctx.save();
-      ctx.rotate(isHome ? state.starOrbit : state.enemyStarOrbit);
-      const turretCount = 1;
-      for (let i = 0; i < turretCount; i++) {
-        const tAngle = (i / turretCount) * Math.PI * 2;
+      // Turret Hubs — read straight from state (Phase 1c): star.turrets
+      // is the ladder's list ({shell, angle, tier} per turret, a pure
+      // function of milestone count — see starDefense.ts). Angles are
+      // ABSOLUTE: the sim fires from pos + angle x turretRingRadius, so
+      // the hubs sit exactly where the bolts come from. (The old draw
+      // rotated the ring by starOrbit and showed one hub — the hubs
+      // appeared to orbit while the sim fired from fixed angles.)
+      // Hub box grows a little per tier, matching its fire stats.
+      (s.turrets || []).forEach(t => {
+        const ring = turretRingRadius(s.size, t.shell);
+        const hub = 9 + Math.min(t.tier, 4);
         ctx.save();
-        ctx.rotate(tAngle);
+        ctx.rotate(t.angle);
+        ctx.translate(ring, 0);
         ctx.fillStyle = isHome ? '#1a1a1c' : '#300';
         ctx.strokeStyle = isHome ? COLORS.CRT_GLOW : '#f43f5e';
         ctx.lineWidth = 1;
-        ctx.translate(s.size + 15, 0);
-        ctx.fillRect(-5, -5, 10, 10);
-        ctx.strokeRect(-5, -5, 10, 10);
-        
+        ctx.fillRect(-hub / 2, -hub / 2, hub, hub);
+        ctx.strokeRect(-hub / 2, -hub / 2, hub, hub);
         // Barrel
-        ctx.fillRect(5, -2, 8, 4);
-        ctx.strokeRect(5, -2, 8, 4);
+        ctx.fillRect(hub / 2, -2, 8, 4);
+        ctx.strokeRect(hub / 2, -2, 8, 4);
         ctx.restore();
-      }
-      ctx.restore();
+      });
 
       // BANK WELL (home star only): the gravity-well ring that IS the bank,
       // plus one orbiting mote per banked scrap (capped for readability) so
@@ -435,6 +435,37 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
         return;
       }
 
+      if (isPlayer && p.kind === 'mirror_sail') {
+        // REFLECTED BOLT (Mirror Sail, Phase 1b): the loop flips the
+        // bolt's owner and stamps kind='mirror_sail' — it should read as
+        // a shard of mirror coming back, not a stock bolt that changed
+        // color. A bright diamond along its velocity with a glint cross.
+        ctx.save();
+        ctx.translate(p.pos.x, p.pos.y);
+        ctx.rotate(Math.atan2(p.vel.y, p.vel.x));
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#a7f3d0';
+        ctx.fillStyle = '#ecfdf5';
+        ctx.beginPath();
+        ctx.moveTo(6, 0);
+        ctx.lineTo(0, 2.6);
+        ctx.lineTo(-6, 0);
+        ctx.lineTo(0, -2.6);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(167, 243, 208, 0.55)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, -5);
+        ctx.lineTo(0, 5);
+        ctx.moveTo(-3, 0);
+        ctx.lineTo(-11, 0);
+        ctx.stroke();
+        ctx.restore();
+        return;
+      }
+
       // Bolt Cannon + turret bolts: the stock square-and-trail.
       ctx.fillStyle = isPlayer ? '#fff' : '#f43f5e';
       ctx.shadowBlur = 10;
@@ -538,6 +569,30 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
     ctx.arc(0, 0, ship.attractRadius, 0, Math.PI * 2);
     ctx.stroke();
 
+    // SIPHON VAC tell: slow inward chevrons riding the attractor ring —
+    // the field drinks, and the ring should say so. (The siphon's wider
+    // eat-field only exists while VAC is held, so no second ring is
+    // drawn — that would claim a field that isn't always there.)
+    if (ship.loadout.hybrid === 'siphon_vac') {
+      const spin = performance.now() / 2400;
+      ctx.strokeStyle = 'rgba(51, 255, 51, 0.22)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 6; i++) {
+        const a = spin + (i * Math.PI) / 3;
+        const rx = Math.cos(a) * ship.attractRadius;
+        const ry = Math.sin(a) * ship.attractRadius;
+        ctx.save();
+        ctx.translate(rx, ry);
+        ctx.rotate(a + Math.PI / 2);
+        ctx.beginPath();
+        ctx.moveTo(-4, -3);
+        ctx.lineTo(0, 2);
+        ctx.lineTo(4, -3);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
     // DEFENSE VISUALS (Slice 6): Deflector bubble (brightness = pool left)
     // and the faint Point-Defense reach ring, when those are equipped.
     if (ship.loadout.defense === 'deflector_shield' && ship.shield && ship.shield > 0) {
@@ -581,6 +636,36 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
       }
     }
 
+    // HYBRID VISUALS — BACK LAYER (Phase 1b follow-on): the equipped
+    // hybrid changes the ship's silhouette, drawn from loadout.hybrid +
+    // its owned tier. Mirror Sail rides BEHIND the hull: two mirror
+    // panels swept back from the tail, sized by tier, with a sheen that
+    // slowly travels — a sail, not a wing.
+    if (ship.loadout.hybrid === 'mirror_sail') {
+      const mTier = ship.arsenal['mirror_sail'] || 1;
+      const reach = ship.size * (1.5 + 0.16 * mTier);
+      const spread = ship.size * (1.05 + 0.13 * mTier);
+      const sheen = 0.22 + 0.1 * Math.sin(performance.now() / 700);
+      ctx.fillStyle = `rgba(226, 232, 240, ${sheen})`;
+      ctx.strokeStyle = 'rgba(226, 232, 240, 0.85)';
+      ctx.lineWidth = 1;
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(-ship.size * 0.55, s * ship.size * 0.18);
+        ctx.lineTo(-reach, s * spread);
+        ctx.lineTo(-ship.size * 0.1, s * ship.size * 0.62);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+      // Mast line tying the panels to the tail.
+      ctx.strokeStyle = 'rgba(226, 232, 240, 0.5)';
+      ctx.beginPath();
+      ctx.moveTo(-ship.size * 0.55, -ship.size * 0.18);
+      ctx.lineTo(-ship.size * 0.55, ship.size * 0.18);
+      ctx.stroke();
+    }
+
     // ARMOR PLATING (when equipped): a steel rim under the hull outline,
     // thicker per tier — plating you can see, since the mass is real.
     if (ship.loadout.defense === 'armor_plating') {
@@ -608,6 +693,120 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
+
+    // HYBRID VISUALS — FRONT LAYER: the other three hybrids ride ON the
+    // hull. (One hybrid equips at a time, so these never stack.)
+    if (ship.loadout.hybrid === 'thorn_hull') {
+      // THORN HULL: spikes along both flanks and off the tail — the
+      // bite-back made visible. Longer per tier (its damage table is).
+      const tTier = ship.arsenal['thorn_hull'] || 1;
+      const spikeLen = 4 + 1.7 * tTier;
+      ctx.fillStyle = '#14532d';
+      ctx.strokeStyle = '#4ade80';
+      ctx.lineWidth = 1;
+      const spike = (bx: number, by: number, dx: number, dy: number) => {
+        const dl = Math.hypot(dx, dy) || 1;
+        const ux = dx / dl, uy = dy / dl;
+        const px = -uy, py = ux;
+        ctx.beginPath();
+        ctx.moveTo(bx + px * 2.2, by + py * 2.2);
+        ctx.lineTo(bx + ux * spikeLen, by + uy * spikeLen);
+        ctx.lineTo(bx - px * 2.2, by - py * 2.2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      };
+      for (const s of [-1, 1]) {
+        // Flank edge: nose (size, 0) -> tail corner (-size, s*0.7size).
+        for (const t of [0.3, 0.55, 0.8]) {
+          const bx = ship.size + (-ship.size - ship.size) * t;
+          const by = 0 + (s * ship.size * 0.7) * t;
+          // Outward = away from the hull's spine.
+          spike(bx, by, bx * 0.4, s * 1);
+        }
+        // Tail corner spike, pointing back-out.
+        spike(-ship.size, s * ship.size * 0.7, -1, s * 0.35);
+      }
+    }
+    if (ship.loadout.hybrid === 'scrap_aegis') {
+      // SCRAP AEGIS: patchwork plates bolted along the hull outline —
+      // junk armor, visibly NOT the smooth steel rim of Armor Plating.
+      // More plates per tier (each plate is scrap that soaks damage).
+      const gTier = ship.arsenal['scrap_aegis'] || 1;
+      const plateCount = 3 + gTier;
+      const tones = ['#b45309', '#78716c', '#a16207', '#57534e'];
+      const outline: Array<[number, number]> = [
+        [ship.size, 0],
+        [-ship.size, -ship.size * 0.7],
+        [-ship.size * 0.6, 0],
+        [-ship.size, ship.size * 0.7],
+      ];
+      // Walk the outline perimeter and park a plate every 1/plateCount.
+      const segs: Array<{ x0: number; y0: number; x1: number; y1: number; len: number }> = [];
+      let perim = 0;
+      for (let i = 0; i < outline.length; i++) {
+        const [x0, y0] = outline[i];
+        const [x1, y1] = outline[(i + 1) % outline.length];
+        const len = Math.hypot(x1 - x0, y1 - y0);
+        segs.push({ x0, y0, x1, y1, len });
+        perim += len;
+      }
+      for (let i = 0; i < plateCount; i++) {
+        let d = (perim * (i + 0.5)) / plateCount;
+        let seg = segs[segs.length - 1];
+        for (const sg of segs) {
+          if (d <= sg.len) { seg = sg; break; }
+          d -= sg.len;
+        }
+        const t = seg.len ? d / seg.len : 0;
+        const cx = seg.x0 + (seg.x1 - seg.x0) * t;
+        const cy = seg.y0 + (seg.y1 - seg.y0) * t;
+        const ang = Math.atan2(seg.y1 - seg.y0, seg.x1 - seg.x0);
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(ang);
+        ctx.fillStyle = tones[i % tones.length];
+        ctx.strokeStyle = '#292524';
+        ctx.lineWidth = 1;
+        ctx.fillRect(-4.5, -2.6, 9, 5.2);
+        ctx.strokeRect(-4.5, -2.6, 9, 5.2);
+        ctx.fillStyle = '#e7e5e4';
+        ctx.beginPath();
+        ctx.arc(0, 0, 0.9, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+    if (ship.loadout.hybrid === 'siphon_vac') {
+      // SIPHON VAC: intake scoops at the rear flanks — the silhouette
+      // grows a pair of drinking mouths to match the ring chevrons.
+      ctx.fillStyle = '#12211a';
+      ctx.strokeStyle = 'rgba(51, 255, 51, 0.6)';
+      ctx.lineWidth = 1;
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(-ship.size * 0.35, s * ship.size * 0.6);
+        ctx.lineTo(-ship.size * 1.08, s * ship.size * 1.04);
+        ctx.lineTo(-ship.size * 1.28, s * ship.size * 0.84);
+        ctx.lineTo(-ship.size * 0.62, s * ship.size * 0.42);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        // Louver slats across the scoop mouth.
+        for (const t of [0.35, 0.65]) {
+          ctx.beginPath();
+          ctx.moveTo(
+            -ship.size * (0.35 + 0.73 * t),
+            s * ship.size * (0.6 + 0.44 * t),
+          );
+          ctx.lineTo(
+            -ship.size * (0.62 + 0.66 * t),
+            s * ship.size * (0.42 + 0.42 * t),
+          );
+          ctx.stroke();
+        }
+      }
+    }
 
     // Thrust Flame
     if (ship.thrust) {
