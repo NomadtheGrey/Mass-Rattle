@@ -12,6 +12,10 @@ interface GameCanvasProps {
 
 export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Wrap-edge flash: a >2000-unit jump between frames can only be the
+  // world wrap firing — remember when it happened so the rim can flash.
+  const prevShipPosRef = useRef<{ x: number; y: number } | null>(null);
+  const wrapFlashAtRef = useRef(0);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -33,6 +37,38 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
     const camX = width / 2 - ship.pos.x;
     const camY = height / 2 - ship.pos.y;
     ctx.translate(camX, camY);
+
+    // WORLD WRAP EDGE (Adam's ruling; the wrap itself lives in
+    // useGameLoop): the rim of the world drawn as a place — a faint
+    // dashed circle around the stars' midpoint. It brightens and
+    // pulses as the ship closes on it, and flashes on the wrap frame.
+    {
+      const prevShipPos = prevShipPosRef.current;
+      if (prevShipPos && Math.hypot(ship.pos.x - prevShipPos.x, ship.pos.y - prevShipPos.y) > 2000) {
+        wrapFlashAtRef.current = performance.now();
+      }
+      prevShipPosRef.current = { x: ship.pos.x, y: ship.pos.y };
+
+      const wrapCx = (star.pos.x + enemyStar.pos.x) / 2;
+      const wrapCy = (star.pos.y + enemyStar.pos.y) / 2;
+      const wrapR = PHYSICS.WORLD.WRAP_RADIUS;
+      const centerDist = Math.hypot(ship.pos.x - wrapCx, ship.pos.y - wrapCy);
+      const nearEdge = Math.min(1, Math.max(0, (centerDist - (wrapR - 450)) / 450));
+      const flashAge = performance.now() - wrapFlashAtRef.current;
+      const flashing = flashAge < 350;
+      const alpha = flashing
+        ? 0.85
+        : 0.10 + nearEdge * 0.35 + (nearEdge > 0 ? Math.sin(performance.now() / 130) * 0.06 : 0);
+      ctx.save();
+      ctx.strokeStyle = `rgba(51, 255, 51, ${Math.min(0.9, Math.max(0.08, alpha))})`;
+      ctx.lineWidth = flashing ? 3 : 1.5;
+      ctx.setLineDash([16, 20]);
+      ctx.beginPath();
+      ctx.arc(wrapCx, wrapCy, wrapR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
 
     // DRAW STARS
     [star, enemyStar].forEach(s => {
