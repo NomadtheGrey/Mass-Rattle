@@ -6,6 +6,18 @@ import { inBankWell } from '../bank';
 import { infuseStar, milestonesForInfused } from '../starGrowth';
 import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, applyDeliveryHeal } from '../starDefense';
 import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, cmeReductionFor, mirrorReflectDamageFor, SAIL_RANGE, sailThrustFor, siphonFuelFor, thornDamageFor, aegisAbsorbFor } from '../loadout';
+import { ShipLine, TypeTier, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, EXTRA_MOUNT_DAMAGE, AUTO_GUN } from '../shipProgression';
+
+/**
+ * SHIP PROGRESSION (Phase 3, src/shipProgression.ts — DRAFT numbers):
+ * the ship's effective VAC/attract radius is the attractor track's
+ * formula plus the line/type's flat vacBonus. The radius lives on
+ * ship.attractRadius (state the canvas draws from), so it is
+ * recomputed wherever the track, line, or tier changes: attractor
+ * purchases, buyType, switchLine.
+ */
+const attractRadiusForShip = (attractorLvl: number, line: ShipLine | null, tier: TypeTier): number =>
+  PHYSICS.BASE_ATTRACT_RADIUS + attractorLvl * 35 + typeFor(line, tier).vacBonus;
 
 /**
  * COMBINED WALLET — every purchase in the game (base upgrades, Arsenal
@@ -49,6 +61,10 @@ export const useGameLoop = (width: number, height: number) => {
         fuelCap: 0,
         cargo: 0,
       },
+      line: null,
+      typeTier: 1,
+      hullSteps: 0,
+      lineSwitchesUsed: 0,
     },
     star: {
       pos: { x: width / 2, y: height / 2 },
@@ -159,6 +175,11 @@ export const useGameLoop = (width: number, height: number) => {
                        PHYSICS.UPGRADE_COSTS.CARGO;
       
       const currentLevel = type === 'fuel' ? prev.ship.upgrades.fuelCap : (prev.ship.upgrades as any)[type];
+      // TRACK CAPS (Phase 3): a track cannot be bought past the ship's
+      // line/type cap (src/shipProgression.ts). Peaks-not-locks: caps
+      // only refuse MORE of a track, they never remove levels bought.
+      const capKey = type === 'attractor' ? 'vac' : type === 'fuel' ? 'fuel' : type;
+      if (currentLevel >= capsFor(prev.ship.line, prev.ship.typeTier)[capKey]) return prev;
       const cost = baseCost + (currentLevel * Math.floor(baseCost * 0.5));
       
       const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost, inBankWell(prev.ship.pos, prev.star.pos, prev.star.size));
@@ -172,7 +193,7 @@ export const useGameLoop = (width: number, height: number) => {
       ship.upgrades = { ...ship.upgrades, [upgradeKey]: (ship.upgrades as any)[upgradeKey] + 1 };
       
       if (type === 'attractor') {
-        ship.attractRadius = PHYSICS.BASE_ATTRACT_RADIUS + ship.upgrades.attractor * 35;
+        ship.attractRadius = attractRadiusForShip(ship.upgrades.attractor, ship.line, ship.typeTier);
       }
       if (type === 'fuel') {
         ship.maxFuel = 100 + ship.upgrades.fuelCap * 50;
@@ -278,13 +299,114 @@ export const useGameLoop = (width: number, height: number) => {
     setState(prev => {
       if (!inBankWell(prev.ship.pos, prev.star.pos, prev.star.size)) return prev; // banking happens at home
       if (prev.bankedScrap <= 0) return prev;
-      const regularCapacity = PHYSICS.CARGO.BASE_CAPACITY + prev.ship.upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS;
+      const regularCapacity = PHYSICS.CARGO.BASE_CAPACITY + prev.ship.upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS + typeFor(prev.ship.line, prev.ship.typeTier).cargoBonus;
       const totalCapacity = regularCapacity + Math.floor(regularCapacity * PHYSICS.CARGO.OVERLOAD_RATIO);
       const space = Math.max(0, totalCapacity - prev.ship.carrying);
       const moved = Math.min(space, prev.bankedScrap);
       if (moved <= 0) return prev;
       const ship = { ...prev.ship, carrying: prev.ship.carrying + moved };
       return { ...prev, ship, bankedScrap: prev.bankedScrap - moved, glitchActive: true, lastGlitchTime: performance.now() };
+    });
+  }, []);
+
+  // ------------------------------------------------------------------
+  // SHIP PROGRESSION (Phase 3): types, hull steps, line switches, and
+  // drone building. All numbers live in src/shipProgression.ts (DRAFT,
+  // Adam's pin pending). Like feedCargo/depositBank, every action here
+  // is WELL-GATED — progression is bought at the home dock, never in
+  // the field — and pays through the combined wallet (hold, then bank).
+  // ------------------------------------------------------------------
+  const buyType = useCallback((line?: ShipLine) => {
+    setState(prev => {
+      if (!inBankWell(prev.ship.pos, prev.star.pos, prev.star.size)) return prev; // types are bought at home
+      if (prev.ship.typeTier >= 4) return prev; // top of the ladder
+      // From the SKIFF (T1) the purchase CHOOSES the line; from T2 up it
+      // climbs within the line the ship already flies.
+      const targetLine = prev.ship.typeTier === 1 ? line : prev.ship.line;
+      if (!targetLine) return prev;
+      const cost = typeStepPrice(targetLine, prev.ship.typeTier);
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost, inBankWell(prev.ship.pos, prev.star.pos, prev.star.size));
+      if (!payment) return prev;
+
+      const ship = { ...prev.ship, carrying: payment.carrying, line: targetLine, typeTier: (prev.ship.typeTier + 1) as TypeTier };
+      // Hull steps persist (caps only grow with tier, so no clamp is
+      // needed); the VAC bonus may have changed with the new type.
+      ship.attractRadius = attractRadiusForShip(ship.upgrades.attractor, ship.line, ship.typeTier);
+      return { ...prev, ship, bankedScrap: payment.banked, glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
+    });
+  }, []);
+
+  const buyHullStep = useCallback(() => {
+    setState(prev => {
+      if (!inBankWell(prev.ship.pos, prev.star.pos, prev.star.size)) return prev; // hull work happens at home
+      // The type's hullStepCap is the gate: at the cap, growing further
+      // REQUIRES a bigger type (Adam's two-ladder rule) — refuse here.
+      if (prev.ship.hullSteps >= typeFor(prev.ship.line, prev.ship.typeTier).hullStepCap) return prev;
+      const cost = hullStepPrice(prev.ship.hullSteps);
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost, inBankWell(prev.ship.pos, prev.star.pos, prev.star.size));
+      if (!payment) return prev;
+
+      const hullSteps = prev.ship.hullSteps + 1;
+      const ship = {
+        ...prev.ship,
+        carrying: payment.carrying,
+        hullSteps,
+        size: hullSizeFor(hullSteps),
+        // Each step is also +10 max health, and current health follows
+        // the delta — the Armor Plating precedent (Slice 6).
+        maxHealth: prev.ship.maxHealth + HULL_STEP_HEALTH,
+        health: prev.ship.health + HULL_STEP_HEALTH,
+      };
+      return { ...prev, ship, bankedScrap: payment.banked, glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
+    });
+  }, []);
+
+  const switchLine = useCallback((line: ShipLine) => {
+    setState(prev => {
+      if (!inBankWell(prev.ship.pos, prev.star.pos, prev.star.size)) return prev; // refits happen at home
+      if (prev.ship.typeTier < 2 || !prev.ship.line || line === prev.ship.line) return prev;
+      const toll = switchToll(prev.ship);
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, toll, inBankWell(prev.ship.pos, prev.star.pos, prev.star.size));
+      if (!payment) return prev;
+
+      // Tier, hull steps, track levels, and cargo all ride across —
+      // only the line (and therefore the caps, peaks, and capability
+      // amounts) changes. If hullSteps exceeds the new line/type's cap,
+      // the steps STAY; the cap only refuses buying more (same rule as
+      // track caps). The VAC bonus follows the new line immediately.
+      const ship = { ...prev.ship, carrying: payment.carrying, line, lineSwitchesUsed: prev.ship.lineSwitchesUsed + 1 };
+      ship.attractRadius = attractRadiusForShip(ship.upgrades.attractor, ship.line, ship.typeTier);
+      return { ...prev, ship, bankedScrap: payment.banked, glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
+    });
+  }, []);
+
+  /**
+   * Build one player drone (DRONE_PRICE, DRAFT — see shipProgression.ts).
+   * This is also the REPLACEMENT path: a drone shot down is gone, and
+   * the player rebuilds it here, up to the line/type's dronesFielded.
+   */
+  const buildDrone = useCallback(() => {
+    setState(prev => {
+      if (!inBankWell(prev.ship.pos, prev.star.pos, prev.star.size)) return prev; // drones are built at home
+      const fielded = prev.drones.filter(d => d.owner === 'player').length;
+      if (fielded >= typeFor(prev.ship.line, prev.ship.typeTier).dronesFielded) return prev;
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, DRONE_PRICE, inBankWell(prev.ship.pos, prev.star.pos, prev.star.size));
+      if (!payment) return prev;
+
+      const ship = { ...prev.ship, carrying: payment.carrying };
+      const drone = {
+        id: 'player-drone-' + Math.random().toString(36).substr(2, 9),
+        pos: { x: prev.star.pos.x + 100, y: prev.star.pos.y + 100 },
+        vel: { x: 0, y: 0 },
+        angle: 0,
+        targetId: null,
+        carrying: 0,
+        capacity: PHYSICS.DRONES.CAPACITY,
+        owner: 'player' as const,
+        state: 'searching' as const,
+        health: 100,
+      };
+      return { ...prev, ship, bankedScrap: payment.banked, drones: [...prev.drones, drone], glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
     });
   }, []);
 
@@ -416,7 +538,10 @@ export const useGameLoop = (width: number, height: number) => {
         // swapping in the shop needs no bookkeeping of its own.
         const defId = ship.loadout.defense;
         const defTier = defId ? (ship.arsenal[defId] || 0) : 0;
-        const wantMaxHealth = 100 + (defId === 'armor_plating' ? armorHullFor(defTier) : 0);
+        // Max hull = base + hull steps (Phase 3) + Armor Plating. The
+        // hull-step term belongs here: this per-frame enforcement is
+        // what the buy action's own +10 defers to every frame after.
+        const wantMaxHealth = 100 + ship.hullSteps * HULL_STEP_HEALTH + (defId === 'armor_plating' ? armorHullFor(defTier) : 0);
         if (ship.maxHealth !== wantMaxHealth) {
           if (wantMaxHealth > ship.maxHealth) ship.health += wantMaxHealth - ship.maxHealth;
           ship.maxHealth = wantMaxHealth;
@@ -478,8 +603,9 @@ export const useGameLoop = (width: number, height: number) => {
         const stickThrust = stickDist > 0.45;
         const wantsThrust = keys.current.has('ArrowUp') || keys.current.has('KeyW') || touchInputs.current.thrust || stickThrust;
         
-        // Cargo Capacity
-        const regularCapacity = PHYSICS.CARGO.BASE_CAPACITY + ship.upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS;
+        // Cargo Capacity (the line/type cargoBonus rides on top of the
+        // cargo track; the overload ratio applies to the total, as ever)
+        const regularCapacity = PHYSICS.CARGO.BASE_CAPACITY + ship.upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS + typeFor(ship.line, ship.typeTier).cargoBonus;
         const overloadCapacity = Math.floor(regularCapacity * PHYSICS.CARGO.OVERLOAD_RATIO);
         const totalCapacity = regularCapacity + overloadCapacity;
 
@@ -756,42 +882,76 @@ export const useGameLoop = (width: number, height: number) => {
         const wStats = weaponStatsFor(weaponId, weaponId ? (ship.arsenal[weaponId] || 0) : 0);
         if (wantsFire && wStats && time >= (ship.fireReadyAt || 0)) {
           const cost = wStats.scrapCost || 0;
-          if (cost <= 0 || ship.carrying >= cost) {
-            if (cost > 0) ship.carrying -= cost;
-            ship.fireReadyAt = time + wStats.cooldownMs;
-            if (wStats.kind === 'mine') {
-              // Mine Layer: no projectile — a mine drops at the ship's tail.
-              (next.mines = next.mines || []).push({
-                id: Math.random().toString(),
-                pos: { ...ship.pos },
-                damage: wStats.damage,
-                radius: wStats.radius || 115,
-              });
-            } else {
+          if (wStats.kind === 'mine') {
+            // Mine Layer: no projectile — mines drop at the ship's tail.
+            // HARD POINTS DO NOT APPLY to mines (Phase 3): a drop lays
+            // the line/type's minesPerDrop instead, each still costing
+            // 1 hold scrap — the drop lays only as many as the hold
+            // affords, fanned across the tail so they don't stack-trip.
+            const perDrop = typeFor(ship.line, ship.typeTier).minesPerDrop;
+            const dropCount = cost > 0 ? Math.min(perDrop, Math.floor(ship.carrying / cost)) : perDrop;
+            if (dropCount > 0) {
+              ship.carrying -= dropCount * cost;
+              ship.fireReadyAt = time + wStats.cooldownMs;
+              for (let mi = 0; mi < dropCount; mi++) {
+                const lateral = (mi - (dropCount - 1) / 2) * 16;
+                (next.mines = next.mines || []).push({
+                  id: Math.random().toString(),
+                  pos: {
+                    x: ship.pos.x - Math.cos(ship.angle) * mi * 8 - Math.sin(ship.angle) * lateral,
+                    y: ship.pos.y - Math.sin(ship.angle) * mi * 8 + Math.cos(ship.angle) * lateral,
+                  },
+                  damage: wStats.damage,
+                  radius: wStats.radius || 115,
+                });
+              }
+            }
+          } else {
+            // HARD POINTS (Phase 3): the equipped weapon fires from
+            // every mount the line/type fields. Mount 0 is the nose at
+            // full damage, exactly the pre-progression shot; each extra
+            // mount fires the same pattern from a perpendicular offset
+            // (alternating sides) at EXTRA_MOUNT_DAMAGE of the damage.
+            // Scrap-cost weapons (seekers) pay PER SHOT, extras
+            // included: if the hold runs dry mid-volley, the remaining
+            // mounts simply don't fire.
+            const mounts = typeFor(ship.line, ship.typeTier).hardPoints;
+            let firedAny = false;
+            for (let m = 0; m < mounts; m++) {
+              if (cost > 0) {
+                if (ship.carrying < cost) break;
+                ship.carrying -= cost;
+              }
+              const dmgScale = m === 0 ? 1 : EXTRA_MOUNT_DAMAGE;
+              const side = m === 0 ? 0 : (m % 2 === 1 ? 1 : -1) * Math.ceil(m / 2);
+              const off = side * ship.size * 0.7;
+              const muzzle = {
+                x: ship.pos.x + Math.cos(ship.angle) * (ship.size + 4) - Math.sin(ship.angle) * off,
+                y: ship.pos.y + Math.sin(ship.angle) * (ship.size + 4) + Math.cos(ship.angle) * off,
+              };
               const pellets = wStats.pellets || 1;
               for (let pi = 0; pi < pellets; pi++) {
                 const spreadOffset = pellets > 1 ? (pi / (pellets - 1) - 0.5) * (wStats.spread || 0) : 0;
                 const a = ship.angle + spreadOffset;
                 next.projectiles.push({
                   id: Math.random().toString(),
-                  pos: {
-                    x: ship.pos.x + Math.cos(ship.angle) * (ship.size + 4),
-                    y: ship.pos.y + Math.sin(ship.angle) * (ship.size + 4),
-                  },
+                  pos: { ...muzzle },
                   vel: {
                     x: Math.cos(a) * wStats.speed + ship.vel.x * 0.5,
                     y: Math.sin(a) * wStats.speed + ship.vel.y * 0.5,
                   },
                   owner: 'player',
                   life: wStats.life,
-                  damage: wStats.damage,
+                  damage: wStats.damage * dmgScale,
                   kind: weaponId || undefined,
                   pierce: wStats.pierce,
                   size: wStats.size,
                   hitIds: wStats.pierce ? [] : undefined,
                 });
               }
+              firedAny = true;
             }
+            if (firedAny) ship.fireReadyAt = time + wStats.cooldownMs;
           }
         }
 
@@ -1200,6 +1360,52 @@ export const useGameLoop = (width: number, height: number) => {
           }
         }
 
+        // CRUISER AUTO-GUNS (Phase 3): the cruiser line's shipboard
+        // turrets fire on their own — each gun independently rolls its
+        // fire chance per frame at the NEAREST hostile in range (an
+        // enemy drone, else the enemy star). They never focus-fire the
+        // pilot's target; the pilot's own weapon is separate. Bolts are
+        // ordinary player projectiles with kind 'auto_gun', so they run
+        // the same drone/star hit paths as ship weapons (star turret
+        // bolts pass drones by leaving kind unset; these set it, so
+        // they connect with drones too — that's their job).
+        const autoGunCount = typeFor(ship.line, ship.typeTier).autoGuns;
+        if (autoGunCount > 0) {
+          let gunTarget: Vector2D | null = null;
+          let gunBestD = AUTO_GUN.range;
+          next.drones.forEach(d => {
+            if (d.owner !== 'enemy') return;
+            const dd = Math.hypot(d.pos.x - ship.pos.x, d.pos.y - ship.pos.y);
+            if (dd < gunBestD) { gunBestD = dd; gunTarget = d.pos; }
+          });
+          if (!gunTarget) {
+            const dd = Math.hypot(enemyStar.pos.x - ship.pos.x, enemyStar.pos.y - ship.pos.y);
+            if (dd < AUTO_GUN.range) gunTarget = enemyStar.pos;
+          }
+          if (gunTarget) {
+            const aim = Math.atan2(gunTarget.y - ship.pos.y, gunTarget.x - ship.pos.x);
+            for (let g = 0; g < autoGunCount; g++) {
+              if (Math.random() >= AUTO_GUN.fireChance) continue;
+              next.projectiles.push({
+                id: Math.random().toString(),
+                pos: {
+                  x: ship.pos.x + Math.cos(aim) * (ship.size + 4),
+                  y: ship.pos.y + Math.sin(aim) * (ship.size + 4),
+                },
+                vel: {
+                  x: Math.cos(aim) * AUTO_GUN.boltSpeed,
+                  y: Math.sin(aim) * AUTO_GUN.boltSpeed,
+                },
+                owner: 'player',
+                life: AUTO_GUN.life,
+                damage: AUTO_GUN.damage,
+                kind: 'auto_gun',
+                size: 3,
+              });
+            }
+          }
+        }
+
         // THORN HULL contact (Phase 1b): enemy drones that ram the ship —
         // inside hull contact range (ship radius + the same 14 the
         // projectile checks use for drones) — get bitten continuously,
@@ -1417,11 +1623,15 @@ export const useGameLoop = (width: number, height: number) => {
     };
   }, [width, height]);
 
-  return { 
-    state, 
-    upgrade, 
-    buyItem, 
-    equipItem, 
+  return {
+    state,
+    upgrade,
+    buyItem,
+    equipItem,
+    buyType,
+    buyHullStep,
+    switchLine,
+    buildDrone,
     feedCargo,
     depositBank, 
     withdrawBank, 

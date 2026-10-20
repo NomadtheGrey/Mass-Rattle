@@ -4,6 +4,44 @@ import { COLORS, PHYSICS } from '../constants';
 import { BANK_WELL_MARGIN } from '../bank';
 import { shieldMaxFor, PD_RANGE } from '../loadout';
 import { turretRingRadius } from '../starDefense';
+import { typeFor } from '../shipProgression';
+
+// PER-TYPE SILHOUETTES (UI lane, Phase 3): every frame in the progression
+// table gets its own hull outline. Points are unit multiples of ship.size
+// (x forward, nose first), so hull steps scale every shape for free and
+// growth stays honest — the hitbox IS the drawing. The SKIFF outline is
+// the original stock hull, unchanged. Attachments that walk the outline
+// (Armor Plating's rim, Scrap Aegis plates, Thorn Hull spikes) read the
+// SAME outline, so they follow whatever frame the ship flies.
+type Pt = [number, number];
+const SKIFF_OUTLINE: Pt[] = [[1, 0], [-1, -0.7], [-0.6, 0], [-1, 0.7]];
+const HULL_OUTLINES: Record<string, Pt[]> = {
+  'fighter:2': [[1.25, 0], [-0.9, -0.5], [-0.55, 0], [-0.9, 0.5]],
+  'fighter:3': [[1.3, 0], [0.1, -0.28], [-0.7, -1.0], [-0.45, -0.3], [-0.6, 0], [-0.45, 0.3], [-0.7, 1.0], [0.1, 0.28]],
+  'fighter:4': [[1.35, -0.22], [0.55, -0.3], [-0.75, -1.05], [-0.5, -0.28], [-0.65, 0], [-0.5, 0.28], [-0.75, 1.05], [0.55, 0.3], [1.35, 0.22], [0.8, 0]],
+  'minelayer:2': [[1.05, 0], [0.2, -0.75], [-0.85, -0.8], [-0.6, 0], [-0.85, 0.8], [0.2, 0.75]],
+  'minelayer:3': [[1.05, 0], [0.25, -0.7], [-0.55, -0.95], [-1.0, -0.6], [-0.65, 0], [-1.0, 0.6], [-0.55, 0.95], [0.25, 0.7]],
+  'minelayer:4': [[1.0, 0], [0.3, -0.6], [-0.4, -0.8], [-1.15, -1.05], [-0.95, -0.35], [-0.7, 0], [-0.95, 0.35], [-1.15, 1.05], [-0.4, 0.8], [0.3, 0.6]],
+  'hauler:2': [[1.0, -0.5], [0.95, 0], [1.0, 0.5], [-0.95, 0.72], [-0.7, 0], [-0.95, -0.72]],
+  'hauler:3': [[1.05, -0.5], [1.0, 0], [1.05, 0.5], [0.2, 0.95], [-0.9, 0.8], [-0.7, 0], [-0.9, -0.8], [0.2, -0.95]],
+  'hauler:4': [[1.1, -0.62], [1.05, 0], [1.1, 0.62], [0.35, 1.05], [-0.95, 0.9], [-0.72, 0], [-0.95, -0.9], [0.35, -1.05]],
+  'drone:2': [[1.1, 0], [0.35, -0.5], [-0.2, -0.95], [-0.75, -0.45], [-0.55, 0], [-0.75, 0.45], [-0.2, 0.95], [0.35, 0.5]],
+  'drone:3': [[1.15, 0], [0.4, -0.45], [0.05, -1.0], [-0.5, -0.85], [-1.0, -0.4], [-0.6, 0], [-1.0, 0.4], [-0.5, 0.85], [0.05, 1.0], [0.4, 0.45]],
+  'drone:4': [[1.2, -0.35], [1.2, 0.35], [0.5, 0.9], [-0.6, 1.0], [-1.05, 0.55], [-0.75, 0], [-1.05, -0.55], [-0.6, -1.0], [0.5, -0.9]],
+  'cruiser:2': [[1.45, 0], [0.3, -0.42], [-1.1, -0.55], [-0.7, 0], [-1.1, 0.55], [0.3, 0.42]],
+  'cruiser:3': [[1.5, 0], [0.5, -0.4], [0.15, -0.95], [-0.75, -0.8], [-1.15, -0.5], [-0.75, 0], [-1.15, 0.5], [-0.75, 0.8], [0.15, 0.95], [0.5, 0.4]],
+  'cruiser:4': [[1.6, 0], [0.7, -0.35], [0.45, -0.8], [0.0, -1.1], [-0.8, -0.95], [-1.25, -0.55], [-0.85, 0], [-1.25, 0.55], [-0.8, 0.95], [0.0, 1.1], [0.45, 0.8], [0.7, 0.35]],
+};
+const hullOutlineFor = (line: string | null, tier: number, size: number): Pt[] => {
+  const unit = (line && HULL_OUTLINES[`${line}:${tier}`]) || SKIFF_OUTLINE;
+  return unit.map(([x, y]) => [x * size, y * size] as Pt);
+};
+const traceOutline = (c: CanvasRenderingContext2D, pts: Pt[]) => {
+  c.beginPath();
+  c.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]);
+  c.closePath();
+};
 
 interface GameCanvasProps {
   state: GameState;
@@ -668,31 +706,61 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
 
     // ARMOR PLATING (when equipped): a steel rim under the hull outline,
     // thicker per tier — plating you can see, since the mass is real.
+    const hullPts = hullOutlineFor(ship.line, ship.typeTier, ship.size);
     if (ship.loadout.defense === 'armor_plating') {
       const aTier = ship.arsenal['armor_plating'] || 1;
       ctx.strokeStyle = '#9f9faa';
       ctx.lineWidth = 3 + aTier;
-      ctx.beginPath();
-      ctx.moveTo(ship.size, 0);
-      ctx.lineTo(-ship.size, -ship.size * 0.7);
-      ctx.lineTo(-ship.size * 0.6, 0);
-      ctx.lineTo(-ship.size, ship.size * 0.7);
-      ctx.closePath();
+      traceOutline(ctx, hullPts);
       ctx.stroke();
     }
 
-    // Ship Body (Gritty Shape)
+    // Ship Body — the frame's own silhouette (see HULL_OUTLINES).
     ctx.fillStyle = '#1a1a1c';
     ctx.strokeStyle = COLORS.CRT_GLOW;
     ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(ship.size, 0);
-    ctx.lineTo(-ship.size, -ship.size * 0.7);
-    ctx.lineTo(-ship.size * 0.6, 0);
-    ctx.lineTo(-ship.size, ship.size * 0.7);
-    ctx.closePath();
+    traceOutline(ctx, hullPts);
     ctx.fill();
     ctx.stroke();
+
+    // CAPABILITY TELLS: the frame's special, drawn from the same def the
+    // sim fires with — extra hard points as flank mount nubs, cruiser
+    // auto-guns as deck turrets, drone capacity as spine dock rings.
+    {
+      const def = typeFor(ship.line, ship.typeTier);
+      ctx.fillStyle = '#0c0c0e';
+      ctx.strokeStyle = 'rgba(51, 255, 51, 0.75)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < def.hardPoints - 1; i++) {
+        for (const sd of [-1, 1]) {
+          const mx = ship.size * (0.45 - i * 0.3);
+          const my = sd * ship.size * 0.52;
+          ctx.beginPath();
+          ctx.arc(mx, my, 2.2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        }
+      }
+      for (let i = 0; i < def.autoGuns; i++) {
+        const gx = ship.size * (0.5 - i * 0.55);
+        ctx.beginPath();
+        ctx.arc(gx, 0, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(gx, 0);
+        ctx.lineTo(gx + ship.size * 0.3, 0);
+        ctx.stroke();
+      }
+      if (def.dronesFielded > 1) {
+        ctx.strokeStyle = 'rgba(244, 114, 182, 0.65)';
+        for (let i = 0; i < def.dronesFielded; i++) {
+          ctx.beginPath();
+          ctx.arc(ship.size * (0.25 - i * 0.32), 0, 2.6, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+    }
 
     // HYBRID VISUALS — FRONT LAYER: the other three hybrids ride ON the
     // hull. (One hybrid equips at a time, so these never stack.)
@@ -716,16 +784,21 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
         ctx.fill();
         ctx.stroke();
       };
+      // Flank edges come from the flown frame's outline: nose -> the
+      // rearmost corner on each side, wherever this type puts them.
+      const nose = hullPts[0];
+      const rearTop = hullPts.filter(p => p[1] < 0).reduce((a, b) => (b[0] < a[0] ? b : a));
+      const rearBot = hullPts.filter(p => p[1] > 0).reduce((a, b) => (b[0] < a[0] ? b : a));
       for (const s of [-1, 1]) {
-        // Flank edge: nose (size, 0) -> tail corner (-size, s*0.7size).
+        const rear = s < 0 ? rearTop : rearBot;
         for (const t of [0.3, 0.55, 0.8]) {
-          const bx = ship.size + (-ship.size - ship.size) * t;
-          const by = 0 + (s * ship.size * 0.7) * t;
+          const bx = nose[0] + (rear[0] - nose[0]) * t;
+          const by = nose[1] + (rear[1] - nose[1]) * t;
           // Outward = away from the hull's spine.
           spike(bx, by, bx * 0.4, s * 1);
         }
         // Tail corner spike, pointing back-out.
-        spike(-ship.size, s * ship.size * 0.7, -1, s * 0.35);
+        spike(rear[0], rear[1], -1, s * 0.35);
       }
     }
     if (ship.loadout.hybrid === 'scrap_aegis') {
@@ -735,12 +808,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
       const gTier = ship.arsenal['scrap_aegis'] || 1;
       const plateCount = 3 + gTier;
       const tones = ['#b45309', '#78716c', '#a16207', '#57534e'];
-      const outline: Array<[number, number]> = [
-        [ship.size, 0],
-        [-ship.size, -ship.size * 0.7],
-        [-ship.size * 0.6, 0],
-        [-ship.size, ship.size * 0.7],
-      ];
+      const outline: Array<[number, number]> = hullPts;
       // Walk the outline perimeter and park a plate every 1/plateCount.
       const segs: Array<{ x0: number; y0: number; x1: number; y1: number; len: number }> = [];
       let perim = 0;

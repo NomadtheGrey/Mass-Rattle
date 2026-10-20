@@ -1,3 +1,5 @@
+import type { ShipLine, TypeTier } from './shipProgression';
+
 export interface Vector2D {
   x: number;
   y: number;
@@ -43,6 +45,20 @@ export interface Ship extends GameObject {
     fuelCap: number;
     cargo: number;
   };
+  // Ship progression (Phase 3, src/shipProgression.ts — DRAFT numbers).
+  // Per-match state only, like everything else on the ship.
+  /** The ship's line; null at spawn (unaligned SKIFF). The T2 purchase
+   * chooses it; switchLine moves a T2+ ship sideways for a toll. */
+  line: ShipLine | null;
+  /** Type tier within the line, 1..4 (T1 is the SKIFF for every line). */
+  typeTier: TypeTier;
+  /** Hull steps grown inside the current progression: size is
+   * 15 + 2 x hullSteps, each step also +10 max health. Steps PERSIST
+   * across type-ups and line switches; the current line/type's
+   * hullStepCap only gates buying MORE steps. */
+  hullSteps: number;
+  /** Lifetime line switches this match (the first switch is free). */
+  lineSwitchesUsed: number;
 }
 
 export interface Projectile {

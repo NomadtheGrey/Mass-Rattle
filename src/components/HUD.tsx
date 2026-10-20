@@ -3,6 +3,20 @@ import React from 'react';
 import { PHYSICS } from '../constants';
 import { milestonesForInfused, progressIntoNextMilestone, nextMilestoneCost } from '../starGrowth';
 import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor } from '../loadout';
+import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
+
+// One-line summary of what a type's frame DOES, read off its capability
+// fields — the workshop sells the special in the type's own numbers.
+const capSummary = (d: ShipTypeDef): string => {
+  const parts: string[] = [];
+  if (d.hardPoints > 1) parts.push(`${d.hardPoints} HARD POINTS`);
+  if (d.autoGuns > 0) parts.push(`${d.autoGuns} AUTO-GUN${d.autoGuns > 1 ? 'S' : ''}`);
+  if (d.minesPerDrop > 1) parts.push(`${d.minesPerDrop} MINES / DROP`);
+  if (d.dronesFielded > 1) parts.push(`FIELDS ${d.dronesFielded} DRONES`);
+  if (d.cargoBonus > 0) parts.push(`+${d.cargoBonus} HOLD`);
+  if (d.vacBonus > 0) parts.push(`+${d.vacBonus} VAC`);
+  return parts.length ? parts.join(' · ') : 'BALANCED FRAME';
+};
 
 interface NeedleGaugeProps {
   value: number;
@@ -89,6 +103,17 @@ interface HUDProps {
   onCloseShop?: () => void;
   onOpenShop?: () => void;
   onToggleGauges?: () => void;
+  // Ship progression (Phase 3): the ship's line/tier/hull state + the
+  // workshop's four progression actions, threaded from App.
+  shipLine: ShipLine | null;
+  typeTier: TypeTier;
+  hullSteps: number;
+  lineSwitchesUsed: number;
+  playerDrones: number;
+  onBuyType: (line?: ShipLine) => void;
+  onBuyHullStep: () => void;
+  onSwitchLine: (line: ShipLine) => void;
+  onBuildDrone: () => void;
 }
 
 export const HUD: React.FC<HUDProps> = ({ 
@@ -130,12 +155,67 @@ export const HUD: React.FC<HUDProps> = ({
   onToggleMobileRadar,
   onCloseShop,
   onOpenShop,
-  onToggleGauges
+  onToggleGauges,
+  shipLine,
+  typeTier,
+  hullSteps,
+  lineSwitchesUsed,
+  playerDrones,
+  onBuyType,
+  onBuyHullStep,
+  onSwitchLine,
+  onBuildDrone
 }) => {
   // COMBINED WALLET: shop affordability is judged on hold + bank together,
   // matching walletPay in the game loop — but the bank is the home star's
   // gravity well, so banked savings only count while inside it.
   const funds = carrying + (bankInWell ? bankedScrap : 0);
+  // Progression reads come from the ONE table (src/shipProgression.ts):
+  // the current type's def, its per-track caps, and the line-switch toll.
+  const progType = typeFor(shipLine, typeTier);
+  const caps = capsFor(shipLine, typeTier);
+  const switchCost = switchToll({ lineSwitchesUsed, typeTier });
+  // Gauge scales follow the ship as upgraded (audit, 2026-10-20): the
+  // velocity gauges top out at the CURRENT top speed, and the cargo-mass
+  // gauge at the CURRENT hold including overload — not stock constants.
+  const topSpeed = PHYSICS.MAX_VELOCITY + upgrades.thrust * 0.5;
+  // PING readout (kept on Adam's word, 2026-10-20 — the slot is for
+  // multiplayer): today it measures the LOCAL loop honestly — an EMA of
+  // the frame interval, i.e. how long your own machine takes to answer
+  // you — instead of the random number it used to roll. When the
+  // host-run multiplayer lands, this same readout takes the real
+  // network round-trip from the sync layer.
+  const pingRef = React.useRef({ last: performance.now(), ema: 16 });
+  {
+    const now = performance.now();
+    const dt = now - pingRef.current.last;
+    pingRef.current.last = now;
+    if (dt > 0 && dt < 250) pingRef.current.ema = pingRef.current.ema * 0.92 + dt * 0.08;
+  }
+  const pingMs = Math.round(pingRef.current.ema);
+  // STATS BLOCK (Adam, 2026-10-20): the Comms panel corner is where live
+  // numbers live. FPS is COUNTED over a rolling second of renders, the
+  // mission clock runs from HUD mount (match start), ranges are true
+  // distances to the two stars, and FIELD counts the scrap actually out
+  // there — every figure measured, none invented.
+  const fpsRef = React.useRef({ frames: 0, windowStart: performance.now(), fps: 0 });
+  {
+    const now = performance.now();
+    fpsRef.current.frames++;
+    const elapsed = now - fpsRef.current.windowStart;
+    if (elapsed >= 1000) {
+      fpsRef.current.fps = Math.round((fpsRef.current.frames * 1000) / elapsed);
+      fpsRef.current.frames = 0;
+      fpsRef.current.windowStart = now;
+    }
+  }
+  const missionRef = React.useRef(performance.now());
+  const missionSec = Math.floor((performance.now() - missionRef.current) / 1000);
+  const missionClock = `${Math.floor(missionSec / 60)}:${String(missionSec % 60).padStart(2, '0')}`;
+  const rangeHome = Math.round(Math.hypot(shipPos.x - starPos.x, shipPos.y - starPos.y));
+  const rangeEnemy = Math.round(Math.hypot(shipPos.x - enemyStarPos.x, shipPos.y - enemyStarPos.y));
+  const holdRegular = PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS;
+  const holdTotal = holdRegular + Math.floor(holdRegular * PHYSICS.CARGO.OVERLOAD_RATIO);
   // Star growth readouts follow the RISING milestone costs (starGrowth.ts):
   // progress is scrap into the CURRENT milestone, judged against that
   // milestone's own cost — e.g. 40/125 while working on M2, not x/100.
@@ -148,6 +228,24 @@ export const HUD: React.FC<HUDProps> = ({
   const [localRadarOpen, setLocalRadarOpen] = React.useState(false);
 
   const radarActive = isMobileRadarOpen || localRadarOpen;
+
+  // ESC = the X, everywhere (Adam, 2026-10-20): every dialog that shows
+  // an X also answers to Escape, closing the topmost one first. The
+  // results screen is deliberately NOT in this chain — it is the match
+  // end, and its exit is the restart button, not a dismissal.
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (showSysCfg) { setShowSysCfg(false); return; }
+      if (isShopOpen && onCloseShop) { onCloseShop(); return; }
+      if (radarActive) {
+        if (onToggleMobileRadar) onToggleMobileRadar();
+        setLocalRadarOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showSysCfg, isShopOpen, onCloseShop, radarActive, onToggleMobileRadar]);
 
   // CONTROLS CARD rows (desktop, bottom-left of the play area): the whole
   // key set in one readable place. Contextual like the rest of the HUD —
@@ -289,9 +387,9 @@ export const HUD: React.FC<HUDProps> = ({
         {/* Top Row: Stars & Bank */}
         <div className="flex items-center justify-between text-[9px] font-mono leading-none">
           <div className="flex items-center gap-2">
-            <span className="text-orange-500 font-bold">HOME: {totalScrapInfused}U</span>
+            <span className="text-orange-500 font-bold">STAR M{starLevel} · {growthProgress}/{growthCost}</span>
             <span className="text-zinc-600">|</span>
-            <span className="text-red-500 font-bold">ENEMY: {Math.floor(enemyIntegrity * 100)}%</span>
+            <span className="text-red-500 font-bold">ENEMY INT {Math.floor(enemyIntegrity * 100)}%</span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -396,7 +494,7 @@ export const HUD: React.FC<HUDProps> = ({
 
             <div>
               <div className="flex justify-between text-[10px] mb-1">
-                <span className="text-red-500">ENEMY STAR COLLAPSE</span>
+                <span className="text-red-500">ENEMY STAR INTEGRITY</span>
                 <span className="text-red-500">{Math.floor(enemyIntegrity * 100)}%</span>
               </div>
               <div className="vu-meter h-2 bg-red-950/20">
@@ -437,7 +535,14 @@ export const HUD: React.FC<HUDProps> = ({
               <p className="text-cyan-400 font-bold bg-cyan-950/40 px-1 border-l-2 border-cyan-500">[FED] {teamScrap}U DELIVERED</p>
               {fuel < 20 && <p className="text-red-600 animate-pulse font-bold">[ERR] FUEL DEPLETED</p>}
               {glitch && <p className="text-yellow-600">[DATA] SENSORS RECALIBRATING...</p>}
-              <p className="opacity-30">PINGS: {Math.floor(Math.random()*100)}ms</p>
+              <div className="border-t border-zinc-800/70 pt-1.5 mt-1 space-y-0.5 text-[10px]">
+                <div className="flex justify-between"><span className="opacity-50">PINGS</span><span>{pingMs}ms</span></div>
+                <div className="flex justify-between"><span className="opacity-50">FPS</span><span>{fpsRef.current.fps || '—'}</span></div>
+                <div className="flex justify-between"><span className="opacity-50">RANGE · HOME</span><span className="text-orange-400">{rangeHome}U</span></div>
+                <div className="flex justify-between"><span className="opacity-50">RANGE · ENEMY</span><span className="text-red-400">{rangeEnemy}U</span></div>
+                <div className="flex justify-between"><span className="opacity-50">FIELD SCRAP</span><span className="text-pink-400">{scrapList.length}</span></div>
+                <div className="flex justify-between"><span className="opacity-50">MISSION T+</span><span>{missionClock}</span></div>
+              </div>
               <p className="animate-pulse">_</p>
             </div>
           <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-black/60 to-transparent" />
@@ -474,10 +579,13 @@ export const HUD: React.FC<HUDProps> = ({
           {/* Utility Cluster */}
           <div className="absolute bottom-0 right-0 w-24 flex flex-col gap-2 items-end">
             <div className="hud-panel w-16 p-2 flex flex-col items-center gap-4 border-2 bg-zinc-950/90 shadow-2xl pointer-events-auto">
-              <div className="w-10 h-10 pitted-metal flex items-center justify-center text-red-400 text-[9px] text-center font-bold border border-red-900 bg-red-950/20 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">JETTISON [SPACE]</div>
-              <div className="w-10 h-10 pitted-metal flex items-center justify-center text-red-300 text-[9px] text-center font-bold border border-red-900 bg-red-950/20 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">FIRE [F]</div>
-              <div className="w-10 h-10 pitted-metal flex items-center justify-center text-[#33ff33] text-[8px] text-center uppercase font-bold tracking-tighter [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">VAC [Q/E/R]</div>
-              <div className="w-10 h-10 pitted-metal flex items-center justify-center text-cyan-300 text-[9px] text-center">FUEL OK</div>
+              {/* Fuel state — a READOUT, not a button (audit, 2026-10-20):
+                  reads the real fuel prop. Its old neighbours — inert
+                  JETTISON / FIRE / VAC squares dressed as buttons and
+                  duplicating the CONTROLS card — are retired. */}
+              <div className={`w-10 h-10 pitted-metal flex items-center justify-center text-[9px] text-center font-bold border ${fuel < maxFuel * 0.2 ? 'text-red-400 border-red-900 bg-red-950/30 animate-pulse' : fuel < maxFuel * 0.4 ? 'text-amber-300 border-amber-900 bg-amber-950/20' : 'text-cyan-300 border-cyan-900 bg-cyan-950/20'}`}>
+                {fuel < maxFuel * 0.2 ? 'FUEL CRIT' : fuel < maxFuel * 0.4 ? 'FUEL LOW' : 'FUEL OK'}
+              </div>
               <button 
                 onClick={() => setShowSysCfg(true)}
                 className="w-10 h-10 pitted-metal flex items-center justify-center text-[#33ff33] hover:text-white hover:bg-zinc-800 transition-colors text-[8px] text-center pointer-events-auto cursor-pointer"
@@ -497,12 +605,12 @@ export const HUD: React.FC<HUDProps> = ({
           <div className="flex items-center justify-center w-1/4 min-w-[200px]">
             {useAnalogGauges ? (
               <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                <NeedleGauge value={velocity} max={7.5} label="V-VELOCITY" color="#33ff33" />
+                <NeedleGauge value={velocity} max={topSpeed} label="V-VELOCITY" color="#33ff33" />
                 <NeedleGauge value={fuel} max={maxFuel} label="FUEL" color="#06b6d4" isFuel={true} />
                 <NeedleGauge value={slip * 10} max={10} label="I-SLIP" color={slip > 0.5 ? "#f97316" : "#33ff33"} />
                 <NeedleGauge 
                   value={carrying} 
-                  max={PHYSICS.CARGO.BASE_CAPACITY + PHYSICS.CARGO.UPGRADE_BONUS * 5 * 1.25} 
+                  max={holdTotal} 
                   label="C-MASS" 
                   color={carrying > (PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS) ? "#f97316" : "#06b6d4"} 
                 />
@@ -517,7 +625,7 @@ export const HUD: React.FC<HUDProps> = ({
                   <div className="vu-meter h-2">
                     <motion.div 
                       className={`h-full ${velocity > 6 ? 'bg-red-600' : 'bg-[#33ff33] shadow-[0_0_4px_#33ff33]'}`}
-                      animate={{ width: `${(velocity / 7.5) * 100}%` }}
+                      animate={{ width: `${(velocity / topSpeed) * 100}%` }}
                     />
                   </div>
                 </div>
@@ -529,7 +637,7 @@ export const HUD: React.FC<HUDProps> = ({
                   <div className="vu-meter h-2 bg-pink-900/20">
                     <motion.div 
                       className="h-full bg-pink-500 shadow-[0_0_4px_pink]"
-                      animate={{ width: `${Math.min((carrying / (PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS * 1.25)) * 100, 100)}%` }}
+                      animate={{ width: `${Math.min((carrying / holdTotal) * 100, 100)}%` }}
                     />
                   </div>
                 </div>
@@ -573,11 +681,11 @@ export const HUD: React.FC<HUDProps> = ({
             <div className="embossed-label mb-2 text-zinc-400">Ship Enhancements [Keys 1-5 | G for Gauges]</div>
             <div className="flex gap-2 pointer-events-auto overflow-x-auto pb-1 scrollbar-hide">
               {[
-                { type: 'thrust' as const, label: 'Thrust', base: PHYSICS.UPGRADE_COSTS.THRUST, lvl: upgrades.thrust, key: '1' },
-                { type: 'handling' as const, label: 'Nav', base: PHYSICS.UPGRADE_COSTS.HANDLING, lvl: upgrades.handling, key: '2' },
-                { type: 'attractor' as const, label: 'VAC', base: PHYSICS.UPGRADE_COSTS.ATTRACTOR, lvl: upgrades.attractor, key: '3' },
-                { type: 'fuel' as const, label: 'Fuel', base: PHYSICS.UPGRADE_COSTS.FUEL, lvl: upgrades.fuelCap, key: '4' },
-                { type: 'cargo' as const, label: 'Cargo', base: PHYSICS.UPGRADE_COSTS.CARGO, lvl: upgrades.cargo, key: '5' }
+                { type: 'thrust' as const, label: 'Thrust', base: PHYSICS.UPGRADE_COSTS.THRUST, lvl: upgrades.thrust, cap: caps.thrust, key: '1' },
+                { type: 'handling' as const, label: 'Nav', base: PHYSICS.UPGRADE_COSTS.HANDLING, lvl: upgrades.handling, cap: caps.handling, key: '2' },
+                { type: 'attractor' as const, label: 'VAC', base: PHYSICS.UPGRADE_COSTS.ATTRACTOR, lvl: upgrades.attractor, cap: caps.vac, key: '3' },
+                { type: 'fuel' as const, label: 'Fuel', base: PHYSICS.UPGRADE_COSTS.FUEL, lvl: upgrades.fuelCap, cap: caps.fuel, key: '4' },
+                { type: 'cargo' as const, label: 'Cargo', base: PHYSICS.UPGRADE_COSTS.CARGO, lvl: upgrades.cargo, cap: caps.cargo, key: '5' }
               ].map(u => {
                 const cost = u.base + (u.lvl * Math.floor(u.base * 0.5));
                 return (
@@ -590,9 +698,9 @@ export const HUD: React.FC<HUDProps> = ({
                     }`}
                   >
                     <span className="text-[9px] font-bold uppercase tracking-tighter">[{u.key}] {u.label.substring(0,4)}</span>
-                    <span className="text-[8px] opacity-60">Lvl {u.lvl}</span>
+                    <span className="text-[8px] opacity-60">Lvl {u.lvl}/{u.cap}</span>
                     <div className="absolute -top-8 left-1/2 -translate-x-1/2 transition-all opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] bg-black border border-zinc-800 p-1 font-mono z-50">
-                      REQ: {cost} SCRAP (HOLD+BANK)
+                      REQ: {cost} SCRAP ({bankInWell ? 'HOLD+BANK' : 'HOLD — BANK COUNTS IN THE WELL'})
                     </div>
                   </button>
                 );
@@ -769,14 +877,14 @@ export const HUD: React.FC<HUDProps> = ({
           its /MAX — no denominator is printed until a real cap exists. */}
       <div className="fixed bottom-24 sm:bottom-5 left-1/2 -translate-x-1/2 z-[55] flex flex-wrap justify-center items-stretch gap-1 max-w-[97vw] pointer-events-none">
         {[
-          { icon: '🚀', name: 'THRUST', lvl: upgrades.thrust, stat: `SPD ${(PHYSICS.MAX_VELOCITY + upgrades.thrust * 0.5).toFixed(1)}` },
-          { icon: '🕹️', name: 'TURN', lvl: upgrades.handling, stat: `${Math.round((PHYSICS.ROTATION_SPEED + upgrades.handling * 0.005) * 60 * 180 / Math.PI)}°/S` },
-          { icon: '🧲', name: 'VAC', lvl: upgrades.attractor, stat: `${PHYSICS.BASE_ATTRACT_RADIUS + upgrades.attractor * 35}U` },
-          { icon: '⚡', name: 'FUEL', lvl: upgrades.fuelCap, stat: `${maxFuel}` },
-          { icon: '📦', name: 'HOLD', lvl: upgrades.cargo, stat: `${PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS}U` },
+          { icon: '🚀', name: 'THRUST', lvl: upgrades.thrust, cap: caps.thrust, stat: `SPD ${(PHYSICS.MAX_VELOCITY + upgrades.thrust * 0.5).toFixed(1)}` },
+          { icon: '🕹️', name: 'TURN', lvl: upgrades.handling, cap: caps.handling, stat: `${Math.round((PHYSICS.ROTATION_SPEED + upgrades.handling * 0.005) * 60 * 180 / Math.PI)}°/S` },
+          { icon: '🧲', name: 'VAC', lvl: upgrades.attractor, cap: caps.vac, stat: `${PHYSICS.BASE_ATTRACT_RADIUS + upgrades.attractor * 35}U` },
+          { icon: '⚡', name: 'FUEL', lvl: upgrades.fuelCap, cap: caps.fuel, stat: `${maxFuel}` },
+          { icon: '📦', name: 'HOLD', lvl: upgrades.cargo, cap: caps.cargo, stat: `${PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS}U` },
         ].map(t => (
           <div key={t.name} className="hud-panel px-1.5 py-0.5 rounded border border-zinc-800 text-center min-w-[56px]">
-            <div className="text-[6px] sm:text-[7px] font-mono text-zinc-500 tracking-widest whitespace-nowrap">{t.icon} {t.name} · L{t.lvl}</div>
+            <div className="text-[7px] sm:text-[8px] font-mono text-zinc-500 tracking-widest whitespace-nowrap">{t.icon} {t.name} · L{t.lvl}/{t.cap}</div>
             <div className="text-[8px] sm:text-[10px] font-mono font-bold text-zinc-200 leading-tight whitespace-nowrap">{t.stat}</div>
           </div>
         ))}
@@ -792,14 +900,14 @@ export const HUD: React.FC<HUDProps> = ({
           const isDecoy = slot === 'defense' && def?.id === 'decoy_beacon';
           return (
             <div key={slot} className={`hud-panel px-1.5 py-0.5 rounded border text-center min-w-[56px] ${def ? 'border-[#33ff33]/50' : 'border-zinc-800 opacity-50'}`}>
-              <div className="text-[6px] sm:text-[7px] font-mono text-zinc-500 tracking-widest whitespace-nowrap">
+              <div className="text-[7px] sm:text-[8px] font-mono text-zinc-500 tracking-widest whitespace-nowrap">
                 {label}{def ? ` · T${tier}` : ''}{isShield ? ` · POOL ${Math.ceil(shieldHp || 0)}/${shieldMaxFor(tier)}` : ''}
               </div>
               <div className="text-[8px] sm:text-[10px] font-mono font-bold uppercase text-[#33ff33] leading-tight whitespace-nowrap max-w-[92px] truncate">
                 {def ? `${def.icon} ${def.name}` : '— EMPTY —'}
               </div>
               {isDecoy && (
-                <div className="text-[6px] sm:text-[7px] font-mono text-pink-300 whitespace-nowrap">{decoyActive ? 'BEACON LIVE' : 'PRESS X / PILL'}</div>
+                <div className="text-[7px] sm:text-[8px] font-mono text-pink-300 whitespace-nowrap">{decoyActive ? 'BEACON LIVE' : 'PRESS X / PILL'}</div>
               )}
             </div>
           );
@@ -808,8 +916,9 @@ export const HUD: React.FC<HUDProps> = ({
 
       {/* Workshop Overlay (Responsive for both Mobile and Desktop) */}
       {isShopOpen && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-2 sm:p-4 bg-black/75 backdrop-blur-md pointer-events-auto">
+        <div onClick={onCloseShop} className="fixed inset-0 z-[110] flex items-center justify-center p-2 sm:p-4 bg-black/75 backdrop-blur-md pointer-events-auto">
           <motion.div 
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             className="w-full max-w-xl max-h-[90vh] flex flex-col hud-panel p-4 sm:p-6 md:p-8 border-4 relative overflow-hidden bg-zinc-950/95 shadow-[0_0_50px_rgba(51,255,51,0.15)] rounded-lg"
@@ -967,16 +1076,105 @@ export const HUD: React.FC<HUDProps> = ({
 
               {/* Upgrades List (Scrollable on small mobile screens) */}
               {shopTab === 'ship' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 overflow-y-auto pr-1 max-h-[60vh] scrollbar-thin">
+              <div className="flex flex-col gap-3 overflow-y-auto pr-1 max-h-[60vh] scrollbar-thin">
+              {/* PROGRESSION FACES (Phase 3): the TYPE ladder, the line
+                  switch with its toll, the HULL ladder, and drone builds —
+                  the faces for BackGround's progression core. Every number
+                  reads from src/shipProgression.ts; the shop only opens in
+                  the well, and the loop re-gates each action there. */}
+              <div className="pitted-metal p-3 sm:p-4 rounded-lg border border-zinc-700 flex flex-col gap-3">
+                <div className="flex justify-between items-center gap-2 flex-wrap">
+                  <span className="text-xs sm:text-sm font-bold uppercase text-[#33ff33]">🛸 {progType.name}{shipLine ? ` · ${shipLine.toUpperCase()} LINE · T${typeTier}` : ' · UNALIGNED'}</span>
+                  <span className="text-[9px] sm:text-[10px] font-mono opacity-70 bg-zinc-800 px-1.5 py-0.5 rounded">SIZE {hullSizeFor(hullSteps)} · HULL {hullSteps}/{progType.hullStepCap}</span>
+                </div>
+                <p className="text-[9px] sm:text-[10px] opacity-60 leading-tight">{capSummary(progType)} — the special is built into the frame's price, never sold separately.</p>
+
+                {typeTier < 4 && shipLine === null && (
+                  <div className="flex flex-col gap-1.5">
+                    <div className="text-[9px] font-mono text-zinc-500 tracking-widest">CHOOSE YOUR LINE — BUYING THE T2 FRAME IS THE CHOICE</div>
+                    {(Object.keys(SHIP_LINES) as ShipLine[]).map(ln => {
+                      const t2 = SHIP_LINES[ln].types[1];
+                      const price = typeStepPrice(ln, 1);
+                      const afford = funds >= price;
+                      return (
+                        <button key={ln} onClick={() => onBuyType(ln)} disabled={!afford}
+                          className={`pitted-metal px-3 py-2 rounded flex items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'opacity-40 grayscale cursor-not-allowed border border-zinc-800'}`}>
+                          <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">{ln} → {t2.name}</span>
+                          <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(t2)}</span>
+                          <span className="text-[10px] sm:text-xs font-mono font-bold text-pink-400">{price}U</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {typeTier < 4 && shipLine !== null && (() => {
+                  const next = typeFor(shipLine, (typeTier + 1) as TypeTier);
+                  const price = typeStepPrice(shipLine, typeTier);
+                  const afford = funds >= price;
+                  return (
+                    <button onClick={() => onBuyType()} disabled={!afford}
+                      className={`pitted-metal px-3 py-2 rounded flex items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'opacity-40 grayscale cursor-not-allowed border border-zinc-800'}`}>
+                      <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">⬆ CLIMB → {next.name} (T{typeTier + 1})</span>
+                      <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(next)} · HULL CAP {next.hullStepCap}</span>
+                      <span className="text-[10px] sm:text-xs font-mono font-bold text-pink-400">{price}U</span>
+                    </button>
+                  );
+                })()}
+
+                {typeTier >= 4 && (
+                  <div className="text-[10px] sm:text-xs font-mono text-amber-400">★ TOP OF THE LADDER — {progType.name} IS THE {shipLine?.toUpperCase()} LINE'S PEAK FRAME</div>
+                )}
+
+                {shipLine !== null && (
+                  <div className="flex flex-col gap-1.5">
+                    <div className="text-[9px] font-mono text-zinc-500 tracking-widest">SWITCH LINE — TIER, HULL STEPS AND TRACK LEVELS RIDE ACROSS · TOLL {switchCost === 0 ? 'FREE' : `${switchCost}U`}</div>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {(Object.keys(SHIP_LINES) as ShipLine[]).filter(ln => ln !== shipLine).map(ln => {
+                        const afford = funds >= switchCost;
+                        return (
+                          <button key={ln} onClick={() => onSwitchLine(ln)} disabled={!afford}
+                            className={`flex-1 min-w-[86px] px-2 py-1.5 rounded text-[9px] sm:text-[10px] font-mono font-bold border touch-manipulation active:scale-95 ${afford ? 'bg-zinc-900 text-zinc-200 border-zinc-600' : 'bg-zinc-900 text-zinc-600 border-zinc-800 opacity-50 cursor-not-allowed'}`}>
+                            ⇄ {ln.toUpperCase()} · {switchCost === 0 ? 'FREE' : `${switchCost}U`}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-2 flex-wrap">
+                  {hullSteps < progType.hullStepCap ? (
+                    <button onClick={onBuyHullStep} disabled={funds < hullStepPrice(hullSteps)}
+                      className={`flex-1 min-w-[150px] pitted-metal px-3 py-2 rounded text-left touch-manipulation active:scale-[0.98] ${funds >= hullStepPrice(hullSteps) ? 'border border-zinc-600' : 'opacity-40 grayscale cursor-not-allowed border border-zinc-800'}`}>
+                      <div className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🔩 GROW HULL — STEP {hullSteps + 1}/{progType.hullStepCap}</div>
+                      <div className="text-[8px] sm:text-[9px] font-mono text-zinc-400">SIZE {hullSizeFor(hullSteps)} → {hullSizeFor(hullSteps + 1)} · +{HULL_STEP_HEALTH} MAX HULL · <span className="text-pink-400 font-bold">{hullStepPrice(hullSteps)}U</span></div>
+                    </button>
+                  ) : (
+                    <div className="flex-1 min-w-[150px] pitted-metal px-3 py-2 rounded border border-amber-900/60">
+                      <div className="text-[10px] sm:text-xs font-bold uppercase text-amber-400">🔩 HULL MAXED FOR {progType.name}</div>
+                      <div className="text-[8px] sm:text-[9px] font-mono text-zinc-400">A BIGGER TYPE RAISES THE CAP — CLIMB OR SWITCH LINES</div>
+                    </div>
+                  )}
+                  <button onClick={onBuildDrone} disabled={playerDrones >= progType.dronesFielded || funds < DRONE_PRICE}
+                    className={`flex-1 min-w-[150px] pitted-metal px-3 py-2 rounded text-left touch-manipulation active:scale-[0.98] ${playerDrones < progType.dronesFielded && funds >= DRONE_PRICE ? 'border border-zinc-600' : 'opacity-40 grayscale cursor-not-allowed border border-zinc-800'}`}>
+                    <div className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🤖 BUILD DRONE — {playerDrones}/{progType.dronesFielded} FIELDED</div>
+                    <div className="text-[8px] sm:text-[9px] font-mono text-zinc-400">HARVESTER DRONE, REPLACES LOSSES · <span className="text-pink-400 font-bold">{DRONE_PRICE}U</span></div>
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
                 {[
-                  { type: 'thrust' as const, label: 'Thrust Vectoring', desc: 'Increases engine output & MAX VELOCITY', base: PHYSICS.UPGRADE_COSTS.THRUST, lvl: upgrades.thrust, icon: '🚀' },
-                  { type: 'handling' as const, label: 'Neural Nav-Link', desc: 'Improves rotation speed & response', base: PHYSICS.UPGRADE_COSTS.HANDLING, lvl: upgrades.handling, icon: '🕹️' },
-                  { type: 'attractor' as const, label: 'High-Gauss VAC', desc: 'Expands scrap collection radius', base: PHYSICS.UPGRADE_COSTS.ATTRACTOR, lvl: upgrades.attractor, icon: '🧲' },
-                  { type: 'fuel' as const, label: 'Plasma Reserves', desc: 'Increases total fuel capacity', base: PHYSICS.UPGRADE_COSTS.FUEL, lvl: upgrades.fuelCap, icon: '⚡' },
-                  { type: 'cargo' as const, label: 'Hull Expansion', desc: 'Increases max cargo hold capacity', base: PHYSICS.UPGRADE_COSTS.CARGO, lvl: upgrades.cargo, icon: '📦' }
+                  { type: 'thrust' as const, label: 'Thrust Vectoring', desc: 'Increases engine output & MAX VELOCITY', base: PHYSICS.UPGRADE_COSTS.THRUST, lvl: upgrades.thrust, cap: caps.thrust, icon: '🚀' },
+                  { type: 'handling' as const, label: 'Neural Nav-Link', desc: 'Improves rotation speed & response', base: PHYSICS.UPGRADE_COSTS.HANDLING, lvl: upgrades.handling, cap: caps.handling, icon: '🕹️' },
+                  { type: 'attractor' as const, label: 'High-Gauss VAC', desc: 'Expands scrap collection radius', base: PHYSICS.UPGRADE_COSTS.ATTRACTOR, lvl: upgrades.attractor, cap: caps.vac, icon: '🧲' },
+                  { type: 'fuel' as const, label: 'Plasma Reserves', desc: 'Increases total fuel capacity', base: PHYSICS.UPGRADE_COSTS.FUEL, lvl: upgrades.fuelCap, cap: caps.fuel, icon: '⚡' },
+                  { type: 'cargo' as const, label: 'Hull Expansion', desc: 'Increases max cargo hold capacity', base: PHYSICS.UPGRADE_COSTS.CARGO, lvl: upgrades.cargo, cap: caps.cargo, icon: '📦' }
                 ].map(u => {
                   const cost = u.base + (u.lvl * Math.floor(u.base * 0.5));
-                  const canAfford = funds >= cost;
+                  const maxed = u.lvl >= u.cap;
+                  const canAfford = !maxed && funds >= cost;
                   return (
                     <button 
                       key={u.type}
@@ -991,7 +1189,7 @@ export const HUD: React.FC<HUDProps> = ({
                           <span className="text-base">{u.icon}</span>
                           <span className="text-xs sm:text-sm font-bold uppercase text-[#33ff33]">{u.label}</span>
                         </div>
-                        <span className="text-[10px] sm:text-xs font-mono opacity-70 bg-zinc-800 px-1.5 py-0.5 rounded">LVL {u.lvl}</span>
+                        <span className="text-[10px] sm:text-xs font-mono opacity-70 bg-zinc-800 px-1.5 py-0.5 rounded">LVL {u.lvl}/{u.cap}</span>
                       </div>
                       <p className="text-[9px] sm:text-[10px] opacity-60 leading-tight">{u.desc}</p>
                       <div className="flex justify-between items-center mt-1 pt-1.5 border-t border-zinc-800/50">
@@ -999,12 +1197,13 @@ export const HUD: React.FC<HUDProps> = ({
                         <span className={`px-2.5 py-1 rounded text-[9px] sm:text-[10px] font-bold ${
                           canAfford ? 'bg-[#33ff33] text-black shadow-[0_0_8px_#33ff33]' : 'bg-zinc-800 text-zinc-500'
                         }`}>
-                          {canAfford ? 'UPGRADE' : 'LOCKED'}
+                          {maxed ? 'MAXED' : canAfford ? 'UPGRADE' : 'LOCKED'}
                         </span>
                       </div>
                     </button>
                   );
                 })}
+              </div>
               </div>
               )}
 

@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trophy, Skull, RefreshCw, LogOut } from 'lucide-react';
+import { Trophy, Skull, RefreshCw } from 'lucide-react';
 import { milestonesForInfused } from '../starGrowth';
 
 interface ResultsOverlayProps {
@@ -91,13 +91,6 @@ export const ResultsOverlay: React.FC<ResultsOverlayProps> = ({
                 <span>RE-INITIALIZE SYSTEMS</span>
               </button>
               
-              <button
-                onClick={() => window.location.reload()}
-                className="text-zinc-600 hover:text-white transition-colors text-xs font-mono flex items-center justify-center gap-1 uppercase tracking-widest py-2"
-              >
-                <LogOut size={12} />
-                <span>Return to Lobby (Placeholder)</span>
-              </button>
             </div>
           </div>
 
