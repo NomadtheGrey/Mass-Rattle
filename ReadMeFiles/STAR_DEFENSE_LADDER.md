@@ -12,14 +12,18 @@ in a **farther-out concentric ring** around the star.
 
 Everything below is driven by one number per star:
 
-> **M = feeding milestones = total scrap infused ÷ 100** (whole milestones only)
+> **M = feeding milestones reached.** Milestone costs RISE (Adam's pin,
+> 2026-10-20): milestone N costs **100 + 25 × (N−1)** scrap — M1 100,
+> M2 125, M3 150, M4 175 … — so M is read off the cumulative thresholds
+> (100 / 225 / 375 / 550 / 750 …). The math lives in `src/starGrowth.ts`;
+> the full ladder to M18 costs **5,625 scrap** cumulative.
 
 ## What feeding already does (stays, in parallel)
 
 The defense ladder runs **in parallel** with the existing feeding benefits — nothing below
 replaces them:
 
-- Every **100 scrap** delivered: star **mass × 1.25**, **size × 1.15**.
+- Every **milestone crossed** (costs rise — see above): star **mass × 1.25**, **size × 1.15**.
   Mass is gravity in this game (pull = G · mass ÷ distance²), so a fed star's well deepens.
 - The ship is upgraded separately, paid from cargo (thrust / nav / VAC / fuel / cargo).
   **Ship = upgraded, star = fed.**
@@ -30,9 +34,10 @@ replaces them:
 
 - Integrity healing per scrap delivered starts at **0**.
 - It **increases a bit at every milestone**, through all phases below.
-- (One symmetric rule for both stars. Today only the enemy star heals from feeding —
-  +0.005 integrity per scrap delivered by its drones. The player's star will use the
-  milestone-scaled rate instead. Draft rate: heal = M × 0.001 per scrap — tune in play.)
+- **IMPLEMENTED (Phase 1c, 2026-10-20):** one symmetric rule for both stars —
+  the old enemy-only +0.005/scrap heal is gone. **DRAFT rate, UNPINNED:**
+  heal = **min(0.005, 0.0005 × M)** per scrap delivered — 0 at M0, rising each
+  milestone, reaching the old enemy-only rate at M10. Tune in play; Adam pins.
 
 ### Phase A — fill the inner shell (M1)
 
@@ -43,8 +48,11 @@ replaces them:
 ### Phase B — beef the inner shell (M2–M4)
 
 - The two inner turrets get **beefier over 3 tiers** — one tier per milestone.
-- "Beefier" = some mix of bolt damage, bolt speed, and fire rate per tier
-  (baseline today: damage 10, bolt speed 8, range 1200, ~1% fire chance per frame).
+- **IMPLEMENTED (Phase 1c):** BOTH inner turrets tier up together (tier 2 at
+  M2, 3 at M3, 4 at M4). Per-tier numbers (doc draft): bolt **damage =
+  10 + 2 × (tier − 1)**; **fire chance per frame = 1% + 0.2pp × (tier − 1)**;
+  bolt speed 8 and range 1200 unchanged at every tier. Each turret rolls and
+  fires independently.
 
 ### Phase C — fill the outer shell (M5–M12)
 
@@ -55,14 +63,17 @@ replaces them:
 
 - The outer eight then improve tier-wise — but **slower than the inner pair did, because
   there are more of them**.
-- _Marlowe's reading (unconfirmed): round-robin — each milestone tiers up one outer
-  turret, so lifting the whole ring one tier takes 8 milestones._
+- **IMPLEMENTED AS DRAFT (Phase 1c), still UNPINNED:** round-robin — each
+  milestone tiers up one outer turret, cycling 0→7, so lifting the whole ring
+  one tier takes 8 milestones. Awaiting Adam's pin (alternative: all eight
+  together every few milestones).
 
 ### Parity
 
 - The enemy star climbs the same ladder off its own infused total.
-- Full ladder ≈ M18+ (about 1,800 scrap) — long-game growth. A single-player duel may
-  end before the outer shell fills; in the .io arena this is the endgame shape.
+- Full ladder ≈ M18+ — **5,625 scrap cumulative** under the rising milestone
+  curve — long-game growth. A single-player duel may end before the outer shell
+  fills; in the .io arena this is the endgame shape.
 
 ## Current state of the code (2026-10-19)
 
@@ -86,6 +97,8 @@ Adam: ship weapons are to be added. Marlowe's draft, for reaction:
 
 1. ~~Turret start count: 1 at spawn or 0?~~ **SETTLED (Adam, 2026-10-19): the starter
    turret is kept — the star spawns with 1 turret, and M1 completes the inner shell at 2.**
-2. Phase D: round-robin tiering, or all-eight-together every few milestones?
-3. Heal rate numbers, and the per-tier "beefier" numbers — settle in playtesting.
+2. Phase D: round-robin tiering (implemented as an UNPINNED draft in Phase 1c),
+   or all-eight-together every few milestones? — Adam's pin still owed.
+3. Heal rate numbers (draft min(0.005, 0.0005 × M) implemented, UNPINNED), and
+   the per-tier "beefier" numbers — settle in playtesting.
 4. Ship weapons: one track or two? Bought like other ship upgrades, or earned another way?
