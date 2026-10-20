@@ -179,6 +179,20 @@ export const HUD: React.FC<HUDProps> = ({
   // velocity gauges top out at the CURRENT top speed, and the cargo-mass
   // gauge at the CURRENT hold including overload — not stock constants.
   const topSpeed = PHYSICS.MAX_VELOCITY + upgrades.thrust * 0.5;
+  // PING readout (kept on Adam's word, 2026-10-20 — the slot is for
+  // multiplayer): today it measures the LOCAL loop honestly — an EMA of
+  // the frame interval, i.e. how long your own machine takes to answer
+  // you — instead of the random number it used to roll. When the
+  // host-run multiplayer lands, this same readout takes the real
+  // network round-trip from the sync layer.
+  const pingRef = React.useRef({ last: performance.now(), ema: 16 });
+  {
+    const now = performance.now();
+    const dt = now - pingRef.current.last;
+    pingRef.current.last = now;
+    if (dt > 0 && dt < 250) pingRef.current.ema = pingRef.current.ema * 0.92 + dt * 0.08;
+  }
+  const pingMs = Math.round(pingRef.current.ema);
   const holdRegular = PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS;
   const holdTotal = holdRegular + Math.floor(holdRegular * PHYSICS.CARGO.OVERLOAD_RATIO);
   // Star growth readouts follow the RISING milestone costs (starGrowth.ts):
@@ -482,6 +496,7 @@ export const HUD: React.FC<HUDProps> = ({
               <p className="text-cyan-400 font-bold bg-cyan-950/40 px-1 border-l-2 border-cyan-500">[FED] {teamScrap}U DELIVERED</p>
               {fuel < 20 && <p className="text-red-600 animate-pulse font-bold">[ERR] FUEL DEPLETED</p>}
               {glitch && <p className="text-yellow-600">[DATA] SENSORS RECALIBRATING...</p>}
+              <p className="opacity-30">PINGS: {pingMs}ms</p>
               <p className="animate-pulse">_</p>
             </div>
           <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-black/60 to-transparent" />
