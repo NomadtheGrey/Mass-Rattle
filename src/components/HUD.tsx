@@ -474,10 +474,10 @@ export const HUD: React.FC<HUDProps> = ({
           {/* Utility Cluster */}
           <div className="absolute bottom-0 right-0 w-24 flex flex-col gap-2 items-end">
             <div className="hud-panel w-16 p-2 flex flex-col items-center gap-4 border-2 bg-zinc-950/90 shadow-2xl pointer-events-auto">
-              <div className="w-10 h-10 pitted-metal flex items-center justify-center text-red-600 text-[8px] text-center font-bold border border-red-900 bg-red-950/20">JETTISON [SPACE]</div>
-              <div className="w-10 h-10 pitted-metal flex items-center justify-center text-red-400 text-[8px] text-center font-bold border border-red-900 bg-red-950/20">FIRE [F]</div>
-              <div className="w-10 h-10 pitted-metal flex items-center justify-center text-[#33ff33] text-[7px] text-center uppercase tracking-tighter">VAC [Q/E/R]</div>
-              <div className="w-10 h-10 pitted-metal flex items-center justify-center text-cyan-500 text-[8px] text-center">FUEL OK</div>
+              <div className="w-10 h-10 pitted-metal flex items-center justify-center text-red-400 text-[9px] text-center font-bold border border-red-900 bg-red-950/20 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">JETTISON [SPACE]</div>
+              <div className="w-10 h-10 pitted-metal flex items-center justify-center text-red-300 text-[9px] text-center font-bold border border-red-900 bg-red-950/20 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">FIRE [F]</div>
+              <div className="w-10 h-10 pitted-metal flex items-center justify-center text-[#33ff33] text-[8px] text-center uppercase font-bold tracking-tighter [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">VAC [Q/E/R]</div>
+              <div className="w-10 h-10 pitted-metal flex items-center justify-center text-cyan-300 text-[9px] text-center">FUEL OK</div>
               <button 
                 onClick={() => setShowSysCfg(true)}
                 className="w-10 h-10 pitted-metal flex items-center justify-center text-[#33ff33] hover:text-white hover:bg-zinc-800 transition-colors text-[8px] text-center pointer-events-auto cursor-pointer"
