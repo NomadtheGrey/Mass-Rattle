@@ -12,6 +12,10 @@ interface GameCanvasProps {
 
 export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Wrap-edge flash: a >2000-unit jump between frames can only be the
+  // world wrap firing — remember when it happened so the rim can flash.
+  const prevShipPosRef = useRef<{ x: number; y: number } | null>(null);
+  const wrapFlashAtRef = useRef(0);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -33,6 +37,38 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
     const camX = width / 2 - ship.pos.x;
     const camY = height / 2 - ship.pos.y;
     ctx.translate(camX, camY);
+
+    // WORLD WRAP EDGE (Adam's ruling; the wrap itself lives in
+    // useGameLoop): the rim of the world drawn as a place — a faint
+    // dashed circle around the stars' midpoint. It brightens and
+    // pulses as the ship closes on it, and flashes on the wrap frame.
+    {
+      const prevShipPos = prevShipPosRef.current;
+      if (prevShipPos && Math.hypot(ship.pos.x - prevShipPos.x, ship.pos.y - prevShipPos.y) > 2000) {
+        wrapFlashAtRef.current = performance.now();
+      }
+      prevShipPosRef.current = { x: ship.pos.x, y: ship.pos.y };
+
+      const wrapCx = (star.pos.x + enemyStar.pos.x) / 2;
+      const wrapCy = (star.pos.y + enemyStar.pos.y) / 2;
+      const wrapR = PHYSICS.WORLD.WRAP_RADIUS;
+      const centerDist = Math.hypot(ship.pos.x - wrapCx, ship.pos.y - wrapCy);
+      const nearEdge = Math.min(1, Math.max(0, (centerDist - (wrapR - 450)) / 450));
+      const flashAge = performance.now() - wrapFlashAtRef.current;
+      const flashing = flashAge < 350;
+      const alpha = flashing
+        ? 0.85
+        : 0.10 + nearEdge * 0.35 + (nearEdge > 0 ? Math.sin(performance.now() / 130) * 0.06 : 0);
+      ctx.save();
+      ctx.strokeStyle = `rgba(51, 255, 51, ${Math.min(0.9, Math.max(0.08, alpha))})`;
+      ctx.lineWidth = flashing ? 3 : 1.5;
+      ctx.setLineDash([16, 20]);
+      ctx.beginPath();
+      ctx.arc(wrapCx, wrapCy, wrapR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
 
     // DRAW STARS
     [star, enemyStar].forEach(s => {
@@ -81,10 +117,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
           }
         }
 
-      // Turret Hubs (Orbiting defenses)
+      // Turret Hubs (Orbiting defenses) — TRUTH PASS: each star actually
+      // fields ONE starter turret today (the electron-shell ladder that
+      // grows this to 2 + 8 is pinned but not built, and the loop models
+      // no turret count in state). Draw the one that's real; when the
+      // ladder lands a count in state, read it from there instead.
       ctx.save();
       ctx.rotate(isHome ? state.starOrbit : state.enemyStarOrbit);
-      const turretCount = isHome ? 2 : 4;
+      const turretCount = 1;
       for (let i = 0; i < turretCount; i++) {
         const tAngle = (i / turretCount) * Math.PI * 2;
         ctx.save();
@@ -293,23 +333,124 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
       ctx.restore();
     });
 
-    // DRAW PROJECTILES
+    // DRAW PROJECTILES — every weapon draws as itself (UI lane pass,
+    // Adam: "fix whatever is generic"). p.kind is the firing weapon's id
+    // (Slice 4); turret bolts leave it undefined and keep the stock look.
     (state.projectiles || []).forEach(p => {
-      ctx.fillStyle = p.owner === 'player' ? '#fff' : '#f43f5e';
+      const isPlayer = p.owner === 'player';
+      const glow = isPlayer ? '#33ff33' : '#f43f5e';
+
+      if (isPlayer && p.kind === 'rail_lance') {
+        // RAIL LANCE: a long bright lance streak with a wake — the siege
+        // gun should look like it could punch through a star.
+        ctx.save();
+        ctx.shadowBlur = 14;
+        ctx.shadowColor = glow;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(p.pos.x - p.vel.x * 7, p.pos.y - p.vel.y * 7);
+        ctx.lineTo(p.pos.x + p.vel.x * 1.5, p.pos.y + p.vel.y * 1.5);
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(51, 255, 51, 0.35)';
+        ctx.lineWidth = 7;
+        ctx.beginPath();
+        ctx.moveTo(p.pos.x - p.vel.x * 5, p.pos.y - p.vel.y * 5);
+        ctx.lineTo(p.pos.x, p.pos.y);
+        ctx.stroke();
+        ctx.restore();
+        return;
+      }
+
+      if (isPlayer && p.kind === 'ion_blaster') {
+        // ION BLASTER: a crackling cyan-white orb that spits sparks —
+        // barely a bullet, mostly electricity.
+        ctx.save();
+        ctx.shadowBlur = 12;
+        ctx.shadowColor = '#67e8f9';
+        ctx.fillStyle = '#ecfeff';
+        ctx.beginPath();
+        ctx.arc(p.pos.x, p.pos.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(103, 232, 249, 0.9)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 3; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const r0 = 4, r1 = 7 + Math.random() * 5;
+          ctx.beginPath();
+          ctx.moveTo(p.pos.x + Math.cos(a) * r0, p.pos.y + Math.sin(a) * r0);
+          ctx.lineTo(p.pos.x + Math.cos(a + 0.6) * r1, p.pos.y + Math.sin(a + 0.6) * r1);
+          ctx.stroke();
+        }
+        ctx.restore();
+        return;
+      }
+
+      if (isPlayer && p.kind === 'seeker_torpedoes') {
+        // SEEKER TORPEDO: a little dart with a flickering exhaust — it
+        // reads as a missile, and its curving path does the rest.
+        ctx.save();
+        ctx.translate(p.pos.x, p.pos.y);
+        ctx.rotate(Math.atan2(p.vel.y, p.vel.x));
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = glow;
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.moveTo(6, 0);
+        ctx.lineTo(-4, 3);
+        ctx.lineTo(-2, 0);
+        ctx.lineTo(-4, -3);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(255, 102, 0, 0.85)';
+        ctx.beginPath();
+        ctx.moveTo(-4, 1.5);
+        ctx.lineTo(-8 - Math.random() * 5, 0);
+        ctx.lineTo(-4, -1.5);
+        ctx.fill();
+        ctx.restore();
+        return;
+      }
+
+      if (isPlayer && p.kind === 'flak_cannon') {
+        // FLAK: hot amber pellets, short-lived and stubby-trailed — a
+        // shotgun blast, not a bullet stream.
+        ctx.save();
+        ctx.fillStyle = '#fbbf24';
+        ctx.shadowBlur = 6;
+        ctx.shadowColor = '#f59e0b';
+        ctx.beginPath();
+        ctx.arc(p.pos.x, p.pos.y, 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(245, 158, 11, 0.35)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(p.pos.x, p.pos.y);
+        ctx.lineTo(p.pos.x - p.vel.x * 1.5, p.pos.y - p.vel.y * 1.5);
+        ctx.stroke();
+        ctx.restore();
+        return;
+      }
+
+      // Bolt Cannon + turret bolts: the stock square-and-trail.
+      ctx.fillStyle = isPlayer ? '#fff' : '#f43f5e';
       ctx.shadowBlur = 10;
-      ctx.shadowColor = p.owner === 'player' ? '#33ff33' : '#f43f5e';
-      
-      const headSize = p.size ?? (p.owner === 'player' ? 3 : 4);
+      ctx.shadowColor = glow;
+
+      const headSize = p.size ?? (isPlayer ? 3 : 4);
       ctx.fillRect(p.pos.x - headSize/2, p.pos.y - headSize/2, headSize, headSize);
-      
+
       // Trail
       ctx.lineWidth = 1;
-      ctx.strokeStyle = p.owner === 'player' ? 'rgba(51, 255, 51, 0.4)' : 'rgba(244, 63, 94, 0.4)';
+      ctx.strokeStyle = isPlayer ? 'rgba(51, 255, 51, 0.4)' : 'rgba(244, 63, 94, 0.4)';
       ctx.beginPath();
       ctx.moveTo(p.pos.x, p.pos.y);
       ctx.lineTo(p.pos.x - p.vel.x * 3, p.pos.y - p.vel.y * 3);
       ctx.stroke();
-      
+
       ctx.shadowBlur = 0;
     });
 
@@ -409,7 +550,17 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
       ctx.stroke();
     }
     if (ship.loadout.defense === 'pd_zap') {
-      ctx.strokeStyle = 'rgba(103, 232, 249, 0.10)';
+      // PD REACH RING — wakes, doesn't loiter: near-invisible while
+      // nothing threatens, lit when a hostile or its bolt is inside
+      // reach, brightest just after a zap. (Was a constant ring stacking
+      // on the VAC circle and the shield bubble — ring soup.)
+      const pdThreat = (state.drones || []).some(d => d.owner === 'enemy' &&
+          Math.hypot(d.pos.x - ship.pos.x, d.pos.y - ship.pos.y) < PD_RANGE + 40) ||
+        (state.projectiles || []).some(p => p.owner === 'enemy' &&
+          Math.hypot(p.pos.x - ship.pos.x, p.pos.y - ship.pos.y) < PD_RANGE + 40);
+      const pdJustFired = ship.pdZapAt && performance.now() - ship.pdZapAt < 300;
+      const pdAlpha = pdJustFired ? 0.5 : pdThreat ? 0.28 : 0.03;
+      ctx.strokeStyle = `rgba(103, 232, 249, ${pdAlpha})`;
       ctx.setLineDash([3, 9]);
       ctx.beginPath();
       ctx.arc(0, 0, PD_RANGE, 0, Math.PI * 2);
@@ -428,6 +579,21 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
         const sy = (Math.random() - 0.5) * 30;
         ctx.strokeRect(sx, sy, 2, 2);
       }
+    }
+
+    // ARMOR PLATING (when equipped): a steel rim under the hull outline,
+    // thicker per tier — plating you can see, since the mass is real.
+    if (ship.loadout.defense === 'armor_plating') {
+      const aTier = ship.arsenal['armor_plating'] || 1;
+      ctx.strokeStyle = '#9f9faa';
+      ctx.lineWidth = 3 + aTier;
+      ctx.beginPath();
+      ctx.moveTo(ship.size, 0);
+      ctx.lineTo(-ship.size, -ship.size * 0.7);
+      ctx.lineTo(-ship.size * 0.6, 0);
+      ctx.lineTo(-ship.size, ship.size * 0.7);
+      ctx.closePath();
+      ctx.stroke();
     }
 
     // Ship Body (Gritty Shape)

@@ -143,11 +143,10 @@ export default function App() {
         <div className="noise-texture pointer-events-none" />
       </div>
 
-      {/* Controls Help (Desktop only) */}
-      <div className="hidden md:flex fixed bottom-4 left-4 text-[10px] opacity-20 uppercase tracking-widest pointer-events-none z-[60] flex-col">
-        <span>[WASD/ARROWS] THRUST/ROTATION | [Q/E/R] MANUAL VAC PULL</span>
-        <span>[1-5] UPGRADES | [SPACE] EJECT CARGO PULSE (SABOTAGE ENEMY / INFUSE HOME) | [TAB/U] WORKSHOP (SHIP / WEAPONS / DEFENSE / HYBRID)</span>
-      </div>
+      {/* Controls help lives in the HUD now (desktop CONTROLS card in
+          HUD.tsx + the HELP legend in MobileControls.tsx). The old
+          20%-opacity footer that stood here was stale — it never
+          learned FIRE [F] or DECOY [X] — so it was retired. */}
     </div>
   );
 }

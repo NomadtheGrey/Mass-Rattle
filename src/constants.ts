@@ -66,6 +66,19 @@ export const PHYSICS = {
     KNOCKBACK_PER_M: 2,
     CONE_RAD: 0.6,        // directed half-angle, ~34 degrees
     BAND: 26,             // wavefront thickness for hit tests
+  },
+  /**
+   * WORLD WRAP (Adam's ruling, 2026-10-20): the map is a circle of this
+   * radius around the two stars' midpoint. There is no wall — a ship
+   * crossing the edge point-reflects through the center and re-enters
+   * from the opposite side, velocity and heading untouched. Radius
+   * floor matters: the stars sit ~1,581 from the midpoint, so entry is
+   * never closer than ~1,419 to the far star — outside turret range
+   * (1,200), star proximity burn, and the bank well. Don't shrink this
+   * below ~2,800 without re-checking that ambush margin.
+   */
+  WORLD: {
+    WRAP_RADIUS: 3000,
   }
 };
 
