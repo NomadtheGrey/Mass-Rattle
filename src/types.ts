@@ -1,4 +1,6 @@
 import type { ShipLine, TypeTier } from './shipProgression';
+import type { MatchEndReason, Standing } from './net/protocol';
+import type { EventFeedRecord } from './sim/eventFeed';
 
 export interface Vector2D {
   x: number;
@@ -37,6 +39,10 @@ export interface Ship extends GameObject {
    * so fractional damage (star burn) burns cargo at the table's rate
    * instead of a whole scrap per frame. Loop-managed. */
   aegisCredit?: number;
+  /** Kill attribution (Phase 2, P2-2b): the ownerId of the seat whose
+   * weapon/wave last damaged this ship. Bookkeeping only — read by the
+   * kill crediting pass, never by behavior. */
+  lastHitByOwnerId?: string;
   // Arsenal (see src/loadout.ts): item id -> owned tier (0/absent = not owned),
   // and the one equipped item id per category (null = slot empty).
   arsenal: Record<string, number>;
@@ -196,12 +202,76 @@ export interface Harvester {
   state: 'searching' | 'collecting' | 'returning';
   /** Ion Blaster effect: frames remaining where this drone is rebooting (no movement). */
   stunFrames?: number;
+  /** Kill attribution (Phase 2, P2-2b): the ownerId of the seat whose
+   * weapon/wave/mine last damaged this drone. The drone-death sweep
+   * credits that seat's kill count. Bookkeeping only. */
+  lastHitByOwnerId?: string;
+}
+
+/**
+ * PER-SEAT SIM STATE (Phase 2, P2-2b). One record per seat in the
+ * match: its star, its ship (null while shipless — the SP enemy seat
+ * flies no ship, and a seat whose ship was destroyed stays null until
+ * the death economy answers, P2-5), its bank, and its match record.
+ *
+ * The GameState top-level fields (ship / star / enemyStar /
+ * bankedScrap / teamScrap) remain the LOCAL seat's view and are the
+ * SAME object references as seats[0].ship / seats[0].star /
+ * seats[1].star — the loop rebuilds the seat projection from the
+ * frame's working copies every frame, so components keep reading the
+ * top-level fields exactly as they always have.
+ */
+export interface SeatSimState {
+  /** Seat-scoped ownerId (`seat-<starIndex>`); never changes. */
+  ownerId: string;
+  starIndex: number;
+  /** Who drives this seat's ship: a human's input or the bot driver. */
+  controller: 'human' | 'bot';
+  ship: Ship | null;
+  star: Star;
+  /** This seat's banked scrap. Only the local seat's bank is wired to
+   * the workshop economy in P2-2b; bot seats bank nothing (their drone
+   * and ship deliveries infuse their star directly). */
+  bankedScrap: number;
+  /** Mirror of star.totalScrapInfused, refreshed by the loop each
+   * frame — the star's field is the single source of truth. */
+  fedTotal: number;
+  /** Ships + drones this seat's weapons/waves/mines have destroyed. */
+  kills: number;
+  /** A seat is eliminated when its STAR dies (Adam's ruling: ship
+   * death is not elimination). */
+  eliminated: boolean;
+  /** 1 = first seat eliminated this match; null while standing. */
+  eliminationOrder: number | null;
+}
+
+/**
+ * Match-end DATA (Phase 2, P2-2b) — the sim's record that an end
+ * condition has been reached. The cinematic freeze (critical mass)
+ * and the results wiring are P2-4; this is the fact, not the show.
+ */
+export interface MatchEndState {
+  endReason: MatchEndReason;
+  winnerOwnerId: string;
 }
 
 export interface GameState {
   ship: Ship;
   star: Star;
   enemyStar: Star;
+  /** Per-seat sim state (Phase 2, P2-2b). seats[0] is the local seat;
+   * its ship/star are the same objects as the top-level fields. */
+  seats: SeatSimState[];
+  /** Host-computed standings (src/sim/standings.ts), refreshed every
+   * frame. Plain data in protocol.ts's Standing shape. */
+  standings: Standing[];
+  /** Host event feed records (src/sim/eventFeed.ts), oldest-to-newest.
+   * Plain serializable data — the accumulator lives in the feed
+   * module's pure helpers, never in state. */
+  eventFeed: EventFeedRecord[];
+  /** Set once when a star-elimination or critical-mass end condition
+   * is reached; null while the match is undecided. */
+  matchEnd: MatchEndState | null;
   scrap: Scrap[];
   deployedCargo: DeployedCargo[];
   projectiles: Projectile[];

@@ -1,11 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { GameState, Vector2D } from '../types';
+import { GameState, SeatSimState, Star, Vector2D } from '../types';
 import { PHYSICS, COLORS } from '../constants';
 import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER } from '../loadout';
 import { inBankWell } from '../bank';
 import { infuseStar, milestonesForInfused } from '../starGrowth';
 import { ownerIdForSeat } from '../sim/ownership';
 import { createMatchLayout, DEFAULT_MATCH_SEED } from '../sim/matchInit';
+import { advanceSeatTracking, createSeatSimState, createStarterShip } from '../sim/seatState';
+import { stepBotShip } from '../sim/botDriver';
+import { computeStandings } from '../sim/standings';
+import { appendEventRecords, EventFeedEntry } from '../sim/eventFeed';
 import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, applyDeliveryHeal } from '../starDefense';
 import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, cmeReductionFor, mirrorReflectDamageFor, SAIL_RANGE, sailThrustFor, siphonFuelFor, thornDamageFor, aegisAbsorbFor } from '../loadout';
 import { ShipLine, TypeTier, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, EXTRA_MOUNT_DAMAGE, AUTO_GUN } from '../shipProgression';
@@ -56,57 +60,48 @@ export const useGameLoop = (width: number, height: number) => {
     x: initialArenaCenter.x + initialLayout.stars[1].pos.x,
     y: initialArenaCenter.y + initialLayout.stars[1].pos.y,
   };
+  // PER-SEAT INIT (Phase 2, P2-2b): the initial ship and stars are
+  // built once here so the per-seat projection (state.seats) can hold
+  // the SAME object references as the top-level fields — seats[0].ship
+  // IS state.ship, seats[0].star IS state.star, seats[1].star IS
+  // state.enemyStar. SP is the 2-seat degenerate case: seat 0 human,
+  // seat 1 a bot seat with ship: null — the shipped game, unchanged.
+  // The starter-ship factory reproduces the shipped initial ship
+  // field for field (see src/sim/seatState.ts).
+  const initialShip = createStarterShip(ownerIdForSeat(0), { x: 100, y: 100 });
+  const initialHomeStar: Star = {
+    pos: initialStarPos,
+    vel: { x: 0, y: 0 },
+    size: 40,
+    mass: 400,
+    totalScrapInfused: 0,
+    type: 'home',
+    ownerId: initialLayout.stars[0].ownerId,
+    integrity: 1,
+    turrets: turretsForMilestones(0),
+  };
+  const initialEnemyStar: Star = {
+    pos: initialEnemyStarPos,
+    vel: { x: 0, y: 0 },
+    size: 120,
+    mass: 4000,
+    totalScrapInfused: 0,
+    type: 'enemy',
+    ownerId: initialLayout.stars[1].ownerId,
+    integrity: 1,
+    turrets: turretsForMilestones(0),
+  };
   const [state, setState] = useState<GameState>({
-    ship: {
-      pos: { x: 100, y: 100 },
-      vel: { x: 0, y: 0 },
-      size: 15,
-      angle: 0,
-      rotationVel: 0,
-      thrust: false,
-      carrying: 0,
-      fuel: 100,
-      maxFuel: 100,
-      health: 100,
-      maxHealth: 100,
-      attractRadius: PHYSICS.BASE_ATTRACT_RADIUS,
-      ownerId: ownerIdForSeat(0),
-      arsenal: {},
-      loadout: { weapon: null, defense: null, hybrid: null },
-      upgrades: {
-        thrust: 0,
-        handling: 0,
-        attractor: 0,
-        fuelCap: 0,
-        cargo: 0,
-      },
-      line: null,
-      typeTier: 1,
-      hullSteps: 0,
-      lineSwitchesUsed: 0,
-    },
-    star: {
-      pos: initialStarPos,
-      vel: { x: 0, y: 0 },
-      size: 40,
-      mass: 400,
-      totalScrapInfused: 0,
-      type: 'home',
-      ownerId: initialLayout.stars[0].ownerId,
-      integrity: 1,
-      turrets: turretsForMilestones(0),
-    },
-    enemyStar: {
-      pos: initialEnemyStarPos,
-      vel: { x: 0, y: 0 },
-      size: 120,
-      mass: 4000,
-      totalScrapInfused: 0,
-      type: 'enemy',
-      ownerId: initialLayout.stars[1].ownerId,
-      integrity: 1,
-      turrets: turretsForMilestones(0),
-    },
+    ship: initialShip,
+    star: initialHomeStar,
+    enemyStar: initialEnemyStar,
+    seats: [
+      createSeatSimState(initialHomeStar, 0, 'human', initialShip),
+      createSeatSimState(initialEnemyStar, 1, 'bot', null),
+    ],
+    standings: [],
+    eventFeed: [],
+    matchEnd: null,
     scrap: [],
     deployedCargo: [],
     projectiles: [],
@@ -480,7 +475,13 @@ export const useGameLoop = (width: number, height: number) => {
       }
     }
 
-    setState(s => ({
+    setState(s => {
+      // The star is re-anchored to the viewport center (the position
+      // it already holds by construction); the seat projection is
+      // re-pointed at the SAME new star object so seats[0].star stays
+      // reference-identical to the top-level star.
+      const anchoredStar: Star = { ...s.star, pos: { x: width / 2, y: height / 2 } };
+      return {
       ...s,
       scrap: initialScrap,
       drones: [
@@ -511,8 +512,12 @@ export const useGameLoop = (width: number, height: number) => {
           health: 100
         }
       ],
-      star: { ...s.star, pos: { x: width / 2, y: height / 2 } }
-    }));
+      star: anchoredStar,
+      seats: s.seats.map(seat =>
+        seat.starIndex === 0 ? { ...seat, star: anchoredStar, ship: s.ship } : seat,
+      ),
+      };
+    });
   }, [width, height, spawnScrap]);
 
   useEffect(() => {
@@ -555,6 +560,47 @@ export const useGameLoop = (width: number, height: number) => {
         const ship = { ...next.ship };
         const star = { ...next.star };
         const enemyStar = { ...next.enemyStar };
+
+        // PER-SEAT PROJECTION (Phase 2, P2-2b): rebuild the seat
+        // records around this frame's working copies, so everything
+        // below can resolve stars/ships by ownerId through the seats
+        // while the top-level fields stay the local seat's view.
+        // seats[0] wraps `ship`/`star`, seats[1] wraps `enemyStar` —
+        // the same objects the rest of the frame (and the returned
+        // state) use. In SP this is exactly two seats; extra seats
+        // (multiplayer matches) carry their own copies.
+        const localOwnerId = ship.ownerId;
+        const prevSeats: SeatSimState[] =
+          prev.seats && prev.seats.length >= 2
+            ? prev.seats
+            : [
+                createSeatSimState(star, 0, 'human', ship),
+                createSeatSimState(enemyStar, 1, 'bot', null),
+              ];
+        const simSeats: SeatSimState[] = prevSeats.map((ps, i) => {
+          const seat: SeatSimState = { ...ps };
+          if (i === 0) {
+            seat.ship = ship;
+            seat.star = star;
+            seat.bankedScrap = prev.bankedScrap;
+          } else if (i === 1) {
+            seat.ship = ps.ship ? { ...ps.ship } : null;
+            seat.star = enemyStar;
+          } else {
+            seat.ship = ps.ship ? { ...ps.ship } : null;
+            seat.star = { ...ps.star };
+          }
+          seat.fedTotal = seat.star.totalScrapInfused;
+          return seat;
+        });
+        const seatByOwnerId = new Map(simSeats.map(s => [s.ownerId, s]));
+        const starByOwnerId = (ownerId: string): Star =>
+          seatByOwnerId.get(ownerId)?.star ??
+          (ownerId === localOwnerId ? star : enemyStar);
+        // This frame's host event-feed entries (kills credited below,
+        // milestones/stage changes/eliminations at frame end). Pure
+        // data — folded into state.eventFeed at the return.
+        const feedEntries: EventFeedEntry[] = [];
 
         // DEFENSE STATE (Slice 6): the equipped defense's invariants are
         // enforced here, once, every frame — max hull follows Armor
@@ -659,24 +705,28 @@ export const useGameLoop = (width: number, height: number) => {
         // Ship Health Regen
         ship.health = Math.min(ship.health + 0.01, ship.maxHealth);
 
-        // Ship Health Damage from enemy star proximity
-        const edx = enemyStar.pos.x - ship.pos.x;
-        const edy = enemyStar.pos.y - ship.pos.y;
-        const eDist = Math.sqrt(edx * edx + edy * edy);
+        // Ship Health Damage from hostile star proximity (P2-2b: any
+        // star whose ownerId isn't the ship's — in SP that is exactly
+        // the enemy star, with exactly the shipped math).
         // (The midpoint/centerDist computation that fed the retired
         // deep-space drain is gone too; the wrap below computes the
         // midpoint where it needs it.)
-
-        if (eDist < enemyStar.size + 150) {
+        for (const burnSeat of simSeats) {
+          const burnStar = burnSeat.star;
+          if (burnStar.ownerId === ship.ownerId) continue;
+          const edx = burnStar.pos.x - ship.pos.x;
+          const edy = burnStar.pos.y - ship.pos.y;
+          const eDist = Math.sqrt(edx * edx + edy * edy);
+          if (eDist >= burnStar.size + 150) continue;
           // The burn still bypasses the Deflector (heat, not bolts), but
           // the Scrap Aegis is armor, not shield — it soaks burn too.
-          ship.health -= aegisAbsorb(0.15 * (1 - (eDist / (enemyStar.size + 150))));
+          ship.health -= aegisAbsorb(0.15 * (1 - (eDist / (burnStar.size + 150))));
           // THORN HULL at point blank (Phase 1b): sitting in the burn is
           // the star point-blanking you, and the armor bites back —
           // thorn damage per second on the universal x0.002 star scale.
           if (hyId === 'thorn_hull') {
-            enemyStar.integrity = Math.max(0, enemyStar.integrity - (thornDamageFor(hyTier) * 0.002) / 60);
-            enemyStar.lastHitTime = time;
+            burnStar.integrity = Math.max(0, burnStar.integrity - (thornDamageFor(hyTier) * 0.002) / 60);
+            burnStar.lastHitTime = time;
           }
           if (Math.random() < 0.05) next.shakeAmount = 3;
         }
@@ -716,16 +766,18 @@ export const useGameLoop = (width: number, height: number) => {
         // Active VAC Mode (Q, E, R or virtual touch)
         const isVacActive = keys.current.has('KeyQ') || keys.current.has('KeyE') || keys.current.has('KeyR') || touchInputs.current.vac;
 
-        // Gravity from BOTH Stars
-        [star, enemyStar].forEach(s => {
+        // Gravity from ALL seats' stars (SP: both stars, same order —
+        // seat 0's star first, then seat 1's, as shipped)
+        simSeats.forEach(seat => {
+          const s = seat.star;
           const dx = s.pos.x - ship.pos.x;
           const dy = s.pos.y - ship.pos.y;
           const distSq = dx * dx + dy * dy;
           const dist = Math.sqrt(distSq);
-          
+
           // Safer gravity: cap distance to prevent "infinite" pull
-          const safeDistSq = Math.max(distSq, s.size * s.size); 
-          const isHomeStar = s.type === 'home';
+          const safeDistSq = Math.max(distSq, s.size * s.size);
+          const isHomeStar = s.ownerId === ship.ownerId;
           const shipGravityModifier = isHomeStar ? 0.2 : 0.6; // Much weaker pull for home
           
           const force = ((PHYSICS.G * s.mass * shipGravityModifier) / safeDistSq) * gravFactor;
@@ -760,7 +812,8 @@ export const useGameLoop = (width: number, height: number) => {
         // catches light whether or not the engine is burning.
         if (hyId === 'mirror_sail') {
           const sailForce = sailThrustFor(hyTier);
-          [star, enemyStar].forEach(s => {
+          simSeats.forEach(seat => {
+            const s = seat.star;
             const dx = ship.pos.x - s.pos.x;
             const dy = ship.pos.y - s.pos.y;
             const dist = Math.hypot(dx, dy);
@@ -988,26 +1041,30 @@ export const useGameLoop = (width: number, height: number) => {
           c.pos.y += c.vel.y;
           c.life -= 1;
 
-          // Collision with stars
-          for (const s of [star, enemyStar]) {
+          // Collision with stars (P2-2b: every seat's star — cargo
+          // delivered to its OWN seat's star feeds it; cargo striking
+          // a hostile star damages it. In SP the player's cargo meets
+          // exactly the home/enemy pair, as shipped.)
+          for (const seat of simSeats) {
+            const s = seat.star;
             const dx = s.pos.x - c.pos.x;
             const dy = s.pos.y - c.pos.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
-            
+
             if (dist < s.size + 10) {
               const amount = 1;
-              if (s.type === 'home') {
-                infuseStar(star, amount);
-                applyDeliveryHeal(star, amount);
-                next.teamScrap += amount;
+              if (c.ownerId === s.ownerId) {
+                infuseStar(s, amount);
+                applyDeliveryHeal(s, amount);
+                if (s.ownerId === localOwnerId) next.teamScrap += amount;
               } else {
-                enemyStar.integrity = Math.max(0, enemyStar.integrity - 0.01);
-                enemyStar.mass *= 0.99; // Each bit of cargo damages it
-                enemyStar.size *= 0.995;
-                enemyStar.lastHitTime = time;
+                s.integrity = Math.max(0, s.integrity - 0.01);
+                s.mass *= 0.99; // Each bit of cargo damages it
+                s.size *= 0.995;
+                s.lastHitTime = time;
                 next.shakeAmount = 10;
               }
-              
+
               next.glitchActive = true;
               next.lastGlitchTime = time;
               return false; // Cargo consumed
@@ -1054,7 +1111,13 @@ export const useGameLoop = (width: number, height: number) => {
 
         // 5. Drones Logic
         next.drones = (next.drones || []).map(drone => {
-          const droneStar = drone.owner === 'player' ? star : enemyStar;
+          // Home star by ownerId (P2-2b): the drone's seat's star.
+          // (Fallback to the legacy pair if an ownerId ever misses
+          // the seat table — unreachable in SP, where every drone is
+          // seat-0's or seat-1's.)
+          const droneStar =
+            seatByOwnerId.get(drone.ownerId)?.star ??
+            (drone.owner === 'player' ? star : enemyStar);
 
           // Ion stun: a rebooting drone hangs dead in space, timer ticking.
           if (drone.stunFrames && drone.stunFrames > 0) {
@@ -1062,10 +1125,11 @@ export const useGameLoop = (width: number, height: number) => {
             return drone;
           }
 
-          // Decoy Beacon: enemy drones within 500 chase the beacon instead
-          // of working — it screams "hostile" louder than scrap whispers,
-          // and a returning drone delays its delivery to chase it.
-          if (drone.owner === 'enemy' && next.decoy) {
+          // Decoy Beacon: hostile drones within 500 chase the beacon
+          // instead of working — it screams "hostile" louder than scrap
+          // whispers, and a returning drone delays its delivery to chase
+          // it. (Hostile = not the decoy's seat; in SP, the enemy's.)
+          if (next.decoy && drone.ownerId !== next.decoy.ownerId) {
             const bx = next.decoy.pos.x - drone.pos.x;
             const by = next.decoy.pos.y - drone.pos.y;
             const bd = Math.hypot(bx, by);
@@ -1144,18 +1208,15 @@ export const useGameLoop = (width: number, height: number) => {
 
             if (dist < droneStar.size + PHYSICS.DRONES.DEPOSIT_RADIUS) {
               const amount = drone.carrying;
-              if (drone.owner === 'player') {
-                infuseStar(star, amount);
-                applyDeliveryHeal(star, amount);
+              // Every star grows through the SAME rising milestone
+              // system (starGrowth.ts) — no per-delivery creep — and
+              // gets the SAME symmetric delivery heal (starDefense.ts).
+              // The local seat's deliveries also feed teamScrap, the
+              // SP fed counter the HUD reads.
+              infuseStar(droneStar, amount);
+              applyDeliveryHeal(droneStar, amount);
+              if (drone.ownerId === localOwnerId) {
                 teamScrap += amount;
-              } else {
-                // The enemy star grows through the SAME rising milestone
-                // system (starGrowth.ts) — no more per-delivery x1.01 creep.
-                // Its integrity heal is now the SAME symmetric rule the
-                // home star gets (starDefense.ts), replacing the old
-                // enemy-only flat +0.005/scrap.
-                infuseStar(enemyStar, amount);
-                applyDeliveryHeal(enemyStar, amount);
               }
               drone.carrying = 0;
               drone.state = 'searching';
@@ -1171,21 +1232,27 @@ export const useGameLoop = (width: number, height: number) => {
           if (next.decoy.lifeFrames <= 0) next.decoy = null;
         }
 
-        // MINES (Slice 4): an enemy drone wandering inside a mine's radius
-        // trips it — everything hostile in the blast takes the damage,
-        // including the enemy star if it is somehow close.
+        // MINES (Slice 4): a hostile drone wandering inside a mine's
+        // radius trips it — everything hostile in the blast takes the
+        // damage, including hostile stars if one is somehow close.
+        // (Hostile = not the mine's seat; in SP, the enemy's.)
         next.mines = (next.mines || []).filter(mine => {
-          const tripped = next.drones.some(d => d.owner === 'enemy' &&
+          const tripped = next.drones.some(d => d.ownerId !== mine.ownerId &&
             Math.hypot(d.pos.x - mine.pos.x, d.pos.y - mine.pos.y) < mine.radius);
           if (!tripped) return true;
           next.drones.forEach(d => {
-            if (d.owner === 'enemy' && Math.hypot(d.pos.x - mine.pos.x, d.pos.y - mine.pos.y) < mine.radius) {
+            if (d.ownerId !== mine.ownerId && Math.hypot(d.pos.x - mine.pos.x, d.pos.y - mine.pos.y) < mine.radius) {
               d.health -= mine.damage;
+              d.lastHitByOwnerId = mine.ownerId;
             }
           });
-          if (Math.hypot(enemyStar.pos.x - mine.pos.x, enemyStar.pos.y - mine.pos.y) < mine.radius + enemyStar.size) {
-            enemyStar.integrity -= mine.damage * 0.002;
-            enemyStar.lastHitTime = time;
+          for (const seat of simSeats) {
+            const s = seat.star;
+            if (s.ownerId === mine.ownerId) continue;
+            if (Math.hypot(s.pos.x - mine.pos.x, s.pos.y - mine.pos.y) < mine.radius + s.size) {
+              s.integrity -= mine.damage * 0.002;
+              s.lastHitTime = time;
+            }
           }
           next.shakeAmount = Math.max(next.shakeAmount, 12);
           return false;
@@ -1193,13 +1260,13 @@ export const useGameLoop = (width: number, height: number) => {
 
         // 6. Projectiles and Defense
         next.projectiles = (next.projectiles || []).filter(p => {
-          // Seeker torpedoes steer toward the nearest enemy drone,
+          // Seeker torpedoes steer toward the nearest hostile drone,
           // turning at most 0.15 rad/frame so they arc rather than snap.
           if (p.kind === 'seeker_torpedoes') {
             let best: any = null;
             let bestD = 700;
             next.drones.forEach(d => {
-              if (d.owner !== 'enemy') return;
+              if (d.ownerId === p.ownerId) return;
               const dd = Math.hypot(d.pos.x - p.pos.x, d.pos.y - p.pos.y);
               if (dd < bestD) { bestD = dd; best = d; }
             });
@@ -1229,15 +1296,15 @@ export const useGameLoop = (width: number, height: number) => {
           // scrap while VAC is on (attractRadius x 1.6). Ungated, the
           // passive attract field would eat every bolt near the ship and
           // quietly retire the Deflector Shield's whole job.
-          if (hyId === 'siphon_vac' && p.owner === 'enemy' && isVacActive &&
+          if (hyId === 'siphon_vac' && p.ownerId !== ship.ownerId && isVacActive &&
               Math.hypot(ship.pos.x - p.pos.x, ship.pos.y - p.pos.y) < ship.attractRadius * 1.6) {
             ship.fuel = Math.min(ship.maxFuel, ship.fuel + siphonFuelFor(hyTier));
             return false;
           }
 
-          // Collision with the DECOY beacon (Slice 6): bolts meant for the
-          // ship eat the beacon instead, until it is shot down.
-          if (p.owner === 'enemy' && next.decoy &&
+          // Collision with the DECOY beacon (Slice 6): hostile bolts eat
+          // the beacon instead of the ship, until it is shot down.
+          if (next.decoy && p.ownerId !== next.decoy.ownerId &&
               Math.hypot(next.decoy.pos.x - p.pos.x, next.decoy.pos.y - p.pos.y) < 12) {
             // The bolt's own damage — star turret bolts carry their tier
             // damage (Phase 1c); absent a field, the stock DEFENSE damage.
@@ -1246,10 +1313,13 @@ export const useGameLoop = (width: number, height: number) => {
             return false;
           }
 
-          // Collision with ship
+          // Collision with the LOCAL ship (hostile bolts only — the
+          // local ship's defenses below are player systems and stay
+          // bound to this seat; other seats' ships take plain hits in
+          // the bot-ship pass after this one)
           const sdx = ship.pos.x - p.pos.x;
           const sdy = ship.pos.y - p.pos.y;
-          if (p.owner === 'enemy' && Math.sqrt(sdx * sdx + sdy * sdy) < ship.size) {
+          if (p.ownerId !== ship.ownerId && Math.sqrt(sdx * sdx + sdy * sdy) < ship.size) {
             // MIRROR SAIL (Phase 1b): the bolt never lands — the sail
             // throws it back the way it came, as a player projectile with
             // tier-scaled damage ("defense that is offense"), keeping
@@ -1284,13 +1354,17 @@ export const useGameLoop = (width: number, height: number) => {
             if (dmg > 0) dmg = aegisAbsorb(dmg);
             if (dmg > 0) {
               ship.health -= dmg;
+              ship.lastHitByOwnerId = p.ownerId;
               // THORN HULL (Phase 1b): a bolt that reaches the hull was
               // fired point blank — the armor bites the firing star back
               // on the universal x0.002 scale. Bolts the shield or aegis
-              // ate never touch the armor, so they don't bite.
+              // ate never touch the armor, so they don't bite. (The
+              // firing star is the bolt owner's star — in SP, the
+              // enemy star, as shipped.)
               if (hyId === 'thorn_hull') {
-                enemyStar.integrity -= thornDamageFor(hyTier) * 0.002;
-                enemyStar.lastHitTime = time;
+                const firingStar = starByOwnerId(p.ownerId);
+                firingStar.integrity -= thornDamageFor(hyTier) * 0.002;
+                firingStar.lastHitTime = time;
               }
               next.shakeAmount = 15;
             } else {
@@ -1306,17 +1380,38 @@ export const useGameLoop = (width: number, height: number) => {
             // it as the player shot it has become.
           }
 
-          // Collision with enemy DRONES (ship weapons only — the gate
+          // Collision with OTHER SEATS' SHIPS (Phase 2, P2-2b): any
+          // projectile hostile to a bot seat's ship strikes it — plain
+          // hull damage, no loadout defenses (those are player systems,
+          // bound to the local ship above). SP's enemy seat flies no
+          // ship, so this pass is inert in the shipped game. A ship
+          // reduced to 0 is removed by the bot-ship death pass below.
+          for (const seat of simSeats) {
+            const bs = seat.ship;
+            if (!bs || seat.ownerId === localOwnerId || p.ownerId === seat.ownerId) continue;
+            if ((p.hitIds || []).includes(seat.ownerId)) continue;
+            if (Math.hypot(bs.pos.x - p.pos.x, bs.pos.y - p.pos.y) >= bs.size) continue;
+            bs.health -= p.damage !== undefined ? p.damage : PHYSICS.DEFENSE.DAMAGE;
+            bs.lastHitByOwnerId = p.ownerId;
+            if (p.pierce) {
+              (p.hitIds = p.hitIds || []).push(seat.ownerId);
+            } else {
+              return false;
+            }
+          }
+
+          // Collision with hostile DRONES (ship weapons only — the gate
           // keys on `kind`, which ship weapons and mirror-reflected
           // bolts carry and star turret bolts never do; turret bolts
           // carry damage since Phase 1c but keep their old pass-through
           // behavior against drones)
-          if (p.owner === 'player' && p.damage !== undefined && p.kind !== undefined) {
-            const hitDrone = next.drones.find(d => d.owner === 'enemy' &&
+          if (p.damage !== undefined && p.kind !== undefined) {
+            const hitDrone = next.drones.find(d => d.ownerId !== p.ownerId &&
               !(p.hitIds || []).includes(d.id) &&
               Math.hypot(d.pos.x - p.pos.x, d.pos.y - p.pos.y) < 14);
             if (hitDrone) {
               hitDrone.health -= p.damage;
+              hitDrone.lastHitByOwnerId = p.ownerId;
               if (p.kind === 'ion_blaster') {
                 // Ion disable: the drone reboots (stunned, no movement)
                 // and drops whatever scrap it was carrying.
@@ -1338,21 +1433,38 @@ export const useGameLoop = (width: number, height: number) => {
             }
           }
 
-          // Collision with Enemy Star (Player Star defense helps)
-          if (p.owner === 'player') {
-            const edx = enemyStar.pos.x - p.pos.x;
-            const edy = enemyStar.pos.y - p.pos.y;
-            if (Math.sqrt(edx * edx + edy * edy) < enemyStar.size && !(p.hitIds || []).includes('enemy-star')) {
-              // REPAIR (Slice 4): this used to subtract DAMAGE x 0.5 = 5 from
-              // a 0..1 integrity scale — a single turret hit would have ended
-              // the game outright. Star damage is now damage x 0.002 for every
-              // shooter: a T1 bolt chips 0.024, a T5 rail lance lands 0.186.
-              enemyStar.integrity -= (p.damage !== undefined ? p.damage : PHYSICS.DEFENSE.DAMAGE) * 0.002;
-              enemyStar.lastHitTime = time;
-              if (p.pierce) {
-                (p.hitIds = p.hitIds || []).push('enemy-star');
-              } else {
-                return false;
+          // Collision with hostile STARS (P2-2b). The shipped rule is
+          // deliberately NOT symmetric, and this preserves it exactly:
+          // in SP only the PLAYER side's fire damages a star — the
+          // local ship's weapons, the local star's turret bolts, and
+          // mirror-reflected bolts chip the enemy star, while enemy
+          // turret bolts fly THROUGH the home star (they are aimed at
+          // the ship, and the ship is how the enemy side wins). So:
+          // ship-fired projectiles (kind set) damage any hostile star;
+          // star-turret bolts (kind unset) damage hostile stars only
+          // when fired by the LOCAL seat's star. In SP that reduces to
+          // the shipped block precisely. (Full symmetric star-vs-star
+          // bolt damage is a multiplayer tuning question, flagged for
+          // P2-3 — not silently introduced here.)
+          if (p.kind !== undefined || p.ownerId === localOwnerId) {
+            for (const seat of simSeats) {
+              const s = seat.star;
+              if (s.ownerId === p.ownerId) continue;
+              const edx = s.pos.x - p.pos.x;
+              const edy = s.pos.y - p.pos.y;
+              const hitKey = `star:${s.ownerId}`;
+              if (Math.sqrt(edx * edx + edy * edy) < s.size && !(p.hitIds || []).includes(hitKey)) {
+                // REPAIR (Slice 4): this used to subtract DAMAGE x 0.5 = 5 from
+                // a 0..1 integrity scale — a single turret hit would have ended
+                // the game outright. Star damage is now damage x 0.002 for every
+                // shooter: a T1 bolt chips 0.024, a T5 rail lance lands 0.186.
+                s.integrity -= (p.damage !== undefined ? p.damage : PHYSICS.DEFENSE.DAMAGE) * 0.002;
+                s.lastHitTime = time;
+                if (p.pierce) {
+                  (p.hitIds = p.hitIds || []).push(hitKey);
+                } else {
+                  return false;
+                }
               }
             }
           }
@@ -1370,17 +1482,20 @@ export const useGameLoop = (width: number, height: number) => {
           let hitDrone: any = null;
           let bestD = PD_RANGE;
           next.projectiles.forEach(p => {
-            if (p.owner !== 'enemy') return;
+            if (p.ownerId === ship.ownerId) return;
             const dd = Math.hypot(p.pos.x - ship.pos.x, p.pos.y - ship.pos.y);
             if (dd < bestD) { bestD = dd; hitProj = p; hitDrone = null; zapTarget = p.pos; }
           });
           next.drones.forEach(d => {
-            if (d.owner !== 'enemy') return;
+            if (d.ownerId === ship.ownerId) return;
             const dd = Math.hypot(d.pos.x - ship.pos.x, d.pos.y - ship.pos.y);
             if (dd < bestD) { bestD = dd; hitDrone = d; hitProj = null; zapTarget = d.pos; }
           });
           if (hitProj) next.projectiles = next.projectiles.filter(p => p !== hitProj);
-          if (hitDrone) hitDrone.health -= pdDamageFor(defTier);
+          if (hitDrone) {
+            hitDrone.health -= pdDamageFor(defTier);
+            hitDrone.lastHitByOwnerId = ship.ownerId;
+          }
           if (zapTarget) {
             ship.pdReadyAt = time + PD_COOLDOWN_MS;
             ship.pdZapAt = time;
@@ -1402,13 +1517,19 @@ export const useGameLoop = (width: number, height: number) => {
           let gunTarget: Vector2D | null = null;
           let gunBestD = AUTO_GUN.range;
           next.drones.forEach(d => {
-            if (d.owner !== 'enemy') return;
+            if (d.ownerId === ship.ownerId) return;
             const dd = Math.hypot(d.pos.x - ship.pos.x, d.pos.y - ship.pos.y);
             if (dd < gunBestD) { gunBestD = dd; gunTarget = d.pos; }
           });
           if (!gunTarget) {
-            const dd = Math.hypot(enemyStar.pos.x - ship.pos.x, enemyStar.pos.y - ship.pos.y);
-            if (dd < AUTO_GUN.range) gunTarget = enemyStar.pos;
+            // Nearest hostile star (SP: the enemy star, as shipped —
+            // measured to its center, edge proximity does not trigger).
+            for (const seat of simSeats) {
+              const s = seat.star;
+              if (s.ownerId === ship.ownerId) continue;
+              const dd = Math.hypot(s.pos.x - ship.pos.x, s.pos.y - ship.pos.y);
+              if (dd < AUTO_GUN.range && dd < gunBestD) gunTarget = s.pos;
+            }
           }
           if (gunTarget) {
             const aim = Math.atan2(gunTarget.y - ship.pos.y, gunTarget.x - ship.pos.x);
@@ -1443,9 +1564,10 @@ export const useGameLoop = (width: number, height: number) => {
         if (hyId === 'thorn_hull') {
           const thornPerFrame = thornDamageFor(hyTier) / 60;
           next.drones.forEach(d => {
-            if (d.owner !== 'enemy') return;
+            if (d.ownerId === ship.ownerId) return;
             if (Math.hypot(d.pos.x - ship.pos.x, d.pos.y - ship.pos.y) < ship.size + 14) {
               d.health -= thornPerFrame;
+              d.lastHitByOwnerId = ship.ownerId;
             }
           });
         }
@@ -1458,23 +1580,60 @@ export const useGameLoop = (width: number, height: number) => {
         // The wave DISSIPATES (Adam's pin): damage and knockback scale
         // with (1 - radius / maxRange), and the wave dies at max range —
         // outrunning a CME is a real defense.
-        [star, enemyStar].forEach(s => {
+        simSeats.forEach(seat => {
+          const s = seat.star;
           if (s.cmeNextAt === undefined) s.cmeNextAt = time + PHYSICS.CME.INTERVAL_MS;
           if (!s.cmeChargeEndsAt && time >= s.cmeNextAt - PHYSICS.CME.CHARGE_MS) {
             s.cmeChargeEndsAt = s.cmeNextAt;
             // Aim at the nearest hostile, locked for the whole telegraph.
-            if (s.type === 'enemy') {
-              const t = next.decoy ? next.decoy.pos : ship.pos;
-              s.cmeAimAngle = Math.atan2(t.y - s.pos.y, t.x - s.pos.x);
-            } else {
-              let bt: any = enemyStar;
+            // (P2-2b generalization, SP-exact: the LOCAL seat's star
+            // aims at the nearest hostile drone, else the nearest
+            // hostile star — the shipped home-star behavior. Every
+            // other star aims at a hostile decoy if one is deployed,
+            // else the nearest hostile ship, else the nearest hostile
+            // star — the shipped enemy-star behavior, whose decoy and
+            // target ship in SP are the player's.)
+            if (s.ownerId === localOwnerId) {
+              // Shipped preference order: the nearest hostile DRONE if
+              // one exists at all, else the (nearest hostile) star.
+              let bt: any = null;
               let bd = Infinity;
               next.drones.forEach(d => {
-                if (d.owner !== 'enemy') return;
+                if (d.ownerId === s.ownerId) return;
                 const dd = Math.hypot(d.pos.x - s.pos.x, d.pos.y - s.pos.y);
                 if (dd < bd) { bd = dd; bt = d; }
               });
+              if (!bt) {
+                let sd = Infinity;
+                for (const os of simSeats) {
+                  if (os.ownerId === s.ownerId) continue;
+                  const dd = Math.hypot(os.star.pos.x - s.pos.x, os.star.pos.y - s.pos.y);
+                  if (dd < sd) { sd = dd; bt = os.star; }
+                }
+              }
               s.cmeAimAngle = Math.atan2(bt.pos.y - s.pos.y, bt.pos.x - s.pos.x);
+            } else {
+              let t: { x: number; y: number } | null = null;
+              if (next.decoy && next.decoy.ownerId !== s.ownerId) {
+                t = next.decoy.pos;
+              }
+              if (!t) {
+                let bd = Infinity;
+                for (const os of simSeats) {
+                  if (!os.ship || os.ownerId === s.ownerId) continue;
+                  const dd = Math.hypot(os.ship.pos.x - s.pos.x, os.ship.pos.y - s.pos.y);
+                  if (dd < bd) { bd = dd; t = os.ship.pos; }
+                }
+              }
+              if (!t) {
+                let bd = Infinity;
+                for (const os of simSeats) {
+                  if (os.ownerId === s.ownerId) continue;
+                  const dd = Math.hypot(os.star.pos.x - s.pos.x, os.star.pos.y - s.pos.y);
+                  if (dd < bd) { bd = dd; t = os.star.pos; }
+                }
+              }
+              s.cmeAimAngle = Math.atan2(t!.y - s.pos.y, t!.x - s.pos.x);
             }
           }
           if (s.cmeChargeEndsAt && time >= s.cmeChargeEndsAt) {
@@ -1482,7 +1641,7 @@ export const useGameLoop = (width: number, height: number) => {
             const radial = Math.random() < Math.min(0.9, 0.1 * M);
             (next.cmes = next.cmes || []).push({
               id: Math.random().toString(),
-              owner: s.type,
+              owner: s.ownerId === localOwnerId ? 'home' : 'enemy',
               ownerId: s.ownerId,
               pos: { ...s.pos },
               dirAngle: radial ? null : (s.cmeAimAngle ?? 0),
@@ -1524,16 +1683,17 @@ export const useGameLoop = (width: number, height: number) => {
             if (w.hitIds.includes(d.id) || !inBand(d.pos) || !inCone(d.pos)) return;
             w.hitIds.push(d.id);
             d.health -= w.baseDamage * falloff;
+            d.lastHitByOwnerId = w.ownerId;
             const sv = shoveVec(d.pos, w.baseKnockback * falloff * 2);
             d.pos.x += sv.x;
             d.pos.y += sv.y;
             d.stunFrames = Math.max(d.stunFrames || 0, 30);
           };
 
-          if (w.owner === 'enemy') {
-            // A DIRECTED enemy CME eats the decoy whole: the beacon dies,
+          if (w.ownerId !== localOwnerId) {
+            // A DIRECTED hostile CME eats the decoy whole: the beacon dies,
             // the wave dies with it. A radial one just washes past it.
-            if (next.decoy && !w.hitIds.includes('decoy') && inBand(next.decoy.pos) && inCone(next.decoy.pos)) {
+            if (next.decoy && next.decoy.ownerId !== w.ownerId && !w.hitIds.includes('decoy') && inBand(next.decoy.pos) && inCone(next.decoy.pos)) {
               w.hitIds.push('decoy');
               next.decoy = null;
               if (w.dirAngle !== null) return false;
@@ -1552,7 +1712,10 @@ export const useGameLoop = (width: number, height: number) => {
               }
               // Scrap Aegis burns cargo for whatever gets past the shield.
               if (dmg > 0) dmg = aegisAbsorb(dmg);
-              if (dmg > 0) ship.health -= dmg;
+              if (dmg > 0) {
+                ship.health -= dmg;
+                ship.lastHitByOwnerId = w.ownerId;
+              }
               const kb = w.baseKnockback * falloff * (1 - red) * gravFactor;
               const sv = shoveVec(ship.pos, kb);
               ship.vel.x += sv.x;
@@ -1561,16 +1724,36 @@ export const useGameLoop = (width: number, height: number) => {
               next.glitchActive = true;
               next.lastGlitchTime = time;
             }
-            next.drones.forEach(d => { if (d.owner === 'player') washDrone(d); });
-          } else {
-            next.drones.forEach(d => { if (d.owner === 'enemy') washDrone(d); });
           }
+          // Other seats' SHIPS in the wave (P2-2b): plain damage +
+          // knockback, no loadout defenses. Inert in SP (no bot ships
+          // fly); the local ship's wash above keeps its full
+          // hardening/shield/aegis treatment.
+          for (const seat of simSeats) {
+            const bs = seat.ship;
+            if (!bs || seat.ownerId === localOwnerId || seat.ownerId === w.ownerId) continue;
+            const hitKey = `ship:${seat.ownerId}`;
+            if (w.hitIds.includes(hitKey) || !inBand(bs.pos) || !inCone(bs.pos)) continue;
+            w.hitIds.push(hitKey);
+            bs.health -= w.baseDamage * falloff;
+            bs.lastHitByOwnerId = w.ownerId;
+            const sv = shoveVec(bs.pos, w.baseKnockback * falloff);
+            bs.pos.x += sv.x;
+            bs.pos.y += sv.y;
+          }
+          // Drones: the wave washes every drone hostile to its star —
+          // in SP, an enemy wave washes player drones and a home wave
+          // washes enemy drones, as shipped.
+          next.drones.forEach(d => { if (d.ownerId !== w.ownerId) washDrone(d); });
           return true;
         });
 
         // DRONE DEATHS (Slice 4): a drone shot or mined to 0 health becomes
         // wreckage — it drops what it was carrying plus one salvage piece.
         // Drops go into newScrap, the array the frame actually returns.
+        // (P2-2b: the kill is credited to the seat whose weapon/wave/mine
+        // last damaged the drone — bookkeeping on the seat records and
+        // the event feed only; drops and shake are exactly as shipped.)
         next.drones = next.drones.filter(d => {
           if (d.health > 0) return true;
           for (let di = 0; di < d.carrying + 1; di++) {
@@ -1580,9 +1763,87 @@ export const useGameLoop = (width: number, height: number) => {
               color: COLORS.SCRAP[Math.floor(Math.random() * COLORS.SCRAP.length)],
             });
           }
+          const killerOwnerId =
+            d.lastHitByOwnerId && d.lastHitByOwnerId !== d.ownerId
+              ? d.lastHitByOwnerId
+              : null;
+          if (killerOwnerId) {
+            const killerSeat = seatByOwnerId.get(killerOwnerId);
+            if (killerSeat) killerSeat.kills += 1;
+          }
+          feedEntries.push({
+            type: 'kill',
+            killerOwnerId,
+            victimOwnerId: d.ownerId,
+            victimKind: 'drone',
+            at: time,
+          });
           next.shakeAmount = Math.max(next.shakeAmount, 6);
           return false;
         });
+
+        // BOT SHIP DEATHS (Phase 2, P2-2b): a bot seat's ship reduced
+        // to 0 leaves the seat shipless — the kill is credited, the
+        // seat plays on with its star and drones, and what happens
+        // next for that seat (repurchase) is the death economy's
+        // business (P2-5), not this slice's. Ship death is NOT
+        // elimination. Inert in SP: the enemy seat flies no ship and
+        // the local ship is never touched here (its death remains the
+        // shipped isGameOver path).
+        for (const seat of simSeats) {
+          const bs = seat.ship;
+          if (!bs || seat.ownerId === localOwnerId || bs.health > 0) continue;
+          const killerOwnerId =
+            bs.lastHitByOwnerId && bs.lastHitByOwnerId !== seat.ownerId
+              ? bs.lastHitByOwnerId
+              : null;
+          if (killerOwnerId) {
+            const killerSeat = seatByOwnerId.get(killerOwnerId);
+            if (killerSeat) killerSeat.kills += 1;
+          }
+          feedEntries.push({
+            type: 'kill',
+            killerOwnerId,
+            victimOwnerId: seat.ownerId,
+            victimKind: 'ship',
+            at: time,
+          });
+          seat.ship = null;
+        }
+
+        // BOT SHIP DRIVERS (Phase 2, P2-2b): every bot seat that HAS a
+        // ship flies it via src/sim/botDriver.ts — harvest, deliver
+        // (through the same infuseStar + delivery heal as drone
+        // deliveries), and fire. Its projectiles join this frame's
+        // production phase alongside turret bolts and auto-guns, so
+        // they first move next frame, like theirs. Inert in SP: the
+        // enemy seat's ship is null and the local seat is human.
+        for (const seat of simSeats) {
+          if (seat.controller !== 'bot' || !seat.ship || seat.eliminated) continue;
+          const botResult = stepBotShip(
+            seat,
+            {
+              scrap: newScrap,
+              stars: simSeats.map(s => s.star),
+              drones: next.drones,
+              ships: simSeats
+                .filter(s => s.ship)
+                .map(s => ({ ownerId: s.ownerId, ship: s.ship! })),
+              localOwnerId,
+              time,
+            },
+            1,
+          );
+          for (const id of botResult.collectedScrapIds) {
+            const ix = newScrap.findIndex(sc => sc.id === id);
+            if (ix >= 0) newScrap.splice(ix, 1);
+          }
+          if (botResult.deliverAmount > 0) {
+            infuseStar(seat.star, botResult.deliverAmount);
+            applyDeliveryHeal(seat.star, botResult.deliverAmount);
+          }
+          for (const p of botResult.projectiles) next.projectiles.push(p);
+        }
 
         // Update Turrets
         next.starOrbit += 0.01;
@@ -1592,20 +1853,46 @@ export const useGameLoop = (width: number, height: number) => {
         // src/starDefense.ts): a star's turret list is a deterministic
         // function of its milestone count, reconciled here every frame
         // so a milestone crossing takes effect the moment it lands.
-        [star, enemyStar].forEach(s => {
+        simSeats.forEach(seat => {
+          const s = seat.star;
           s.turrets = turretsForMilestones(milestonesForInfused(s.totalScrapInfused));
         });
         // TARGETING (unchanged from the single-turret era, and shared by
-        // every turret on a star): the home star aims at the enemy star;
-        // the enemy star aims at the Decoy Beacon while one is deployed,
-        // else at the ship; turrets may fire only while that target is
-        // within DEFENSE.RANGE of the star's CENTER. What changed: EVERY
-        // turret now rolls its own tier fire chance and fires
-        // independently, from its own ring position (radius per the
-        // PHYSICS.STAR_DEFENSE formula), aiming from there, and its bolt
-        // carries its own tier damage.
-        [star, enemyStar].forEach(s => {
-          const target = s.type === 'home' ? enemyStar : (next.decoy ? { pos: next.decoy.pos } : ship);
+        // every turret on a star): turrets may fire only while their
+        // target is within DEFENSE.RANGE of the star's CENTER. EVERY
+        // turret rolls its own tier fire chance and fires independently,
+        // from its own ring position (radius per the PHYSICS.STAR_DEFENSE
+        // formula), aiming from there, and its bolt carries its own tier
+        // damage.
+        // (P2-2b generalization, SP-exact: a star's target is the first
+        // of — a hostile Decoy Beacon; the nearest hostile SHIP; the
+        // nearest hostile STAR. In SP that is precisely the shipped
+        // rule: the home star skips its own decoy and the shipless
+        // enemy seat and lands on the enemy star; the enemy star takes
+        // the player's decoy while one flies, else the player's ship.)
+        simSeats.forEach(seat => {
+          const s = seat.star;
+          let target: { pos: Vector2D } | null = null;
+          if (next.decoy && next.decoy.ownerId !== s.ownerId) {
+            target = { pos: next.decoy.pos };
+          }
+          if (!target) {
+            let bd = Infinity;
+            for (const os of simSeats) {
+              if (!os.ship || os.ownerId === s.ownerId) continue;
+              const dd = Math.hypot(os.ship.pos.x - s.pos.x, os.ship.pos.y - s.pos.y);
+              if (dd < bd) { bd = dd; target = os.ship; }
+            }
+          }
+          if (!target) {
+            let bd = Infinity;
+            for (const os of simSeats) {
+              if (os.ownerId === s.ownerId) continue;
+              const dd = Math.hypot(os.star.pos.x - s.pos.x, os.star.pos.y - s.pos.y);
+              if (dd < bd) { bd = dd; target = os.star; }
+            }
+          }
+          if (!target) return;
           const dx = target.pos.x - s.pos.x;
           const dy = target.pos.y - s.pos.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
@@ -1627,7 +1914,7 @@ export const useGameLoop = (width: number, height: number) => {
                 x: Math.cos(aim) * PHYSICS.DEFENSE.BOLT_SPEED,
                 y: Math.sin(aim) * PHYSICS.DEFENSE.BOLT_SPEED,
               },
-              owner: s.type === 'home' ? 'player' : 'enemy',
+              owner: s.ownerId === localOwnerId ? 'player' : 'enemy',
               ownerId: s.ownerId,
               life: 180,
               damage: turretDamageFor(t.tier),
@@ -1635,11 +1922,49 @@ export const useGameLoop = (width: number, height: number) => {
           });
         });
 
+        // PER-SEAT TRACKING + STANDINGS (Phase 2, P2-2b): star
+        // eliminations, milestone/stage feed entries, and the match
+        // end are derived from the seat records (src/sim/seatState.ts);
+        // standings are recomputed host-side every frame
+        // (src/sim/standings.ts). All of it is DATA riding in state —
+        // no component reads it yet, and none of it feeds back into
+        // the SP flow: isVictory / isGameOver above remain the shipped
+        // game's win/loss triggers, untouched. In SP, the enemy star's
+        // death records matchEnd last_survivor / seat-0 alongside the
+        // isVictory it has always set.
+        const tracking = advanceSeatTracking(prevSeats, simSeats, prev.matchEnd, time);
+        feedEntries.push(...tracking.entries);
+        const matchEnd = tracking.matchEnd;
+        const standings = computeStandings(
+          simSeats.map(seat => ({
+            starIndex: seat.starIndex,
+            ownerId: seat.ownerId,
+            totalScrapInfused: seat.star.totalScrapInfused,
+            mass: seat.star.mass,
+            integrity: seat.star.integrity,
+            alive: !seat.eliminated,
+            eliminated: seat.eliminated,
+            eliminationOrder: seat.eliminationOrder,
+            kills: seat.kills,
+          })),
+          matchEnd
+            ? { endReason: matchEnd.endReason, winnerOwnerId: matchEnd.winnerOwnerId }
+            : undefined,
+        );
+        const eventFeed =
+          feedEntries.length > 0
+            ? appendEventRecords(prev.eventFeed, feedEntries)
+            : prev.eventFeed;
+
         return {
           ...next,
           ship,
           star,
           enemyStar,
+          seats: simSeats,
+          standings,
+          eventFeed,
+          matchEnd,
           scrap: newScrap,
           teamScrap,
           glitchActive: glitch,

@@ -65,6 +65,29 @@ export interface EventFeed {
   readonly size: number;
 }
 
+/**
+ * Pure append over a plain record list (P2-2b): GameState stores the
+ * feed as serializable EventFeedRecord[] — never the closure
+ * accumulator above — so the loop folds each frame's new entries in
+ * with this helper. Seq continues from the last retained record, so
+ * it never repeats even across evictions. Returns the SAME array
+ * reference when there is nothing to add.
+ */
+export const appendEventRecords = (
+  records: EventFeedRecord[],
+  entries: EventFeedEntry[],
+  capacity: number = 100,
+): EventFeedRecord[] => {
+  if (entries.length === 0) return records;
+  const cap = Math.max(1, Math.floor(capacity));
+  let seq = records.length > 0 ? records[records.length - 1].seq : 0;
+  const added: EventFeedRecord[] = entries.map(
+    entry => ({ ...entry, seq: ++seq }) as EventFeedRecord,
+  );
+  const merged = [...records, ...added];
+  return merged.length > cap ? merged.slice(merged.length - cap) : merged;
+};
+
 export const createEventFeed = (capacity: number = 100): EventFeed => {
   const cap = Math.max(1, Math.floor(capacity));
   let entries: EventFeedRecord[] = [];
