@@ -796,7 +796,12 @@ export const useGameLoop = (width: number, height: number) => {
         let glitch = prev.glitchActive;
         let teamScrap = prev.teamScrap;
 
-        // 277. Enemy Sabotage (Legacy check - we'll replace this with the projectile system)
+        // CARGO JETTISON (live player mechanic — an old banner mislabeled
+        // this 'Enemy Sabotage / legacy'; corrected 2026-10-20): Space or
+        // the mobile JETTISON button throws one carried scrap overboard
+        // as a DeployedCargo pod, kicked along the ship's heading; the
+        // cargo pass flies it to a star — feeding its owner's star, or
+        // damaging a hostile one.
         const wantsJettison = keys.current.has('Space') || touchInputs.current.jettison;
         
         // Handle Ejection
