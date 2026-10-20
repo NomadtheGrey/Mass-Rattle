@@ -456,23 +456,17 @@ export const useGameLoop = (width: number, height: number) => {
         const edx = enemyStar.pos.x - ship.pos.x;
         const edy = enemyStar.pos.y - ship.pos.y;
         const eDist = Math.sqrt(edx * edx + edy * edy);
-        
-        // Deep Space Radiation check (distance from center of both stars)
-        const centerX = (star.pos.x + enemyStar.pos.x) / 2;
-        const centerY = (star.pos.y + enemyStar.pos.y) / 2;
-        const cdx = centerX - ship.pos.x;
-        const cdy = centerY - ship.pos.y;
-        const centerDist = Math.sqrt(cdx * cdx + cdy * cdy);
+        // (The midpoint/centerDist computation that fed the retired
+        // deep-space drain is gone too; the wrap below computes the
+        // midpoint where it needs it.)
 
         if (eDist < enemyStar.size + 150) {
           ship.health -= 0.15 * (1 - (eDist / (enemyStar.size + 150)));
           if (Math.random() < 0.05) next.shakeAmount = 3;
-        } else if (centerDist > 6000) {
-          // Deep Space Drain
-          const severity = (centerDist - 6000) / 4000;
-          ship.health -= 0.05 * severity;
-          if (Math.random() < 0.02) next.glitchActive = true;
         }
+        // (The old deep-space drain past 6,000 from the midpoint is
+        // RETIRED: the world wrap below caps the ship at ~3,000, so the
+        // drain could never trigger again. Flagged per Adam's ruling.)
 
         // 2. Physics (Mass Scaling)
         const currentMass = PHYSICS.SHIP_MASS + (ship.carrying * PHYSICS.MASS_PER_CARGO);
@@ -559,9 +553,21 @@ export const useGameLoop = (width: number, height: number) => {
         ship.pos.x += ship.vel.x;
         ship.pos.y += ship.vel.y;
 
-        if (Math.abs(ship.pos.x - star.pos.x) > 5000 || Math.abs(ship.pos.y - star.pos.y) > 5000) {
-           ship.vel.x *= -0.1;
-           ship.vel.y *= -0.1;
+        // WORLD WRAP (Adam's ruling, 2026-10-20, via the UI chat): no
+        // wall, no bounce — cross the boundary circle and point-reflect
+        // through the stars' midpoint (pos' = 2*center - pos), velocity
+        // and heading untouched. Out the west edge heading west, you
+        // reappear at the east edge still heading west: back into the
+        // map, and (per the margin in constants) never into an ambush.
+        // This replaces the old 5,000-unit axis velocity-flip, which was
+        // an invisible wall wearing a fake moustache.
+        const wcx = (star.pos.x + enemyStar.pos.x) / 2;
+        const wcy = (star.pos.y + enemyStar.pos.y) / 2;
+        const wdx = ship.pos.x - wcx;
+        const wdy = ship.pos.y - wcy;
+        if (wdx * wdx + wdy * wdy > PHYSICS.WORLD.WRAP_RADIUS * PHYSICS.WORLD.WRAP_RADIUS) {
+          ship.pos.x = 2 * wcx - ship.pos.x;
+          ship.pos.y = 2 * wcy - ship.pos.y;
         }
 
         // Scrap Collection, ATTRACTION and CULLING
