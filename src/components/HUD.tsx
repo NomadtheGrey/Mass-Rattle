@@ -193,6 +193,27 @@ export const HUD: React.FC<HUDProps> = ({
     if (dt > 0 && dt < 250) pingRef.current.ema = pingRef.current.ema * 0.92 + dt * 0.08;
   }
   const pingMs = Math.round(pingRef.current.ema);
+  // STATS BLOCK (Adam, 2026-10-20): the Comms panel corner is where live
+  // numbers live. FPS is COUNTED over a rolling second of renders, the
+  // mission clock runs from HUD mount (match start), ranges are true
+  // distances to the two stars, and FIELD counts the scrap actually out
+  // there — every figure measured, none invented.
+  const fpsRef = React.useRef({ frames: 0, windowStart: performance.now(), fps: 0 });
+  {
+    const now = performance.now();
+    fpsRef.current.frames++;
+    const elapsed = now - fpsRef.current.windowStart;
+    if (elapsed >= 1000) {
+      fpsRef.current.fps = Math.round((fpsRef.current.frames * 1000) / elapsed);
+      fpsRef.current.frames = 0;
+      fpsRef.current.windowStart = now;
+    }
+  }
+  const missionRef = React.useRef(performance.now());
+  const missionSec = Math.floor((performance.now() - missionRef.current) / 1000);
+  const missionClock = `${Math.floor(missionSec / 60)}:${String(missionSec % 60).padStart(2, '0')}`;
+  const rangeHome = Math.round(Math.hypot(shipPos.x - starPos.x, shipPos.y - starPos.y));
+  const rangeEnemy = Math.round(Math.hypot(shipPos.x - enemyStarPos.x, shipPos.y - enemyStarPos.y));
   const holdRegular = PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS;
   const holdTotal = holdRegular + Math.floor(holdRegular * PHYSICS.CARGO.OVERLOAD_RATIO);
   // Star growth readouts follow the RISING milestone costs (starGrowth.ts):
@@ -496,7 +517,14 @@ export const HUD: React.FC<HUDProps> = ({
               <p className="text-cyan-400 font-bold bg-cyan-950/40 px-1 border-l-2 border-cyan-500">[FED] {teamScrap}U DELIVERED</p>
               {fuel < 20 && <p className="text-red-600 animate-pulse font-bold">[ERR] FUEL DEPLETED</p>}
               {glitch && <p className="text-yellow-600">[DATA] SENSORS RECALIBRATING...</p>}
-              <p className="opacity-30">PINGS: {pingMs}ms</p>
+              <div className="border-t border-zinc-800/70 pt-1.5 mt-1 space-y-0.5 text-[10px]">
+                <div className="flex justify-between"><span className="opacity-50">PINGS</span><span>{pingMs}ms</span></div>
+                <div className="flex justify-between"><span className="opacity-50">FPS</span><span>{fpsRef.current.fps || '—'}</span></div>
+                <div className="flex justify-between"><span className="opacity-50">RANGE · HOME</span><span className="text-orange-400">{rangeHome}U</span></div>
+                <div className="flex justify-between"><span className="opacity-50">RANGE · ENEMY</span><span className="text-red-400">{rangeEnemy}U</span></div>
+                <div className="flex justify-between"><span className="opacity-50">FIELD SCRAP</span><span className="text-pink-400">{scrapList.length}</span></div>
+                <div className="flex justify-between"><span className="opacity-50">MISSION T+</span><span>{missionClock}</span></div>
+              </div>
               <p className="animate-pulse">_</p>
             </div>
           <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-black/60 to-transparent" />
