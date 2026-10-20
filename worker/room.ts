@@ -13,26 +13,42 @@
  *
  * P2-1 produces: roomState / welcome / error / seatClaimed /
  * seatReleased / seatUpdated, the phase change on host start, input
- * relay to the host, snapshot echo + broadcast. Migration promotion,
- * takeover-into-live and reconnect bot-hold/reclaim are P2-3 — the
- * fields they need (host heartbeat ts, per-seat occupant/connection)
- * are recorded here but never acted on beyond election-on-change.
+ * relay to the host, snapshot echo + broadcast.
+ *
+ * P2-3a adds the sync completion: MIGRATION PROMOTION (the DO alarm
+ * watches the host heartbeat; roomLogic's evaluateMigration decides,
+ * this class broadcasts hostMigrating → hostMigrated), TAKEOVER
+ * (hello during live/cinematic claims a bot seat through the same
+ * claim path), RECONNECT GRACE + RECLAIM (socket-gone parks the seat
+ * under bot control with its human identity held, all match), and
+ * ROOM CLOSE (last human presence erased → the lobby index row is
+ * deleted and the record discarded). All verdicts stay in
+ * roomLogic; this class is still only the runtime shell.
+ *
+ * Alarm-verification caveat: DO alarms cannot be exercised locally
+ * (no miniflare in this repo) — the pure decision logic is
+ * sanity-tested under tsx; the alarm wiring itself is code-reviewed
+ * only until the next main merge deploys it.
  */
 
 import {
+  HEARTBEAT_TIMEOUT_MS,
   claimSeat,
+  disconnectSeat,
+  evaluateMigration,
   findSeatByPlayerId,
   isClientVersionSupported,
   isHost,
   kickPlayer,
+  reconcileHosting,
   recordHostHeartbeat,
-  releaseSeat,
   roomMeta,
+  shouldCloseRoom,
   startMatch,
   toRoomState,
   createRoomRecord,
 } from './roomLogic';
-import type { RoomRecord } from './roomLogic';
+import type { MigrationOutcome, RoomRecord } from './roomLogic';
 import type {
   ClientMessage,
   RoomMeta,
@@ -71,6 +87,11 @@ export class RoomDO {
     this.env = env;
     state.blockConcurrencyWhile(async () => {
       this.room = (await state.storage.get<RoomRecord>(ROOM_KEY)) ?? null;
+      if (this.room) {
+        // Records written before P2-3a lack the grace/ban bookkeeping.
+        this.room.heldIdentities ??= {};
+        this.room.bannedPlayerIds ??= [];
+      }
       this.latestSnapshot =
         (await state.storage.get<unknown>(SNAPSHOT_KEY)) ?? null;
     });
@@ -143,12 +164,14 @@ export class RoomDO {
 
     switch (msg.type) {
       case 'start': {
-        if (startMatch(this.room, playerId)) {
+        if (startMatch(this.room, playerId, Date.now())) {
           await this.persistRoom();
           // Phase change → full sync (contract: roomState on any
           // membership/phase change). No separate phase event exists.
           this.broadcast({ type: 'roomState', room: toRoomState(this.room) });
           await this.notifyIndex();
+          // The match is live: the migration watch starts now.
+          await this.armMigrationAlarm();
         }
         // Non-host or wrong phase: ignored — the contract's error set
         // has no code for it (flagged in the P2-1 report).
@@ -165,6 +188,10 @@ export class RoomDO {
           this.broadcast({ type: 'seatReleased', seat: freed });
           this.broadcastRoomState();
           await this.notifyIndex();
+          // A kick erases a human presence entirely; if it was the
+          // last one, the room closes (conservative predicate — a
+          // connected kicking host keeps it false in practice).
+          if (shouldCloseRoom(this.room)) await this.closeRoom();
         }
         break;
       }
@@ -197,9 +224,13 @@ export class RoomDO {
         break;
       }
       case 'heartbeat': {
-        // Recorded for P2-3's migration watch. No promotion in P2-1.
+        // The migration watch: record the beat and (re)arm the alarm
+        // at beat + timeout. setAlarm replaces the pending alarm, so
+        // exactly one wake-up is ever outstanding, always tracking
+        // the freshest beat.
         if (recordHostHeartbeat(this.room, playerId, Date.now())) {
           await this.persistRoom();
+          await this.armMigrationAlarm();
         }
         break;
       }
@@ -209,6 +240,22 @@ export class RoomDO {
         // slices that produce them (P2-2/P2-4) — ignored in P2-1.
         break;
     }
+  }
+
+  /** The migration watch's wake-up. The pure verdict lives in
+   *  roomLogic.evaluateMigration; this handler applies it: broadcast
+   *  the migration event pair on a promotion, close the room when
+   *  nobody can host and nobody is held, or re-arm when the firing
+   *  was early (the start-stamp alarm racing a slightly late first
+   *  beat) and the host is in fact healthy. */
+  async alarm(): Promise<void> {
+    if (!this.room) return;
+    const outcome = evaluateMigration(this.room, Date.now());
+    if (outcome.action === 'none') {
+      await this.armMigrationAlarm();
+      return;
+    }
+    await this.applyMigrationOutcome(outcome, 'heartbeat_timeout');
   }
 
   async webSocketClose(ws: WebSocket): Promise<void> {
@@ -236,15 +283,17 @@ export class RoomDO {
       return;
     }
     // Server issues playerId on first hello (contract); a presented
-    // id is honored as the identity to seat (P2-3 completes reclaim).
+    // id is honored as the identity to seat — claimSeat resolves it
+    // as a refresh, a grace reclaim, a live-match takeover, or a
+    // fresh claim, and refuses kicked ids outright.
     const playerId =
       msg.playerId && msg.playerId.trim()
         ? msg.playerId
         : `player-${crypto.randomUUID()}`;
     const claim = claimSeat(this.room, playerId, msg.callsign ?? '');
-    if (!claim) {
-      this.send(ws, { type: 'error', code: 'room_full' });
-      ws.close(1008, 'room_full');
+    if (claim.ok === false) {
+      this.send(ws, { type: 'error', code: claim.error });
+      ws.close(1008, claim.error);
       return;
     }
     ws.serializeAttachment({ playerId } satisfies SocketSession);
@@ -257,9 +306,11 @@ export class RoomDO {
       room: toRoomState(this.room),
     });
     this.broadcast(
-      claim.isNewClaim
-        ? { type: 'seatClaimed', seat }
-        : { type: 'seatUpdated', seat },
+      claim.reclaimed
+        ? { type: 'seatClaimed', seat, reclaimed: true }
+        : claim.isNewClaim
+          ? { type: 'seatClaimed', seat }
+          : { type: 'seatUpdated', seat },
       ws,
     );
     this.broadcastRoomState();
@@ -270,15 +321,110 @@ export class RoomDO {
     const { playerId } = this.sessionOf(ws);
     if (!playerId || !this.room) return;
     // A second live socket for the same player (two tabs) keeps the
-    // seat; only the last close releases it. P2-1 model: the seat
-    // flips back to bot — bot-hold/reclaim is P2-3.
+    // seat; only the last close parks it in reconnect grace.
     if (this.socketsOf(playerId, ws).length > 0) return;
-    const freed: Seat | null = releaseSeat(this.room, playerId);
-    if (!freed) return;
+    const seat: Seat | null = disconnectSeat(this.room, playerId);
+    if (!seat) return;
+    // Hosting settles BEFORE the sync goes out, so the roomState
+    // below already names the promoted host (or the vacancy).
+    const outcome = reconcileHosting(this.room, Date.now());
     await this.persistRoom();
-    this.broadcast({ type: 'seatReleased', seat: freed });
+    this.broadcast({ type: 'seatReleased', seat });
+    if (outcome.action === 'promote') {
+      // applyMigrationOutcome does its own roomState + index sync.
+      await this.applyMigrationOutcome(outcome, 'host_disconnected');
+      return;
+    }
+    if (outcome.action === 'close' || shouldCloseRoom(this.room)) {
+      await this.closeRoom();
+      return;
+    }
     this.broadcastRoomState();
     await this.notifyIndex();
+  }
+
+  /** (Re)arm the one migration alarm at last-beat + timeout. Only
+   *  meaningful while a match is live/cinematic with a heartbeat
+   *  baseline outstanding — and only when the deadline is still in
+   *  the future: arming a past deadline would fire immediately, and
+   *  when the verdict was 'none' with the deadline already due (a
+   *  held room waiting on a human who may return), nothing changes
+   *  until the next membership event re-runs reconciliation. */
+  private async armMigrationAlarm(): Promise<void> {
+    if (!this.room) return;
+    if (this.room.phase !== 'live' && this.room.phase !== 'cinematic') {
+      return;
+    }
+    if (this.room.hostLastHeartbeatAt === null) return;
+    const deadline = this.room.hostLastHeartbeatAt + HEARTBEAT_TIMEOUT_MS;
+    if (deadline <= Date.now()) return;
+    await this.state.storage.setAlarm(deadline);
+  }
+
+  /** Apply a migration verdict from roomLogic: broadcast the event
+   *  pair + full sync on a promotion (the client renders a brief
+   *  host-passing state), or close the room. The promoted host does
+   *  not resume from nothing — guests already hold the host's
+   *  snapshots, the DO holds the echo, and the new host's client
+   *  takes over the sim from its freshest applied state (P2-3b
+   *  wires the client side of that law). */
+  private async applyMigrationOutcome(
+    outcome: MigrationOutcome,
+    reason: string,
+  ): Promise<void> {
+    if (!this.room) return;
+    if (outcome.action === 'promote') {
+      await this.persistRoom();
+      this.broadcast({
+        type: 'hostMigrating',
+        // '' only in the no-flagged-host edge (every flag cleared
+        // before the verdict) — there is no previous host to name.
+        fromPlayerId: outcome.fromPlayerId ?? '',
+        toPlayerId: outcome.toPlayerId,
+        reason,
+      });
+      this.broadcast({
+        type: 'hostMigrated',
+        hostPlayerId: outcome.toPlayerId,
+        hostOwnerId: outcome.hostOwnerId,
+      });
+      this.broadcastRoomState();
+      await this.notifyIndex();
+      // The verdict restamped the baseline to the promotion moment;
+      // arm the watch for the NEW host.
+      await this.armMigrationAlarm();
+    } else if (outcome.action === 'close') {
+      await this.closeRoom();
+    }
+  }
+
+  /** Room close (design §6: the last human leaves, the room closes):
+   *  drop the lobby index row, discard the record + snapshot echo,
+   *  disarm the watch. Nobody is broadcast to — by the close
+   *  predicate there is no connected human left to tell. */
+  private async closeRoom(): Promise<void> {
+    const code = this.room?.code;
+    this.room = null;
+    this.latestSnapshot = null;
+    await this.state.storage.delete(ROOM_KEY);
+    await this.state.storage.delete(SNAPSHOT_KEY);
+    await this.state.storage.deleteAlarm();
+    if (code) await this.notifyIndexDelete(code);
+  }
+
+  private async notifyIndexDelete(code: string): Promise<void> {
+    try {
+      const stub = this.env.LOBBY_INDEX.get(
+        this.env.LOBBY_INDEX.idFromName(INDEX_NAME),
+      );
+      await stub.fetch(
+        new Request(`https://index.internal/metas/${code}`, {
+          method: 'DELETE',
+        }),
+      );
+    } catch {
+      // Index freshness is advisory (see worker/index.ts header).
+    }
   }
 
   private sessionOf(ws: WebSocket): SocketSession {

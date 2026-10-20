@@ -10,15 +10,26 @@
  * Functions mutate the passed RoomRecord; the DO persists it after
  * each operation.
  *
- * P2-1 scope notes:
- * - Election on membership change lives here (host = first human in
- *   joinedOrder). MID-MATCH MIGRATION PROMOTION (heartbeat-timeout
- *   watch, hostMigrating/hostMigrated) is P2-3 — this module records
- *   the host heartbeat timestamp and never promotes on it.
- * - Disconnect frees the seat (occupant flips back to bot). The
- *   bot-hold + reclaim-any-time model of design §6 is P2-3; the
- *   'reconnect_grace' / 'disconnected' connection states exist in the
- *   contract for that slice and are not produced here.
+ * P2-3a scope notes (migration, takeover, reclaim, close):
+ * - MIGRATION PROMOTION lives here as a pure decision
+ *   (evaluateMigration): a host whose heartbeat is older than
+ *   HEARTBEAT_TIMEOUT_MS — or whose seat is no longer held by a
+ *   connected human — is replaced by the connected human with the
+ *   lowest joinedOrder. Bots never host; a seat in reconnect grace is
+ *   not connected, so it is never a candidate. The DO's alarm API
+ *   supplies the wake-up; this module supplies the verdict.
+ * - Election vs promotion are deliberately separate: ensureHost fills
+ *   a VACANT host seat on membership change and never demotes a
+ *   sitting, connected host; evaluateMigration is the only path that
+ *   demotes one, and only on heartbeat staleness / absence.
+ * - DISCONNECT no longer frees a seat: disconnectSeat flips control
+ *   to bot and parks the seat in reconnect grace, remembering the
+ *   human's identity (heldIdentities) for reclaim. Grace lasts the
+ *   whole match (design pin #6: reclaimable all match) — no timer.
+ *   A full release (releaseSeat) happens only on kick, which also
+ *   bans the playerId from the room.
+ * - A reclaimer does NOT retake hosting from a promoted host: reclaim
+ *   restores the seat; hosting moves only via vacancy or promotion.
  */
 
 import {
@@ -34,6 +45,19 @@ import type {
   StarCount,
 } from '../src/net/protocol';
 
+/** Host heartbeat cadence (design draft §6, DRAFT numbers): the host
+ *  client beats every HEARTBEAT_INTERVAL_MS; the DO promotes after
+ *  HEARTBEAT_TIMEOUT_MS of silence. */
+export const HEARTBEAT_INTERVAL_MS = 2000;
+export const HEARTBEAT_TIMEOUT_MS = 5000;
+
+/** A human identity held by a seat in reconnect grace: the seat plays
+ *  on under bot control, but only this playerId may reclaim it. */
+export interface HeldIdentity {
+  playerId: string;
+  callsign: string;
+}
+
 /** The DO's stored record: the contract RoomState fields plus the
  *  bookkeeping the wire never sees (derived fields — capacity,
  *  hostPlayerId, clientVersion — are computed by toRoomState). */
@@ -47,11 +71,17 @@ export interface RoomRecord {
   private: boolean;
   seats: Seat[];
   createdAt: number;
-  /** Last host heartbeat (ms epoch); recorded for P2-3's migration
-   *  watch. Null until the host's first heartbeat. */
+  /** Last host heartbeat (ms epoch); the migration watch reads it.
+   *  Null until the host's first heartbeat (or match start, which
+   *  stamps the baseline — see startMatch). */
   hostLastHeartbeatAt: number | null;
   /** Next joinedOrder to hand out (1-based; humans only). */
   nextJoinedOrder: number;
+  /** Grace-held human identities, keyed by the seat's ownerId. */
+  heldIdentities: Record<string, HeldIdentity>;
+  /** playerIds kicked from this room; a re-hello presenting one is
+   *  refused with error 'kicked', in any phase. */
+  bannedPlayerIds: string[];
 }
 
 export interface CreateRoomSpec {
@@ -125,6 +155,8 @@ export function createRoomRecord(
     createdAt: now,
     hostLastHeartbeatAt: null,
     nextJoinedOrder: 1,
+    heldIdentities: {},
+    bannedPlayerIds: [],
   };
 }
 
@@ -178,6 +210,17 @@ export function findSeatByPlayerId(
   );
 }
 
+/** The grace hold a playerId owns, if any: the seat it may reclaim. */
+export function findHeldIdentity(
+  record: RoomRecord,
+  playerId: string,
+): { ownerId: string; held: HeldIdentity } | null {
+  for (const [ownerId, held] of Object.entries(record.heldIdentities)) {
+    if (held.playerId === playerId) return { ownerId, held };
+  }
+  return null;
+}
+
 export function hostSeat(record: RoomRecord): Seat | null {
   return record.seats.find((s) => s.isHost) ?? null;
 }
@@ -188,15 +231,18 @@ export function isHost(record: RoomRecord, playerId: string): boolean {
 }
 
 /**
- * Host election: the seated human with the lowest joinedOrder hosts.
- * Runs on every membership change (claim / release / kick). This is
- * lobby-grade election — NOT migration promotion (P2-3): nobody is
- * promoted mid-match by a timeout here, and bots never host.
+ * Host election among CONNECTED humans: the lowest joinedOrder hosts.
+ * Bots never host, and neither do grace seats (not connected). Sets
+ * exactly one isHost flag (or none, when no connected human exists).
  */
 export function electHost(record: RoomRecord): Seat | null {
   let best: Seat | null = null;
   for (const seat of record.seats) {
-    if (seat.occupant.kind !== 'human' || seat.joinedOrder === null) {
+    if (
+      seat.occupant.kind !== 'human' ||
+      seat.connection !== 'connected' ||
+      seat.joinedOrder === null
+    ) {
       continue;
     }
     if (best === null || seat.joinedOrder < (best.joinedOrder ?? Infinity)) {
@@ -207,33 +253,86 @@ export function electHost(record: RoomRecord): Seat | null {
   return best;
 }
 
-export interface ClaimResult {
-  seat: Seat;
-  /** True when this hello took a bot seat; false when the playerId
-   *  already held the seat (re-hello / early reconnect). */
-  isNewClaim: boolean;
+/**
+ * Fill a VACANT host seat on a membership change. If a connected
+ * human already hosts, they keep hosting — membership changes (a new
+ * claim, a reclaim) never demote a sitting host; only heartbeat
+ * promotion (evaluateMigration) can do that. This is what keeps a
+ * reclaimer from retaking hosting from the host they were promoted
+ * away to (design: migration is a promotion, never a demotion back).
+ */
+export function ensureHost(record: RoomRecord): Seat | null {
+  const current = hostSeat(record);
+  if (
+    current &&
+    current.occupant.kind === 'human' &&
+    current.connection === 'connected'
+  ) {
+    return current;
+  }
+  return electHost(record);
 }
 
+export type ClaimOutcome =
+  | { ok: true; seat: Seat; isNewClaim: boolean; reclaimed: boolean }
+  | { ok: false; error: 'room_full' | 'kicked' };
+
 /**
- * Seat a human. If playerId already holds a seat, refresh it
- * (connection back to 'connected', callsign updated if a non-empty one
- * was presented) and report isNewClaim = false. Otherwise take the
- * first bot-held seat in starIndex order. Returns null when the room
- * is full (every seat human-held).
+ * Seat a human from a hello. Resolution order:
+ *  1. A kicked playerId is refused ('kicked'), in any phase.
+ *  2. A playerId already occupying a seat refreshes it (re-hello /
+ *     second socket): not a new claim, not a reclaim.
+ *  3. A playerId with a grace hold RECLAIMS that exact seat — never
+ *     any other — keeping its original joinedOrder precedence.
+ *  4. Otherwise the first PURE bot seat (never a grace-held one) is
+ *     claimed. In 'live' / 'cinematic' this is the takeover path:
+ *     control flips, play is not interrupted. In 'lobby' it is the
+ *     ordinary join.
+ * A 'results' room admits nobody new (flagged reading: the frozen
+ * error set has no 'match_over', and a finished room's seats are not
+ * takeable — room_full is the honest refusal); a seated player's
+ * refresh (case 2) is still answered.
  */
 export function claimSeat(
   record: RoomRecord,
   playerId: string,
   callsign: string,
-): ClaimResult | null {
+): ClaimOutcome {
+  if (record.bannedPlayerIds.includes(playerId)) {
+    return { ok: false, error: 'kicked' };
+  }
   const existing = findSeatByPlayerId(record, playerId);
   if (existing) {
     if (callsign.trim()) existing.occupant.callsign = callsign.trim();
     existing.connection = 'connected';
-    return { seat: existing, isNewClaim: false };
+    return { ok: true, seat: existing, isNewClaim: false, reclaimed: false };
   }
-  const seat = record.seats.find((s) => s.occupant.kind === 'bot');
-  if (!seat) return null; // room full
+  const hold = findHeldIdentity(record, playerId);
+  if (hold) {
+    if (record.phase === 'results') return { ok: false, error: 'room_full' };
+    const seat = record.seats.find((s) => s.ownerId === hold.ownerId);
+    if (!seat) return { ok: false, error: 'room_full' };
+    delete record.heldIdentities[hold.ownerId];
+    const { color, cue } = seat.occupant;
+    seat.occupant = {
+      kind: 'human',
+      playerId,
+      callsign: callsign.trim() || hold.held.callsign,
+      // color/cue are the seat's, assigned by starIndex for the match.
+      color,
+      cue,
+    };
+    seat.connection = 'connected';
+    // joinedOrder was preserved through grace; hosting is NOT
+    // restored by a reclaim — ensureHost only fills a vacancy.
+    ensureHost(record);
+    return { ok: true, seat, isNewClaim: false, reclaimed: true };
+  }
+  if (record.phase === 'results') return { ok: false, error: 'room_full' };
+  const seat = record.seats.find(
+    (s) => s.occupant.kind === 'bot' && s.connection === 'bot',
+  );
+  if (!seat) return { ok: false, error: 'room_full' };
   seat.occupant = {
     kind: 'human',
     playerId,
@@ -245,23 +344,63 @@ export function claimSeat(
   };
   seat.connection = 'connected';
   seat.joinedOrder = record.nextJoinedOrder++;
-  electHost(record);
-  return { seat, isNewClaim: true };
+  ensureHost(record);
+  return { ok: true, seat, isNewClaim: true, reclaimed: false };
 }
 
 /**
- * Free a human's seat: occupant flips back to bot (P2-1 disconnect /
- * leave / kick all land here — see the module header on P2-3 reclaim),
- * joinedOrder clears, host re-elects. The seat's match state
- * (eliminated) is seat-scoped and stays. Returns the freed seat, or
- * null if the player held no seat.
+ * A human's last socket went away: the seat does NOT free. Control
+ * flips to bot, the seat parks in reconnect grace, and the human's
+ * identity is held for reclaim (design §6: the seat plays on; the
+ * human may reclaim any time during the match). joinedOrder is kept —
+ * it is the held identity's precedence when it returns. isHost is
+ * left for reconcileHosting / evaluateMigration to settle, so the DO
+ * can report a promotion with its event pair.
+ * Returns the seat, or null if the player held none.
  */
-export function releaseSeat(
+export function disconnectSeat(
   record: RoomRecord,
   playerId: string,
 ): Seat | null {
   const seat = findSeatByPlayerId(record, playerId);
   if (!seat) return null;
+  const { color, cue } = seat.occupant;
+  record.heldIdentities[seat.ownerId] = {
+    playerId,
+    callsign: seat.occupant.callsign,
+  };
+  seat.occupant = {
+    kind: 'bot',
+    playerId: null,
+    callsign: botCallsign(seat.starIndex),
+    color,
+    cue,
+  };
+  seat.connection = 'reconnect_grace';
+  return seat;
+}
+
+/**
+ * Full release: the seat forgets the human entirely — occupant flips
+ * to bot, any grace hold is erased, joinedOrder clears. This is the
+ * kick path (and the only release path in P2-3a: the wire has no
+ * voluntary-leave message, so a drop is always grace, never release).
+ * Resolves the target as a live occupant OR via a grace hold.
+ * Returns the freed seat, or null if the player held nothing.
+ */
+export function releaseSeat(
+  record: RoomRecord,
+  playerId: string,
+): Seat | null {
+  let seat = findSeatByPlayerId(record, playerId);
+  if (!seat) {
+    const hold = findHeldIdentity(record, playerId);
+    if (hold) {
+      seat = record.seats.find((s) => s.ownerId === hold.ownerId) ?? null;
+    }
+  }
+  if (!seat) return null;
+  delete record.heldIdentities[seat.ownerId];
   const { color, cue } = seat.occupant;
   seat.occupant = {
     kind: 'bot',
@@ -273,12 +412,15 @@ export function releaseSeat(
   seat.connection = 'bot';
   seat.joinedOrder = null;
   seat.isHost = false;
-  electHost(record);
+  ensureHost(record);
   return seat;
 }
 
-/** Host-only kick: frees the target's seat. Returns the freed seat,
- *  or null if the requester isn't host or the target holds no seat. */
+/** Host-only kick: fully releases the target's seat (occupant or
+ *  grace-held identity), erases any hold, and BANS the playerId — a
+ *  re-hello presenting it is refused 'kicked' in any phase. Returns
+ *  the freed seat, or null if the requester isn't host, the target is
+ *  the requester, or the target holds nothing. */
 export function kickPlayer(
   record: RoomRecord,
   requesterPlayerId: string,
@@ -286,11 +428,133 @@ export function kickPlayer(
 ): Seat | null {
   if (!isHost(record, requesterPlayerId)) return null;
   if (requesterPlayerId === targetPlayerId) return null;
-  return releaseSeat(record, targetPlayerId);
+  const freed = releaseSeat(record, targetPlayerId);
+  if (!freed) return null;
+  if (!record.bannedPlayerIds.includes(targetPlayerId)) {
+    record.bannedPlayerIds.push(targetPlayerId);
+  }
+  return freed;
 }
 
-/** The legal phase graph (contract §3 lifecycle). P2-1 produces only
- *  lobby → live; the rest are defined so later slices transition
+export type MigrationOutcome =
+  | { action: 'none' }
+  | {
+      action: 'promote';
+      /** The outgoing host's playerId (via the seat's occupant, or
+       *  its grace hold when the seat already flipped); null only in
+       *  the no-flagged-host edge, where '' goes on the wire. */
+      fromPlayerId: string | null;
+      toPlayerId: string;
+      hostOwnerId: string;
+    }
+  | { action: 'close' };
+
+/**
+ * The migration verdict (pure). Runs while a match is live or in its
+ * cinematic; the lobby settles hosting by election on membership
+ * change, never by timeout, so other phases return 'none'.
+ *
+ * The sitting host is HEALTHY only when its seat is held by a
+ * connected human whose heartbeat is no older than
+ * HEARTBEAT_TIMEOUT_MS. Otherwise the connected human with the
+ * lowest joinedOrder is promoted (bots and grace seats are never
+ * candidates); promotion restamps the heartbeat baseline to `now` —
+ * the promoted client's beats take over from there, and the DO arms
+ * its next alarm at the new deadline. When nobody can host, the
+ * verdict is 'close' if the room is truly empty of humans, else
+ * 'none' (a grace-held identity may still return and be elected).
+ */
+export function evaluateMigration(
+  record: RoomRecord,
+  now: number,
+): MigrationOutcome {
+  if (record.phase !== 'live' && record.phase !== 'cinematic') {
+    return { action: 'none' };
+  }
+  const host = hostSeat(record);
+  const hostPlayerId = host
+    ? (host.occupant.playerId ??
+      record.heldIdentities[host.ownerId]?.playerId ??
+      null)
+    : null;
+  const healthy =
+    !!host &&
+    host.occupant.kind === 'human' &&
+    host.connection === 'connected' &&
+    record.hostLastHeartbeatAt !== null &&
+    now - record.hostLastHeartbeatAt <= HEARTBEAT_TIMEOUT_MS;
+  if (healthy) return { action: 'none' };
+
+  let candidate: Seat | null = null;
+  for (const seat of record.seats) {
+    if (seat === host) continue;
+    if (
+      seat.occupant.kind !== 'human' ||
+      seat.connection !== 'connected' ||
+      seat.joinedOrder === null
+    ) {
+      continue;
+    }
+    if (
+      candidate === null ||
+      seat.joinedOrder < (candidate.joinedOrder ?? Infinity)
+    ) {
+      candidate = seat;
+    }
+  }
+  if (candidate && candidate.occupant.playerId) {
+    for (const seat of record.seats) seat.isHost = seat === candidate;
+    record.hostLastHeartbeatAt = now;
+    return {
+      action: 'promote',
+      fromPlayerId: hostPlayerId,
+      toPlayerId: candidate.occupant.playerId,
+      hostOwnerId: candidate.ownerId,
+    };
+  }
+  if (shouldCloseRoom(record)) return { action: 'close' };
+  return { action: 'none' };
+}
+
+/**
+ * Hosting reconciliation after a membership loss — the DO's one call
+ * on socket-gone. In a live/cinematic match the verdict is the
+ * migration decision (the departed seat may have been the host);
+ * in the lobby it is plain vacancy election.
+ */
+export function reconcileHosting(
+  record: RoomRecord,
+  now: number,
+): MigrationOutcome {
+  if (record.phase === 'live' || record.phase === 'cinematic') {
+    return evaluateMigration(record, now);
+  }
+  ensureHost(record);
+  return { action: 'none' };
+}
+
+/**
+ * Room-close predicate (design §6: if the last human leaves, the
+ * room closes). Deliberately conservative: a room closes only when
+ * NO human is connected, NO seat has a human occupant, and NO grace
+ * hold survives — a held identity means a human may still return,
+ * and grace lasts the whole match, so held rooms persist. The DO
+ * evaluates this only after membership events (kick / disconnect /
+ * alarm verdicts), never at creation.
+ */
+export function shouldCloseRoom(record: RoomRecord): boolean {
+  const anyHumanOccupant = record.seats.some(
+    (s) => s.occupant.kind === 'human',
+  );
+  const anyConnectedHuman = record.seats.some(
+    (s) => s.occupant.kind === 'human' && s.connection === 'connected',
+  );
+  const anyHeld = Object.keys(record.heldIdentities).length > 0;
+  return !anyHumanOccupant && !anyConnectedHuman && !anyHeld;
+}
+
+/** The legal phase graph (contract §3 lifecycle). The rest of the
+ *  graph beyond lobby → live is defined so later slices transition
  *  through the same gate. results → lobby (rematch) is deliberately
  *  NOT in the graph — rematch flow is unpinned; flagged in the P2-1
  *  report. */
@@ -318,16 +582,26 @@ export function transitionPhase(
 }
 
 /** Host-only match start from the lobby (contract: no ready state;
- *  the arena is live immediately). */
-export function startMatch(record: RoomRecord, playerId: string): boolean {
+ *  the arena is live immediately). Stamps the migration watch's
+ *  first heartbeat baseline when `now` is given: match start counts
+ *  as a beat, so a host that dies before its first real heartbeat is
+ *  still caught one timeout after the start. */
+export function startMatch(
+  record: RoomRecord,
+  playerId: string,
+  now?: number,
+): boolean {
   if (record.phase !== 'lobby') return false;
   if (!isHost(record, playerId)) return false;
-  return transitionPhase(record, 'live');
+  if (!transitionPhase(record, 'live')) return false;
+  if (now !== undefined && record.hostLastHeartbeatAt === null) {
+    record.hostLastHeartbeatAt = now;
+  }
+  return true;
 }
 
-/** Records the host's heartbeat timestamp (P2-3's migration watch
- *  reads it). Returns true when the sender is the host. Recording is
- *  all P2-1 does with heartbeats — no promotion happens here. */
+/** Records the host's heartbeat timestamp (the migration watch reads
+ *  it). Returns true when the sender is the host. */
 export function recordHostHeartbeat(
   record: RoomRecord,
   playerId: string,

@@ -1,0 +1,143 @@
+/**
+ * N-seat match assembly (Phase 2, P2-3a) — pure.
+ *
+ * Builds the complete initial GameState for a MULTIPLAYER match on
+ * the host from a room's shape (seed + starCount + the seats'
+ * ownerIds/controllers). Single-player never calls this: SP keeps
+ * its shipped init in the game loop, untouched — this module mirrors
+ * SP's init conventions per seat instead:
+ *
+ * - Stars come from createMatchLayout(seed, starCount), positions
+ *   used as-is (arena-center-relative; the arena center is (0, 0) in
+ *   a host sim state, where SP translates by its viewport center).
+ *   Each star is built with the shipped seat-star factory values
+ *   (SP's home star: size 40, mass 400, integrity 1, no infusion,
+ *   the milestone-0 turret ladder). `Star.type` is the legacy
+ *   local-view label — seat 0 is 'home', every other seat 'enemy',
+ *   exactly how the top-level view reads them; ownerId is the truth.
+ * - EVERY seat gets a starter ship (createStarterShip with the
+ *   starter Bolt Cannon armed) — MP seats fly, including bot seats.
+ *   That is the deliberate difference from SP's shipless enemy seat.
+ * - Ships and each seat's one initial drone spawn off their star by
+ *   SP's convention (its drone offsets: 100 per axis toward the
+ *   arena center), which also keeps them outside the star's disc.
+ * - `scrap` starts EMPTY: SP seeds its field scrap in an init
+ *   effect (Math.random veins around the viewport), not in the
+ *   initial state — assembly mirrors the state shape and leaves
+ *   field seeding to the host client's match-start effect, whose
+ *   first snapshot carries the field to everyone.
+ *
+ * Everything here is plain serializable data, ready to snapshot.
+ */
+
+import { PHYSICS } from '../constants';
+import { turretsForMilestones } from '../starDefense';
+import type { GameState, Harvester, Star } from '../types';
+import { createMatchLayout } from './matchInit';
+import type { MatchStarCount } from './matchInit';
+import { ownerIdForSeat } from './ownership';
+import { createSeatSimState, createStarterShip } from './seatState';
+
+export interface MatchSeatConfig {
+  ownerId: string;
+  controller: 'human' | 'bot';
+}
+
+export interface CreateMatchConfig {
+  seed: number;
+  starCount: MatchStarCount;
+  /** One entry per seat, in starIndex order. Missing entries are
+   *  filled with bot seats (ownerIdForSeat of their index). */
+  seats: MatchSeatConfig[];
+}
+
+/** Per-axis spawn offset toward the arena center (SP's drone-spawn
+ *  convention: its two drones sit 100 per axis inward of their star). */
+const spawnOffsetTowardCenter = (pos: { x: number; y: number }) => ({
+  x: pos.x - Math.sign(pos.x) * 100,
+  y: pos.y - Math.sign(pos.y) * 100,
+});
+
+const createSeatStar = (
+  ownerId: string,
+  starIndex: number,
+  pos: { x: number; y: number },
+): Star => ({
+  pos: { ...pos },
+  vel: { x: 0, y: 0 },
+  size: 40,
+  mass: 400,
+  totalScrapInfused: 0,
+  type: starIndex === 0 ? 'home' : 'enemy',
+  ownerId,
+  integrity: 1,
+  turrets: turretsForMilestones(0),
+});
+
+const createSeatDrone = (star: Star, starIndex: number): Harvester => ({
+  id: `${star.ownerId}-drone-1`,
+  health: 100,
+  pos: spawnOffsetTowardCenter(star.pos),
+  vel: { x: 0, y: 0 },
+  angle: 0,
+  targetId: null,
+  carrying: 0,
+  capacity: PHYSICS.DRONES.CAPACITY,
+  owner: starIndex === 0 ? 'player' : 'enemy',
+  ownerId: star.ownerId,
+  state: 'searching',
+});
+
+export const createMatch = (config: CreateMatchConfig): GameState => {
+  const layout = createMatchLayout(config.seed, config.starCount);
+
+  const seats = layout.stars.map((layoutStar, starIndex) => {
+    const seatConfig: MatchSeatConfig = config.seats[starIndex] ?? {
+      ownerId: ownerIdForSeat(starIndex),
+      controller: 'bot',
+    };
+    const star = createSeatStar(
+      seatConfig.ownerId,
+      starIndex,
+      layoutStar.pos,
+    );
+    const ship = createStarterShip(seatConfig.ownerId, spawnOffsetTowardCenter(star.pos), {
+      withStarterWeapon: true,
+    });
+    return createSeatSimState(star, starIndex, seatConfig.controller, ship);
+  });
+
+  const drones = seats.map((seat) => createSeatDrone(seat.star, seat.starIndex));
+
+  return {
+    // Top-level fields remain the local (host, seat 0) view — the
+    // SAME objects as seats[0]'s, exactly the SP projection law.
+    ship: seats[0].ship!,
+    star: seats[0].star,
+    enemyStar: seats[1].star,
+    seats,
+    standings: [],
+    eventFeed: [],
+    matchEnd: null,
+    scrap: [],
+    deployedCargo: [],
+    projectiles: [],
+    mines: [],
+    decoy: null,
+    cmes: [],
+    drones,
+    starOrbit: 0,
+    enemyStarOrbit: 0,
+    teamScrap: 0,
+    bankedScrap: 0,
+    isShopOpen: false,
+    lastUpgradeTime: 0,
+    glitchActive: false,
+    lastGlitchTime: 0,
+    shakeAmount: 0,
+    isVictory: false,
+    isGameOver: false,
+    useAnalogGauges: true,
+    slip: 0,
+  };
+};

@@ -36,6 +36,12 @@ declare global {
     get<T>(key: string): Promise<T | undefined>;
     put<T>(key: string, value: T): Promise<void>;
     delete(key: string): Promise<boolean>;
+    /** Alarms (P2-3a): a one-shot wake-up for the DO — the migration
+     *  watch. setAlarm REPLACES any pending alarm; the DO's `alarm()`
+     *  handler runs when it fires, even after hibernation. */
+    setAlarm(timestamp: number): Promise<void>;
+    getAlarm(): Promise<number | null>;
+    deleteAlarm(): Promise<void>;
   }
 
   interface DurableObjectState {

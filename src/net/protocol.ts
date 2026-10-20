@@ -252,8 +252,12 @@ export type ServerMessage =
   /** The hello answer: your identity + your seat + the full room. */
   | { type: 'welcome'; playerId: string; seat: Seat; room: RoomState }
   | { type: 'error'; code: ErrorCode }
-  /** A human takes a seat (first claim or bot→human flip). */
-  | { type: 'seatClaimed'; seat: Seat }
+  /** A human takes a seat (first claim or bot→human flip).
+   *  `reclaimed` (P2-3a) is true when the claim restored the seat the
+   *  same playerId held before a disconnect — the seat spent the gap
+   *  in reconnect grace under bot control. Absent/false = fresh claim
+   *  or live-match takeover of a bot seat. */
+  | { type: 'seatClaimed'; seat: Seat; reclaimed?: boolean }
   /** A human leaves/disconnects; the seat flips back to bot. */
   | { type: 'seatReleased'; seat: Seat }
   /** Connection / callsign / eliminated change on a claimed seat. */
