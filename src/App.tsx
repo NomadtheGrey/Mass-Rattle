@@ -30,11 +30,21 @@ export default function App() {
     return () => observer.disconnect();
   }, []);
 
-  const { 
-    state, 
-    upgrade, 
-    buyItem, 
-    equipItem, 
+  const {
+    state,
+    upgrade,
+    buyItem,
+    equipItem,
+    // Ship progression (Phase 3): buyType / buyHullStep / switchLine /
+    // buildDrone are consumed here and ready to thread into the HUD
+    // exactly like onFeedCargo below — the prop hand-off lands WITH the
+    // UI lane's workshop faces, because HUDProps is a closed interface
+    // in HUD.tsx (passing them today would not typecheck; the UI lane
+    // grows the interface and these four props in one move).
+    buyType,
+    buyHullStep,
+    switchLine,
+    buildDrone,
     feedCargo,
     depositBank, 
     withdrawBank, 
