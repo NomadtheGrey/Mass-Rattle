@@ -3,6 +3,7 @@ import { GameState } from '../types';
 import { COLORS, PHYSICS } from '../constants';
 import { BANK_WELL_MARGIN } from '../bank';
 import { shieldMaxFor, PD_RANGE } from '../loadout';
+import { turretRingRadius } from '../starDefense';
 
 interface GameCanvasProps {
   state: GameState;
@@ -117,31 +118,30 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
           }
         }
 
-      // Turret Hubs (Orbiting defenses) — TRUTH PASS: each star actually
-      // fields ONE starter turret today (the electron-shell ladder that
-      // grows this to 2 + 8 is pinned but not built, and the loop models
-      // no turret count in state). Draw the one that's real; when the
-      // ladder lands a count in state, read it from there instead.
-      ctx.save();
-      ctx.rotate(isHome ? state.starOrbit : state.enemyStarOrbit);
-      const turretCount = 1;
-      for (let i = 0; i < turretCount; i++) {
-        const tAngle = (i / turretCount) * Math.PI * 2;
+      // Turret Hubs — read straight from state (Phase 1c): star.turrets
+      // is the ladder's list ({shell, angle, tier} per turret, a pure
+      // function of milestone count — see starDefense.ts). Angles are
+      // ABSOLUTE: the sim fires from pos + angle x turretRingRadius, so
+      // the hubs sit exactly where the bolts come from. (The old draw
+      // rotated the ring by starOrbit and showed one hub — the hubs
+      // appeared to orbit while the sim fired from fixed angles.)
+      // Hub box grows a little per tier, matching its fire stats.
+      (s.turrets || []).forEach(t => {
+        const ring = turretRingRadius(s.size, t.shell);
+        const hub = 9 + Math.min(t.tier, 4);
         ctx.save();
-        ctx.rotate(tAngle);
+        ctx.rotate(t.angle);
+        ctx.translate(ring, 0);
         ctx.fillStyle = isHome ? '#1a1a1c' : '#300';
         ctx.strokeStyle = isHome ? COLORS.CRT_GLOW : '#f43f5e';
         ctx.lineWidth = 1;
-        ctx.translate(s.size + 15, 0);
-        ctx.fillRect(-5, -5, 10, 10);
-        ctx.strokeRect(-5, -5, 10, 10);
-        
+        ctx.fillRect(-hub / 2, -hub / 2, hub, hub);
+        ctx.strokeRect(-hub / 2, -hub / 2, hub, hub);
         // Barrel
-        ctx.fillRect(5, -2, 8, 4);
-        ctx.strokeRect(5, -2, 8, 4);
+        ctx.fillRect(hub / 2, -2, 8, 4);
+        ctx.strokeRect(hub / 2, -2, 8, 4);
         ctx.restore();
-      }
-      ctx.restore();
+      });
 
       // BANK WELL (home star only): the gravity-well ring that IS the bank,
       // plus one orbiting mote per banked scrap (capped for readability) so
