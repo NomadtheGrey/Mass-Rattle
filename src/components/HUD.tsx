@@ -378,7 +378,7 @@ export const HUD: React.FC<HUDProps> = ({
         <div className="hud-panel p-4 border-4">
           <div className="absolute top-0 right-0 p-1 text-[10px] text-[#2d2d30]">MOD-CR90</div>
           <h2 className="mb-4 pb-1 font-bold">
-            <span className="embossed-label bg-orange-950 border-orange-500">Astronomic Data</span>
+            <span className="embossed-label text-orange-500/80">Astronomic Data</span>
           </h2>
           <div className="space-y-6">
             <div>
@@ -416,7 +416,7 @@ export const HUD: React.FC<HUDProps> = ({
 
         <div className="hud-panel p-4 flex-grow border-4 overflow-hidden relative">
           <h2 className="mb-4 pb-1 font-bold">
-            <span className="embossed-label bg-zinc-900 border-zinc-700">Comms / Logs</span>
+            <span className="embossed-label text-zinc-400">Comms / Logs</span>
           </h2>
             <div className="text-[11px] leading-relaxed space-y-2 opacity-80 font-mono">
               <div className="mb-4">
@@ -570,7 +570,7 @@ export const HUD: React.FC<HUDProps> = ({
           <div className="w-px bg-[#2d2d30] shrink-0"></div>
 
           <div className="flex-grow flex flex-col justify-between min-w-0">
-            <div className="embossed-label mb-2 bg-[#1a1a1c] border-zinc-700">Ship Enhancements [Keys 1-5 | G for Gauges]</div>
+            <div className="embossed-label mb-2 text-zinc-400">Ship Enhancements [Keys 1-5 | G for Gauges]</div>
             <div className="flex gap-2 pointer-events-auto overflow-x-auto pb-1 scrollbar-hide">
               {[
                 { type: 'thrust' as const, label: 'Thrust', base: PHYSICS.UPGRADE_COSTS.THRUST, lvl: upgrades.thrust, key: '1' },
@@ -604,7 +604,7 @@ export const HUD: React.FC<HUDProps> = ({
           
           <div className="w-48 flex flex-col justify-between shrink-0">
             <div className="flex justify-between items-center mb-1">
-              <div className="embossed-label bg-pink-900/80 border-pink-500 text-[9px] py-0 px-1 whitespace-nowrap">Cargo Manifest</div>
+              <div className="embossed-label text-pink-400/80 text-[9px] whitespace-nowrap">Cargo Manifest</div>
               <div className="text-[10px] font-mono font-bold text-pink-400 ml-1">
                 {(() => {
                   const reg = PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS;
@@ -759,15 +759,28 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
       )}
 
-      {/* LOADOUT TILES — the equipped trio's permanent spot on the HUD:
-          bottom-center, always visible, so the player can see their build
-          (and spot an empty slot) without opening the shop. */}
-      <div className="fixed bottom-24 sm:bottom-5 left-1/2 -translate-x-1/2 z-[55] flex gap-1.5 sm:gap-2 pointer-events-none">
-        <div className="hud-panel px-2 py-1 sm:px-3 sm:py-1.5 rounded border border-pink-500/50 text-center min-w-[64px] sm:min-w-[84px]">
-          <div className="text-[7px] sm:text-[8px] font-mono text-zinc-500 tracking-widest">BANK</div>
-          <div className="text-[9px] sm:text-[11px] font-bold uppercase text-pink-400 leading-tight">🏦 {bankedScrap}U</div>
-          <div className={`text-[7px] sm:text-[8px] font-mono ${bankInWell ? 'text-[#33ff33]' : 'text-zinc-500'}`}>{bankInWell ? 'IN THE WELL' : 'AT HOME STAR'}</div>
-        </div>
+      {/* STATUS STRIP — slim indicators, bottom-center (Adam, 2026-10-20).
+          The five ship tracks at a glance: level + the live stat the level
+          buys, computed from the same formulas the sim uses. Then the
+          equipped trio as compact chips. Indicators only — buying lives in
+          the workshop's UPGRADES tab; the BANK tile that used to sit here
+          is evicted (the bank lives in the dock row + the BANK tab). When
+          ship classes land with per-class caps, each track cell gains
+          its /MAX — no denominator is printed until a real cap exists. */}
+      <div className="fixed bottom-24 sm:bottom-5 left-1/2 -translate-x-1/2 z-[55] flex flex-wrap justify-center items-stretch gap-1 max-w-[97vw] pointer-events-none">
+        {[
+          { icon: '🚀', name: 'THRUST', lvl: upgrades.thrust, stat: `SPD ${(PHYSICS.MAX_VELOCITY + upgrades.thrust * 0.5).toFixed(1)}` },
+          { icon: '🕹️', name: 'TURN', lvl: upgrades.handling, stat: `${Math.round((PHYSICS.ROTATION_SPEED + upgrades.handling * 0.005) * 60 * 180 / Math.PI)}°/S` },
+          { icon: '🧲', name: 'VAC', lvl: upgrades.attractor, stat: `${PHYSICS.BASE_ATTRACT_RADIUS + upgrades.attractor * 35}U` },
+          { icon: '⚡', name: 'FUEL', lvl: upgrades.fuelCap, stat: `${maxFuel}` },
+          { icon: '📦', name: 'HOLD', lvl: upgrades.cargo, stat: `${PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS}U` },
+        ].map(t => (
+          <div key={t.name} className="hud-panel px-1.5 py-0.5 rounded border border-zinc-800 text-center min-w-[56px]">
+            <div className="text-[6px] sm:text-[7px] font-mono text-zinc-500 tracking-widest whitespace-nowrap">{t.icon} {t.name} · L{t.lvl}</div>
+            <div className="text-[8px] sm:text-[10px] font-mono font-bold text-zinc-200 leading-tight whitespace-nowrap">{t.stat}</div>
+          </div>
+        ))}
+        <div className="w-px bg-zinc-800 mx-0.5" />
         {([
           { slot: 'weapon' as const, label: 'WPN' },
           { slot: 'defense' as const, label: 'DEF' },
@@ -775,18 +788,18 @@ export const HUD: React.FC<HUDProps> = ({
         ]).map(({ slot, label }) => {
           const def = getLoadoutItem(loadout[slot]);
           const tier = def ? (arsenal[def.id] || 0) : 0;
+          const isShield = slot === 'defense' && def?.id === 'deflector_shield';
+          const isDecoy = slot === 'defense' && def?.id === 'decoy_beacon';
           return (
-            <div key={slot} className={`hud-panel px-2 py-1 sm:px-3 sm:py-1.5 rounded border text-center min-w-[64px] sm:min-w-[84px] ${def ? 'border-[#33ff33]/60' : 'border-zinc-800 opacity-50'}`}>
-              <div className="text-[7px] sm:text-[8px] font-mono text-zinc-500 tracking-widest">{label}</div>
-              <div className="text-[9px] sm:text-[11px] font-bold uppercase text-[#33ff33] leading-tight">
+            <div key={slot} className={`hud-panel px-1.5 py-0.5 rounded border text-center min-w-[56px] ${def ? 'border-[#33ff33]/50' : 'border-zinc-800 opacity-50'}`}>
+              <div className="text-[6px] sm:text-[7px] font-mono text-zinc-500 tracking-widest whitespace-nowrap">
+                {label}{def ? ` · T${tier}` : ''}{isShield ? ` · POOL ${Math.ceil(shieldHp || 0)}/${shieldMaxFor(tier)}` : ''}
+              </div>
+              <div className="text-[8px] sm:text-[10px] font-mono font-bold uppercase text-[#33ff33] leading-tight whitespace-nowrap max-w-[92px] truncate">
                 {def ? `${def.icon} ${def.name}` : '— EMPTY —'}
               </div>
-              {def && <div className="text-[7px] sm:text-[8px] font-mono text-pink-400">TIER {tier}</div>}
-              {slot === 'defense' && def?.id === 'deflector_shield' && (
-                <div className="text-[7px] sm:text-[8px] font-mono text-cyan-300">POOL {Math.ceil(shieldHp || 0)}/{shieldMaxFor(tier)}</div>
-              )}
-              {slot === 'defense' && def?.id === 'decoy_beacon' && (
-                <div className="text-[7px] sm:text-[8px] font-mono text-pink-300">{decoyActive ? 'BEACON LIVE' : 'PRESS X / PILL'}</div>
+              {isDecoy && (
+                <div className="text-[6px] sm:text-[7px] font-mono text-pink-300 whitespace-nowrap">{decoyActive ? 'BEACON LIVE' : 'PRESS X / PILL'}</div>
               )}
             </div>
           );
@@ -830,7 +843,7 @@ export const HUD: React.FC<HUDProps> = ({
                   WEAPONS / DEFENSE / HYBRID = the Arsenal (src/loadout.ts) */}
               <div className="flex gap-1.5 mb-3 sm:mb-4">
                 {([
-                  { key: 'ship', label: '🚀 SHIP' },
+                  { key: 'ship', label: '🚀 UPGRADES' },
                   { key: 'bank', label: '🏦 BANK' },
                   { key: 'weapon', label: '🔫 WEAPONS' },
                   { key: 'defense', label: '🛡️ DEFENSE' },
@@ -854,10 +867,11 @@ export const HUD: React.FC<HUDProps> = ({
                 <div className="flex flex-col gap-3 overflow-y-auto pr-1 max-h-[60vh] scrollbar-thin">
                   <p className="text-[10px] sm:text-xs opacity-70 leading-snug">
                     The bank is your star's <span className="text-[#33ff33] font-bold">gravity well</span> — banked scrap
-                    orbits the star (watch the motes in the ring) and is safe there: it is not auto-fed on delivery
-                    flybys and does not feed milestones until you withdraw it and deliver it.
-                    Banking — deposit, withdraw, and spending savings — only works <span className="text-[#33ff33] font-bold">inside the well</span>:
-                    fly home, stay outside the star's feeding reach (80U), and use the ring.
+                    orbits the star (watch the motes in the ring) and is safe there: it never feeds the star on
+                    its own and does not count toward milestones until you withdraw it and feed it yourself.
+                    Banking — deposit, withdraw, and spending savings — only works <span className="text-[#33ff33] font-bold">inside the well</span>.
+                    Feeding is separate, and it is your choice: scrap feeds the star only when you press
+                    <span className="text-amber-400 font-bold"> FEED </span> at the dock.
                     {bankInWell
                       ? <span className="block mt-1 text-[#33ff33] font-bold">YOU ARE IN THE WELL — BANK OPEN.</span>
                       : <span className="block mt-1 text-amber-500 font-bold">YOU ARE NOT IN THE WELL — BANK CLOSED.</span>}
