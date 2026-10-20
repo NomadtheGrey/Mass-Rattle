@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Trophy, Skull, RefreshCw, LogOut } from 'lucide-react';
+import { milestonesForInfused } from '../starGrowth';
 
 interface ResultsOverlayProps {
   isVictory: boolean;
@@ -75,7 +76,7 @@ export const ResultsOverlay: React.FC<ResultsOverlayProps> = ({
               </div>
               <div className="bg-zinc-900/50 p-4 border border-zinc-800">
                 <div className="text-[10px] text-zinc-500 uppercase mb-1">Star Growth</div>
-                <div className="text-2xl font-bold text-white">+{Math.floor(totalScrapInfused / 100)} Lvl</div>
+                <div className="text-2xl font-bold text-white">+{milestonesForInfused(totalScrapInfused)} Lvl</div>
               </div>
             </div>
 

@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import React from 'react';
 import { PHYSICS } from '../constants';
+import { milestonesForInfused, progressIntoNextMilestone, nextMilestoneCost } from '../starGrowth';
 import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor } from '../loadout';
 
 interface NeedleGaugeProps {
@@ -133,8 +134,12 @@ export const HUD: React.FC<HUDProps> = ({
   // matching walletPay in the game loop — but the bank is the home star's
   // gravity well, so banked savings only count while inside it.
   const funds = carrying + (bankInWell ? bankedScrap : 0);
-  const growthProgress = (totalScrapInfused % 100);
-  const starLevel = Math.floor(totalScrapInfused / 100) + 1;
+  // Star growth readouts follow the RISING milestone costs (starGrowth.ts):
+  // progress is scrap into the CURRENT milestone, judged against that
+  // milestone's own cost — e.g. 40/125 while working on M2, not x/100.
+  const growthProgress = progressIntoNextMilestone(totalScrapInfused);
+  const growthCost = nextMilestoneCost(totalScrapInfused);
+  const starLevel = milestonesForInfused(totalScrapInfused) + 1;
   const [showSysCfg, setShowSysCfg] = React.useState(false);
   // Workshop tabs: the five base ship tracks, then the Arsenal categories.
   const [shopTab, setShopTab] = React.useState<'ship' | 'bank' | ArsenalCategory>('ship');
@@ -377,12 +382,12 @@ export const HUD: React.FC<HUDProps> = ({
             <div>
               <div className="flex justify-between text-[10px] mb-1">
                 <span>HOME STAR GROWTH</span>
-                <span className="text-[#ea580c]">{totalScrapInfused} INFUSED</span>
+                <span className="text-[#ea580c]">{growthProgress}/{growthCost} · {totalScrapInfused} INFUSED</span>
               </div>
               <div className="vu-meter h-2 bg-orange-950/20">
                 <motion.div 
                   className="h-full bg-gradient-to-r from-orange-800 to-orange-400 shadow-[0_0_8px_orange]"
-                  animate={{ width: `${growthProgress}%` }}
+                  animate={{ width: `${(growthProgress / growthCost) * 100}%` }}
                 />
               </div>
             </div>

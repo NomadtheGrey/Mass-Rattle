@@ -3,6 +3,7 @@ import { GameState, Vector2D } from '../types';
 import { PHYSICS, COLORS } from '../constants';
 import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER } from '../loadout';
 import { inBankWell } from '../bank';
+import { infuseStar, milestonesForInfused } from '../starGrowth';
 import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, cmeReductionFor } from '../loadout';
 
 /**
@@ -637,18 +638,11 @@ export const useGameLoop = (width: number, height: number) => {
         
         if (ship.carrying > 0 && hDist < PHYSICS.DELIVERY_RADIUS) {
           const amount = ship.carrying;
-          const oldInfused = star.totalScrapInfused;
-          star.totalScrapInfused += amount;
+          // Rising milestone costs + per-crossing growth: see starGrowth.ts.
+          infuseStar(star, amount);
           teamScrap += amount;
           ship.carrying = 0;
 
-          const newMilestone = Math.floor(star.totalScrapInfused / PHYSICS.STAR_GROWTH_THRESHOLD);
-          const oldMilestone = Math.floor(oldInfused / PHYSICS.STAR_GROWTH_THRESHOLD);
-          
-          if (newMilestone > oldMilestone) {
-            star.mass *= 1.25;
-            star.size *= 1.15;
-          }
           glitch = true;
           next.lastGlitchTime = time;
         }
@@ -738,16 +732,8 @@ export const useGameLoop = (width: number, height: number) => {
             if (dist < s.size + 10) {
               const amount = 1;
               if (s.type === 'home') {
-                const oldInfused = star.totalScrapInfused;
-                star.totalScrapInfused += amount;
+                infuseStar(star, amount);
                 next.teamScrap += amount;
-                
-                const newMilestone = Math.floor(star.totalScrapInfused / PHYSICS.STAR_GROWTH_THRESHOLD);
-                const oldMilestone = Math.floor(oldInfused / PHYSICS.STAR_GROWTH_THRESHOLD);
-                if (newMilestone > oldMilestone) {
-                  star.mass *= 1.25;
-                  star.size *= 1.15;
-                }
               } else {
                 enemyStar.integrity = Math.max(0, enemyStar.integrity - 0.01);
                 enemyStar.mass *= 0.99; // Each bit of cargo damages it
@@ -893,21 +879,15 @@ export const useGameLoop = (width: number, height: number) => {
             if (dist < droneStar.size + PHYSICS.DRONES.DEPOSIT_RADIUS) {
               const amount = drone.carrying;
               if (drone.owner === 'player') {
-                const oldInfused = star.totalScrapInfused;
-                star.totalScrapInfused += amount;
+                infuseStar(star, amount);
                 teamScrap += amount;
-                const newMilestone = Math.floor(star.totalScrapInfused / PHYSICS.STAR_GROWTH_THRESHOLD);
-                const oldMilestone = Math.floor(oldInfused / PHYSICS.STAR_GROWTH_THRESHOLD);
-                if (newMilestone > oldMilestone) {
-                  star.mass *= 1.25;
-                  star.size *= 1.15;
-                }
               } else {
-                enemyStar.totalScrapInfused += amount;
-                // Healing or growth for enemy star
+                // The enemy star grows through the SAME rising milestone
+                // system (starGrowth.ts) — no more per-delivery x1.01 creep.
+                // Its per-delivery integrity heal is a separate system and
+                // stays exactly as it was.
+                infuseStar(enemyStar, amount);
                 enemyStar.integrity = Math.min(1, enemyStar.integrity + 0.005 * amount);
-                enemyStar.size *= 1.01;
-                enemyStar.mass *= 1.01;
               }
               drone.carrying = 0;
               drone.state = 'searching';
@@ -1112,7 +1092,7 @@ export const useGameLoop = (width: number, height: number) => {
             }
           }
           if (s.cmeChargeEndsAt && time >= s.cmeChargeEndsAt) {
-            const M = Math.floor(s.totalScrapInfused / PHYSICS.STAR_GROWTH_THRESHOLD);
+            const M = milestonesForInfused(s.totalScrapInfused);
             const radial = Math.random() < Math.min(0.9, 0.1 * M);
             (next.cmes = next.cmes || []).push({
               id: Math.random().toString(),

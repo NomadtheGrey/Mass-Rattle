@@ -12,7 +12,15 @@ export const PHYSICS = {
   BASE_ATTRACT_RADIUS: 140,
   AUTO_COLLECT_RADIUS: 35,
   FRICTION_MAX: 0.90, 
-  STAR_GROWTH_THRESHOLD: 100,
+  // STAR GROWTH (Adam's pin, 2026-10-20): milestone costs RISE — milestone
+  // N costs BASE + STEP x (N-1): M1 100, M2 125, M3 150, M4 175 ...
+  // (cumulative thresholds 100 / 225 / 375 / 550 / 750 ...). Each crossed
+  // milestone compounds the star's mass x1.25 and size x1.15. The math
+  // lives in src/starGrowth.ts — never re-derive it inline.
+  STAR_GROWTH_BASE_COST: 100,
+  STAR_GROWTH_COST_STEP: 25,
+  STAR_GROWTH_MASS_MULT: 1.25,
+  STAR_GROWTH_SIZE_MULT: 1.15,
   MASS_PER_CARGO: 0.35, 
   FUEL_CONSUMPTION: 0.08,
   FUEL_REGEN: 0.06,
