@@ -142,6 +142,26 @@ export const HUD: React.FC<HUDProps> = ({
 
   const radarActive = isMobileRadarOpen || localRadarOpen;
 
+  // CONTROLS CARD rows (desktop, bottom-left of the play area): the whole
+  // key set in one readable place. Contextual like the rest of the HUD —
+  // FIRE wears the equipped weapon, the DECOY row exists only while a
+  // beacon is equipped, SHOP carries its well rule with it.
+  const controlsWeapon = getLoadoutItem(loadout.weapon);
+  const controlRows: { label: string; keys: string; dim?: boolean }[] = [
+    { label: 'THRUST', keys: 'W · ↑' },
+    { label: 'STEER', keys: 'A D · ← →' },
+    { label: 'VAC · HOLD', keys: 'Q E R' },
+    controlsWeapon
+      ? { label: 'FIRE · HOLD', keys: `F — ${controlsWeapon.name.toUpperCase()}` }
+      : { label: 'FIRE · HOLD', keys: 'F — NO WEAPON', dim: true },
+    { label: 'EJECT PULSE', keys: 'SPACE' },
+    ...(loadout.defense === 'decoy_beacon'
+      ? [{ label: 'DEPLOY DECOY', keys: 'X' } as { label: string; keys: string; dim?: boolean }]
+      : []),
+    { label: 'SHOP', keys: 'TAB · U — AT HOME STAR' },
+    { label: 'UPGRADES', keys: '1 – 5' },
+  ];
+
   // Minimap logic
   const mapScale = 0.025;
   const mapCenter = { x: 50, y: 50 };
@@ -427,6 +447,23 @@ export const HUD: React.FC<HUDProps> = ({
       {/* DESKTOP MAIN CENTER AREA */}
       <main className="hidden md:flex flex-grow flex-col gap-4 relative">
         <div className="flex-grow pointer-events-none relative">
+          {/* CONTROLS CARD — bottom-left of the play area (desktop).
+              Replaces the stale 20%-opacity help footer that lived in
+              App.tsx and never learned FIRE [F] or DECOY [X]. */}
+          <div className="absolute bottom-0 left-0 pointer-events-auto">
+            <div className="hud-panel border-2 bg-zinc-950/90 shadow-2xl px-3 py-2 min-w-[176px]">
+              <div className="text-[8px] font-mono font-bold tracking-[0.25em] text-zinc-500 mb-1.5">SHIP CONTROLS</div>
+              <div className="flex flex-col gap-1">
+                {controlRows.map(row => (
+                  <div key={row.label} className={`flex justify-between gap-3 text-[9px] font-mono ${row.dim ? 'opacity-40' : ''}`}>
+                    <span className="text-zinc-400 tracking-wider">{row.label}</span>
+                    <span className="text-[#33ff33] font-bold whitespace-nowrap">{row.keys}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
           {/* Utility Cluster */}
           <div className="absolute bottom-0 right-0 w-24 flex flex-col gap-2 items-end">
             <div className="hud-panel w-16 p-2 flex flex-col items-center gap-4 border-2 bg-zinc-950/90 shadow-2xl pointer-events-auto">
