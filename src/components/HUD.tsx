@@ -711,9 +711,13 @@ export const HUD: React.FC<HUDProps> = ({
 
       {/* DOCK PILLS: inside the well (and only there), one-tap Deposit and
           Open Shop float above the loadout tiles — banking used to be
-          buried in the BANK tab; at the dock it is one tap. */}
+          buried in the BANK tab; at the dock it is one tap.
+          pointer-events-auto on the container is LOAD-BEARING: the HUD
+          root is pointer-events-none, so without it the pills render and
+          glow but clicks pass through to the canvas (Adam's bug report,
+          2026-10-20). The DECOY pill below needs the same class. */}
       {bankInWell && !isShopOpen && (
-        <div className="fixed bottom-[104px] sm:bottom-[76px] left-1/2 -translate-x-1/2 z-[56] flex gap-2">
+        <div className="fixed bottom-[104px] sm:bottom-[76px] left-1/2 -translate-x-1/2 z-[56] flex gap-2 pointer-events-auto">
           <button
             onClick={onDepositBank}
             disabled={carrying <= 0}
@@ -734,7 +738,7 @@ export const HUD: React.FC<HUDProps> = ({
           lives outside the well-gated dock pills. Shows only while the
           Decoy Beacon is the equipped defense and none is live. */}
       {loadout.defense === 'decoy_beacon' && !decoyActive && (
-        <div className={`fixed left-1/2 -translate-x-1/2 z-[56] ${bankInWell && !isShopOpen ? 'bottom-[146px] sm:bottom-[118px]' : 'bottom-[104px] sm:bottom-[76px]'}`}>
+        <div className={`fixed left-1/2 -translate-x-1/2 z-[56] pointer-events-auto ${bankInWell && !isShopOpen ? 'bottom-[146px] sm:bottom-[118px]' : 'bottom-[104px] sm:bottom-[76px]'}`}>
           <button
             onClick={onDeployDecoy}
             className="hud-panel px-3 py-1.5 rounded border border-pink-500 font-mono text-[10px] sm:text-[11px] font-bold tracking-wider text-pink-400 shadow-[0_0_10px_rgba(219,39,119,0.35)]"
