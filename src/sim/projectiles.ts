@@ -279,20 +279,17 @@ export const stepProjectiles = (ctx: ProjectileStepContext): Projectile[] => {
       }
     }
 
-    // Collision with hostile STARS (P2-2b). The shipped rule is
-    // deliberately NOT symmetric, and this preserves it exactly:
-    // in SP only the PLAYER side's fire damages a star — the
-    // local ship's weapons, the local star's turret bolts, and
-    // mirror-reflected bolts chip the enemy star, while enemy
-    // turret bolts fly THROUGH the home star (they are aimed at
-    // the ship, and the ship is how the enemy side wins). So:
-    // ship-fired projectiles (kind set) damage any hostile star;
-    // star-turret bolts (kind unset) damage hostile stars only
-    // when fired by the LOCAL seat's star. In SP that reduces to
-    // the shipped block precisely. (Full symmetric star-vs-star
-    // bolt damage is a multiplayer tuning question, flagged for
-    // P2-3 — not silently introduced here.)
-    if (p.kind !== undefined || p.ownerId === localOwnerId) {
+    // Collision with hostile STARS. ADAM'S RULING (2026-10-20):
+    // star turrets are defensive — built to protect their star
+    // from incoming hostile ships — and turrets NEVER hurt stars.
+    // Turret bolts are exactly the projectiles with `kind` unset,
+    // so only kind-carrying projectiles damage a star: ship-fired
+    // weapons (incl. auto-guns and mirror-reflected bolts, which
+    // carry the reflecting ship's kind). Turret bolts fly through
+    // stars of every seat, harmlessly — the pre-ruling SP asymmetry
+    // (local turret bolts chipped the enemy star; P2-2b) is retired
+    // by this ruling, deliberately.
+    if (p.kind !== undefined) {
       for (const seat of simSeats) {
         const s = seat.star;
         if (s.ownerId === p.ownerId) continue;

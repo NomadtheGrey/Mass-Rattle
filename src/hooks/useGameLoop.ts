@@ -1230,12 +1230,12 @@ export const useGameLoop = (width: number, height: number) => {
         // from its own ring position (radius per the PHYSICS.STAR_DEFENSE
         // formula), aiming from there, and its bolt carries its own tier
         // damage.
-        // (P2-2b generalization, SP-exact: a star's target is the first
-        // of — a hostile Decoy Beacon; the nearest hostile SHIP; the
-        // nearest hostile STAR. In SP that is precisely the shipped
-        // rule: the home star skips its own decoy and the shipless
-        // enemy seat and lands on the enemy star; the enemy star takes
-        // the player's decoy while one flies, else the player's ship.)
+        // (P2-2b generalization, as amended by Adam's ruling of
+        // 2026-10-20: turrets are DEFENSIVE — they protect their star
+        // from incoming hostile ships, and they never engage stars.
+        // A star's target is the first of — a hostile Decoy Beacon;
+        // the nearest hostile SHIP. No star fallback: if no decoy or
+        // ship is in range, the turrets hold fire.)
         simSeats.forEach(seat => {
           const s = seat.star;
           let target: { pos: Vector2D } | null = null;
@@ -1248,14 +1248,6 @@ export const useGameLoop = (width: number, height: number) => {
               if (!os.ship || os.ownerId === s.ownerId) continue;
               const dd = Math.hypot(os.ship.pos.x - s.pos.x, os.ship.pos.y - s.pos.y);
               if (dd < bd) { bd = dd; target = os.ship; }
-            }
-          }
-          if (!target) {
-            let bd = Infinity;
-            for (const os of simSeats) {
-              if (os.ownerId === s.ownerId) continue;
-              const dd = Math.hypot(os.star.pos.x - s.pos.x, os.star.pos.y - s.pos.y);
-              if (dd < bd) { bd = dd; target = os.star; }
             }
           }
           if (!target) return;
