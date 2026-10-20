@@ -26,10 +26,16 @@ interface LobbyScreenProps {
   room: RoomState | null;
   myPlayerId: string | null;
   defaultCallsign?: string;
+  /** Join-link prefill (?room=CODE): the code fills itself in. */
+  initialCode?: string;
+  /** ownerId of a seat just reclaimed by its returning player. */
+  reclaimedOwnerId?: string | null;
+  /** Transport-level failure copy (not a wire ErrorCode). */
+  notice?: string | null;
   callbacks: LobbyCallbacks;
 }
 
-const SeatCard: React.FC<{ seat: Seat; mine: boolean }> = ({ seat, mine }) => {
+const SeatCard: React.FC<{ seat: Seat; mine: boolean; reclaimed?: boolean }> = ({ seat, mine, reclaimed }) => {
   const { occupant } = seat;
   const glyph = CUE_GLYPHS[occupant.cue] || '●';
   return (
@@ -52,6 +58,9 @@ const SeatCard: React.FC<{ seat: Seat; mine: boolean }> = ({ seat, mine }) => {
           {mine && (
             <span className="text-[8px] font-mono font-bold px-1 py-0.5 rounded bg-[#33ff33]/15 border border-[#33ff33] text-[#33ff33]">YOU</span>
           )}
+          {reclaimed && (
+            <span className="text-[8px] font-mono font-bold px-1 py-0.5 rounded bg-amber-500/20 border border-amber-500 text-amber-300">SEAT RECLAIMED</span>
+          )}
         </div>
         <div className="text-[9px] font-mono text-zinc-500 tracking-wider">
           STAR {seat.starIndex + 1} · {occupant.cue.toUpperCase()} SEAT ·{' '}
@@ -65,13 +74,14 @@ const SeatCard: React.FC<{ seat: Seat; mine: boolean }> = ({ seat, mine }) => {
 };
 
 export const LobbyScreen: React.FC<LobbyScreenProps> = ({
-  clientState, room, myPlayerId, defaultCallsign = '', callbacks,
+  clientState, room, myPlayerId, defaultCallsign = '', initialCode = '',
+  reclaimedOwnerId = null, notice = null, callbacks,
 }) => {
   const [callsign, setCallsign] = React.useState(defaultCallsign);
   const [roomName, setRoomName] = React.useState('');
   const [starCount, setStarCount] = React.useState<2 | 3 | 4>(2);
   const [isPrivate, setIsPrivate] = React.useState(false);
-  const [joinCode, setJoinCode] = React.useState('');
+  const [joinCode, setJoinCode] = React.useState(initialCode.toUpperCase().slice(0, 6));
 
   const busy = clientState.connection === 'connecting';
   const callsignOk = callsign.trim().length > 0;
@@ -97,6 +107,11 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
           </div>
 
           {errorBanner}
+          {notice && (
+            <div className="hud-panel px-3 py-2 rounded border-2 border-amber-500 bg-amber-950/30 text-center">
+              <span className="text-[11px] font-mono font-bold text-amber-300">{notice}</span>
+            </div>
+          )}
 
           <div className="flex flex-col gap-2">
             {room.seats.map(seat => (
@@ -104,6 +119,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                 key={seat.ownerId}
                 seat={seat}
                 mine={seat.occupant.playerId !== null && seat.occupant.playerId === myPlayerId}
+                reclaimed={reclaimedOwnerId === seat.ownerId}
               />
             ))}
           </div>
@@ -154,6 +170,11 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
         </div>
 
         {errorBanner}
+        {notice && (
+          <div className="hud-panel px-3 py-2 rounded border-2 border-amber-500 bg-amber-950/30 text-center">
+            <span className="text-[11px] font-mono font-bold text-amber-300">{notice}</span>
+          </div>
+        )}
         {clientState.connection === 'desync' && (
           <div className="hud-panel px-3 py-2 rounded border-2 border-amber-500 bg-amber-950/30 text-center">
             <span className="text-[11px] font-mono font-bold text-amber-300">CONNECTION LOST SYNC — REJOINING…</span>
