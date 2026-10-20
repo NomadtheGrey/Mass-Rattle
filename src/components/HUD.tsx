@@ -175,6 +175,12 @@ export const HUD: React.FC<HUDProps> = ({
   const progType = typeFor(shipLine, typeTier);
   const caps = capsFor(shipLine, typeTier);
   const switchCost = switchToll({ lineSwitchesUsed, typeTier });
+  // Gauge scales follow the ship as upgraded (audit, 2026-10-20): the
+  // velocity gauges top out at the CURRENT top speed, and the cargo-mass
+  // gauge at the CURRENT hold including overload — not stock constants.
+  const topSpeed = PHYSICS.MAX_VELOCITY + upgrades.thrust * 0.5;
+  const holdRegular = PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS;
+  const holdTotal = holdRegular + Math.floor(holdRegular * PHYSICS.CARGO.OVERLOAD_RATIO);
   // Star growth readouts follow the RISING milestone costs (starGrowth.ts):
   // progress is scrap into the CURRENT milestone, judged against that
   // milestone's own cost — e.g. 40/125 while working on M2, not x/100.
@@ -328,9 +334,9 @@ export const HUD: React.FC<HUDProps> = ({
         {/* Top Row: Stars & Bank */}
         <div className="flex items-center justify-between text-[9px] font-mono leading-none">
           <div className="flex items-center gap-2">
-            <span className="text-orange-500 font-bold">HOME: {totalScrapInfused}U</span>
+            <span className="text-orange-500 font-bold">STAR M{starLevel} · {growthProgress}/{growthCost}</span>
             <span className="text-zinc-600">|</span>
-            <span className="text-red-500 font-bold">ENEMY: {Math.floor(enemyIntegrity * 100)}%</span>
+            <span className="text-red-500 font-bold">ENEMY INT {Math.floor(enemyIntegrity * 100)}%</span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -435,7 +441,7 @@ export const HUD: React.FC<HUDProps> = ({
 
             <div>
               <div className="flex justify-between text-[10px] mb-1">
-                <span className="text-red-500">ENEMY STAR COLLAPSE</span>
+                <span className="text-red-500">ENEMY STAR INTEGRITY</span>
                 <span className="text-red-500">{Math.floor(enemyIntegrity * 100)}%</span>
               </div>
               <div className="vu-meter h-2 bg-red-950/20">
@@ -476,7 +482,6 @@ export const HUD: React.FC<HUDProps> = ({
               <p className="text-cyan-400 font-bold bg-cyan-950/40 px-1 border-l-2 border-cyan-500">[FED] {teamScrap}U DELIVERED</p>
               {fuel < 20 && <p className="text-red-600 animate-pulse font-bold">[ERR] FUEL DEPLETED</p>}
               {glitch && <p className="text-yellow-600">[DATA] SENSORS RECALIBRATING...</p>}
-              <p className="opacity-30">PINGS: {Math.floor(Math.random()*100)}ms</p>
               <p className="animate-pulse">_</p>
             </div>
           <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-black/60 to-transparent" />
@@ -513,10 +518,13 @@ export const HUD: React.FC<HUDProps> = ({
           {/* Utility Cluster */}
           <div className="absolute bottom-0 right-0 w-24 flex flex-col gap-2 items-end">
             <div className="hud-panel w-16 p-2 flex flex-col items-center gap-4 border-2 bg-zinc-950/90 shadow-2xl pointer-events-auto">
-              <div className="w-10 h-10 pitted-metal flex items-center justify-center text-red-400 text-[9px] text-center font-bold border border-red-900 bg-red-950/20 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">JETTISON [SPACE]</div>
-              <div className="w-10 h-10 pitted-metal flex items-center justify-center text-red-300 text-[9px] text-center font-bold border border-red-900 bg-red-950/20 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">FIRE [F]</div>
-              <div className="w-10 h-10 pitted-metal flex items-center justify-center text-[#33ff33] text-[8px] text-center uppercase font-bold tracking-tighter [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">VAC [Q/E/R]</div>
-              <div className="w-10 h-10 pitted-metal flex items-center justify-center text-cyan-300 text-[9px] text-center">FUEL OK</div>
+              {/* Fuel state — a READOUT, not a button (audit, 2026-10-20):
+                  reads the real fuel prop. Its old neighbours — inert
+                  JETTISON / FIRE / VAC squares dressed as buttons and
+                  duplicating the CONTROLS card — are retired. */}
+              <div className={`w-10 h-10 pitted-metal flex items-center justify-center text-[9px] text-center font-bold border ${fuel < maxFuel * 0.2 ? 'text-red-400 border-red-900 bg-red-950/30 animate-pulse' : fuel < maxFuel * 0.4 ? 'text-amber-300 border-amber-900 bg-amber-950/20' : 'text-cyan-300 border-cyan-900 bg-cyan-950/20'}`}>
+                {fuel < maxFuel * 0.2 ? 'FUEL CRIT' : fuel < maxFuel * 0.4 ? 'FUEL LOW' : 'FUEL OK'}
+              </div>
               <button 
                 onClick={() => setShowSysCfg(true)}
                 className="w-10 h-10 pitted-metal flex items-center justify-center text-[#33ff33] hover:text-white hover:bg-zinc-800 transition-colors text-[8px] text-center pointer-events-auto cursor-pointer"
@@ -536,12 +544,12 @@ export const HUD: React.FC<HUDProps> = ({
           <div className="flex items-center justify-center w-1/4 min-w-[200px]">
             {useAnalogGauges ? (
               <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                <NeedleGauge value={velocity} max={7.5} label="V-VELOCITY" color="#33ff33" />
+                <NeedleGauge value={velocity} max={topSpeed} label="V-VELOCITY" color="#33ff33" />
                 <NeedleGauge value={fuel} max={maxFuel} label="FUEL" color="#06b6d4" isFuel={true} />
                 <NeedleGauge value={slip * 10} max={10} label="I-SLIP" color={slip > 0.5 ? "#f97316" : "#33ff33"} />
                 <NeedleGauge 
                   value={carrying} 
-                  max={PHYSICS.CARGO.BASE_CAPACITY + PHYSICS.CARGO.UPGRADE_BONUS * 5 * 1.25} 
+                  max={holdTotal} 
                   label="C-MASS" 
                   color={carrying > (PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS) ? "#f97316" : "#06b6d4"} 
                 />
@@ -556,7 +564,7 @@ export const HUD: React.FC<HUDProps> = ({
                   <div className="vu-meter h-2">
                     <motion.div 
                       className={`h-full ${velocity > 6 ? 'bg-red-600' : 'bg-[#33ff33] shadow-[0_0_4px_#33ff33]'}`}
-                      animate={{ width: `${(velocity / 7.5) * 100}%` }}
+                      animate={{ width: `${(velocity / topSpeed) * 100}%` }}
                     />
                   </div>
                 </div>
@@ -568,7 +576,7 @@ export const HUD: React.FC<HUDProps> = ({
                   <div className="vu-meter h-2 bg-pink-900/20">
                     <motion.div 
                       className="h-full bg-pink-500 shadow-[0_0_4px_pink]"
-                      animate={{ width: `${Math.min((carrying / (PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS * 1.25)) * 100, 100)}%` }}
+                      animate={{ width: `${Math.min((carrying / holdTotal) * 100, 100)}%` }}
                     />
                   </div>
                 </div>
@@ -631,7 +639,7 @@ export const HUD: React.FC<HUDProps> = ({
                     <span className="text-[9px] font-bold uppercase tracking-tighter">[{u.key}] {u.label.substring(0,4)}</span>
                     <span className="text-[8px] opacity-60">Lvl {u.lvl}/{u.cap}</span>
                     <div className="absolute -top-8 left-1/2 -translate-x-1/2 transition-all opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] bg-black border border-zinc-800 p-1 font-mono z-50">
-                      REQ: {cost} SCRAP (HOLD+BANK)
+                      REQ: {cost} SCRAP ({bankInWell ? 'HOLD+BANK' : 'HOLD — BANK COUNTS IN THE WELL'})
                     </div>
                   </button>
                 );
@@ -815,7 +823,7 @@ export const HUD: React.FC<HUDProps> = ({
           { icon: '📦', name: 'HOLD', lvl: upgrades.cargo, cap: caps.cargo, stat: `${PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS}U` },
         ].map(t => (
           <div key={t.name} className="hud-panel px-1.5 py-0.5 rounded border border-zinc-800 text-center min-w-[56px]">
-            <div className="text-[6px] sm:text-[7px] font-mono text-zinc-500 tracking-widest whitespace-nowrap">{t.icon} {t.name} · L{t.lvl}/{t.cap}</div>
+            <div className="text-[7px] sm:text-[8px] font-mono text-zinc-500 tracking-widest whitespace-nowrap">{t.icon} {t.name} · L{t.lvl}/{t.cap}</div>
             <div className="text-[8px] sm:text-[10px] font-mono font-bold text-zinc-200 leading-tight whitespace-nowrap">{t.stat}</div>
           </div>
         ))}
@@ -831,14 +839,14 @@ export const HUD: React.FC<HUDProps> = ({
           const isDecoy = slot === 'defense' && def?.id === 'decoy_beacon';
           return (
             <div key={slot} className={`hud-panel px-1.5 py-0.5 rounded border text-center min-w-[56px] ${def ? 'border-[#33ff33]/50' : 'border-zinc-800 opacity-50'}`}>
-              <div className="text-[6px] sm:text-[7px] font-mono text-zinc-500 tracking-widest whitespace-nowrap">
+              <div className="text-[7px] sm:text-[8px] font-mono text-zinc-500 tracking-widest whitespace-nowrap">
                 {label}{def ? ` · T${tier}` : ''}{isShield ? ` · POOL ${Math.ceil(shieldHp || 0)}/${shieldMaxFor(tier)}` : ''}
               </div>
               <div className="text-[8px] sm:text-[10px] font-mono font-bold uppercase text-[#33ff33] leading-tight whitespace-nowrap max-w-[92px] truncate">
                 {def ? `${def.icon} ${def.name}` : '— EMPTY —'}
               </div>
               {isDecoy && (
-                <div className="text-[6px] sm:text-[7px] font-mono text-pink-300 whitespace-nowrap">{decoyActive ? 'BEACON LIVE' : 'PRESS X / PILL'}</div>
+                <div className="text-[7px] sm:text-[8px] font-mono text-pink-300 whitespace-nowrap">{decoyActive ? 'BEACON LIVE' : 'PRESS X / PILL'}</div>
               )}
             </div>
           );
