@@ -13,8 +13,13 @@
  *   their own mines (callers apply that exemption — these helpers
  *   are pure geometry).
  * - PERISCOPE MOMENT (ruled): firing any weapon or laying mines
- *   while cloaked reveals the ship fully for PERISCOPE_REVEAL_MS.
- *   The loop stamps Ship.cloakRevealUntil at the fire/mine sites.
+ *   while cloaked reveals the ship fully for PERISCOPE_REVEAL_S
+ *   seconds. The loop stamps Ship.cloakReveal (SECONDS REMAINING,
+ *   decremented per frame) at the fire/mine sites — a countdown,
+ *   not a timestamp, because a host performance.now() stamp is
+ *   meaningless on a guest's clock, while a seconds-remaining
+ *   field rides snapshots natively and reads identically
+ *   everywhere (UI lane's contract catch, 2026-10-21).
  * - Stealth gates SEEING, never physics: a cloaked ship still
  *   collides, still trips mines, still takes hits from fire aimed
  *   true. Nothing here touches damage or movement.
@@ -62,8 +67,8 @@ export const STEALTH_BANDS: Record<TypeTier, StealthBand> = {
   5: { far: 550, near: 135, mineReveal: 170 },
 };
 
-/** Periscope moment: how long firing/laying reveals a cloaked ship (RULED ~2 s). */
-export const PERISCOPE_REVEAL_MS = 2000;
+/** Periscope moment: seconds firing/laying reveals a cloaked ship (RULED ~2 s). */
+export const PERISCOPE_REVEAL_S = 2.0;
 
 /**
  * UNRULED switch — see the header. Default = dev's recommendation
@@ -75,11 +80,10 @@ export const STAR_SYSTEMS_RESPECT_STEALTH = true;
 export const isStealthShip = (ship: Pick<Ship, 'line' | 'typeTier'>): boolean =>
   ship.line === 'minelayer' && ship.typeTier >= 2;
 
-/** The periscope moment is live for this ship at `now` (loop clock). */
+/** The periscope moment is live for this ship (countdown running). */
 export const isRevealedByAction = (
-  ship: Pick<Ship, 'cloakRevealUntil'>,
-  now: number,
-): boolean => now < (ship.cloakRevealUntil || 0);
+  ship: Pick<Ship, 'cloakReveal'>,
+): boolean => (ship.cloakReveal || 0) > 0;
 
 /**
  * How visible `target` is to a viewer standing at `viewerPos`:
@@ -88,12 +92,11 @@ export const isRevealedByAction = (
  * proximity ramp between the tier's near and far radii.
  */
 export const stealthAlphaFor = (
-  target: Pick<Ship, 'line' | 'typeTier' | 'pos' | 'cloakRevealUntil'>,
+  target: Pick<Ship, 'line' | 'typeTier' | 'pos' | 'cloakReveal'>,
   viewerPos: { x: number; y: number },
-  now: number,
 ): number => {
   if (!isStealthShip(target)) return 1;
-  if (isRevealedByAction(target, now)) return 1;
+  if (isRevealedByAction(target)) return 1;
   const band = STEALTH_BANDS[target.typeTier];
   const d = Math.hypot(target.pos.x - viewerPos.x, target.pos.y - viewerPos.y);
   if (d >= band.far) return 0;
@@ -107,23 +110,27 @@ export const stealthAlphaFor = (
  * band is a shape you may shoot at.
  */
 export const isVisibleTo = (
-  target: Pick<Ship, 'line' | 'typeTier' | 'pos' | 'cloakRevealUntil'>,
+  target: Pick<Ship, 'line' | 'typeTier' | 'pos' | 'cloakReveal'>,
   viewerPos: { x: number; y: number },
-  now: number,
-): boolean => stealthAlphaFor(target, viewerPos, now) > 0;
+): boolean => stealthAlphaFor(target, viewerPos) > 0;
 
 /**
- * Mine concealment: may a viewer at `viewerPos` see a mine laid by
- * a ship of `ownerTier`? (Owner/team exemption is the caller's —
- * they always see their own.) Mines use the OWNER'S CURRENT type
- * tier: no per-mine state, and a layer who climbs sees their whole
- * field deepen with them.
+ * Mine concealment: may a viewer at `viewerPos` see a mine whose
+ * owner currently flies a ship of `ownerTier`? (Owner/team
+ * exemption is the caller's — they always see their own.) There
+ * is NO tier stamped on the mine: concealment reads the owner's
+ * CURRENT type tier (callers resolve ownerId -> seat -> ship), so
+ * a layer who climbs sees their whole field deepen with them.
+ * An owner with no live submarine — shipless, or back in the
+ * tier-1 Skiff after a repurchase — tends no field: their mines
+ * are VISIBLE to everyone. The field surfaces when its layer dies.
  */
 export const mineVisibleToViewer = (
   minePos: { x: number; y: number },
-  ownerTier: TypeTier,
+  ownerTier: TypeTier | null,
   viewerPos: { x: number; y: number },
 ): boolean => {
+  if (ownerTier === null || ownerTier < 2) return true;
   const d = Math.hypot(minePos.x - viewerPos.x, minePos.y - viewerPos.y);
   return d <= STEALTH_BANDS[ownerTier].mineReveal;
 };

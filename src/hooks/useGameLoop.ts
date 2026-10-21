@@ -23,7 +23,7 @@ import {
 } from '../sim/starStages';
 import { stepDrones } from '../sim/drones';
 import { stepMines, stepProjectiles } from '../sim/projectiles';
-import { isStealthShip, isVisibleTo, PERISCOPE_REVEAL_MS, STAR_SYSTEMS_RESPECT_STEALTH } from '../sim/stealth';
+import { isStealthShip, isVisibleTo, PERISCOPE_REVEAL_S, STAR_SYSTEMS_RESPECT_STEALTH } from '../sim/stealth';
 import { stepCme } from '../sim/cme';
 import { computeStandings } from '../sim/standings';
 import { areHostile, areTeammates } from '../sim/teams';
@@ -1355,7 +1355,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
                 s.fireReadyAt = time + wStats.cooldownMs;
                 // PERISCOPE (ruled, src/sim/stealth.ts): laying
                 // mines while cloaked surfaces the submarine.
-                if (isStealthShip(s)) s.cloakRevealUntil = time + PERISCOPE_REVEAL_MS;
+                if (isStealthShip(s)) s.cloakReveal = PERISCOPE_REVEAL_S;
                 for (let mi = 0; mi < dropCount; mi++) {
                   const lateral = (mi - (dropCount - 1) / 2) * 16;
                   (next.mines = next.mines || []).push({
@@ -1422,7 +1422,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
                 s.fireReadyAt = time + wStats.cooldownMs;
                 // PERISCOPE (ruled, src/sim/stealth.ts): firing
                 // while cloaked surfaces the submarine.
-                if (isStealthShip(s)) s.cloakRevealUntil = time + PERISCOPE_REVEAL_MS;
+                if (isStealthShip(s)) s.cloakReveal = PERISCOPE_REVEAL_S;
               }
             }
           }
@@ -1905,6 +1905,15 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
               seat.survivalMs = (seat.survivalMs ?? 0) + frameDtMs;
             }
           }
+          // PERISCOPE COUNTDOWN (src/sim/stealth.ts): the reveal a
+          // cloaked submarine earned by firing or laying ticks down
+          // in seconds — a snapshot-native field, identical on
+          // every clock, where a host timestamp would be noise.
+          for (const seat of simSeats) {
+            if (seat.ship && seat.ship.cloakReveal) {
+              seat.ship.cloakReveal = Math.max(0, seat.ship.cloakReveal - frameDtMs / 1000);
+            }
+          }
           // DEATH-TAX ARRIVALS (Adam, 2026-10-21): a paid buy-back's
           // frame lands when its respawn wait elapses. Payment was
           // recorded at purchase; arrival itself is silent.
@@ -2020,7 +2029,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
               // SUBMARINE: turrets do not engage what the star
               // cannot see (src/sim/stealth.ts) — gated by the
               // UNRULED star-systems switch, defaulting to respect.
-              if (STAR_SYSTEMS_RESPECT_STEALTH && !isVisibleTo(os.ship, s.pos, time)) continue;
+              if (STAR_SYSTEMS_RESPECT_STEALTH && !isVisibleTo(os.ship, s.pos)) continue;
               const dd = Math.hypot(os.ship.pos.x - s.pos.x, os.ship.pos.y - s.pos.y);
               if (dd < bd) { bd = dd; target = os.ship; }
             }
