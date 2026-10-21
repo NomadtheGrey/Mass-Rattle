@@ -5,6 +5,34 @@ import { BANK_WELL_MARGIN } from '../bank';
 import { shieldMaxFor, PD_RANGE } from '../loadout';
 import { turretRingRadius } from '../starDefense';
 import { typeFor } from '../shipProgression';
+import { stageStateForInfused } from '../sim/starStages';
+
+// CME EJECTA (Adam, 2026-10-21): a CME is stellar mass jetting out and
+// escaping the star's gravity — NOT a force field. The render below is
+// pure presentation over the same wave state (front, cone, falloff);
+// the sim is untouched. Streamer parameters are a deterministic hash
+// of the wave's id, so the same matter persists frame to frame instead
+// of re-rolling — blobs TRAVEL, they don't flicker. Ejecta tints by the
+// firing star's stage (the HUD's stage palette, mirrored as rgb).
+const CME_STAGE_TINTS: Record<string, [number, number, number]> = {
+  red_dwarf: [240, 118, 77],
+  red_giant: [255, 77, 58],
+  yellow: [255, 217, 77],
+  white: [238, 244, 255],
+  neutron: [143, 208, 255],
+  black_hole: [183, 154, 255],
+};
+const cmeHash = (seed: string, i: number): number => {
+  let h = (2166136261 ^ Math.imul(i + 1, 16777619)) >>> 0;
+  for (let k = 0; k < seed.length; k++) {
+    h ^= seed.charCodeAt(k);
+    h = Math.imul(h, 16777619);
+  }
+  h ^= h >>> 13;
+  h = Math.imul(h, 0x5bd1e995);
+  h ^= h >>> 15;
+  return (h >>> 0) / 4294967296;
+};
 
 // PER-TYPE SILHOUETTES (UI lane, Phase 3): every frame in the progression
 // table gets its own hull outline. Points are unit multiples of ship.size
@@ -247,6 +275,47 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
           ctx.closePath();
           ctx.fill();
           ctx.restore();
+        }
+        // ERUPTION SITE AGITATION (Adam, 2026-10-21): the surface BOILS
+        // where it will burst — plasma blobs jitter at the aim point
+        // (around the whole limb for a radial burst), swelling and
+        // whitening as the charge completes. The marching dashes keep
+        // the aim exact; this makes the star itself tell the story.
+        {
+          const agitSeed = s.ownerId || s.id;
+          const baseCol: [number, number, number] = isHome ? [51, 255, 51] : [244, 63, 94];
+          const flashes = 7;
+          for (let k = 0; k < flashes; k++) {
+            const tick = Math.floor(now / 110) + k * 17;
+            const jr = cmeHash(agitSeed, tick);
+            const jr2 = cmeHash(agitSeed, tick + 5000);
+            const jr3 = cmeHash(agitSeed, tick + 9000);
+            const ang = s.cmeAimAngle !== undefined
+              ? s.cmeAimAngle + (jr - 0.5) * 0.55
+              : (k / flashes) * Math.PI * 2 + (jr - 0.5) * 0.5;
+            const rr = s.size * (0.88 + 0.16 * jr2);
+            const blob = (1 + 3.4 * progress) * (0.55 + 0.8 * jr3);
+            const hot = 0.25 + 0.75 * progress;
+            const cr = Math.round(baseCol[0] + (255 - baseCol[0]) * hot);
+            const cg = Math.round(baseCol[1] + (246 - baseCol[1]) * hot);
+            const cb = Math.round(baseCol[2] + (230 - baseCol[2]) * hot);
+            ctx.fillStyle = `rgba(${cr}, ${cg}, ${cb}, ${0.3 + 0.5 * pulse * (0.4 + 0.6 * jr3)})`;
+            ctx.beginPath();
+            ctx.arc(Math.cos(ang) * rr, Math.sin(ang) * rr, blob, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          if (s.cmeAimAngle !== undefined) {
+            const hx = Math.cos(s.cmeAimAngle) * s.size * 0.96;
+            const hy = Math.sin(s.cmeAimAngle) * s.size * 0.96;
+            const hRad = s.size * (0.3 + 0.35 * progress);
+            const hg = ctx.createRadialGradient(hx, hy, 0, hx, hy, hRad);
+            hg.addColorStop(0, `rgba(255, 244, 224, ${0.3 + 0.5 * progress})`);
+            hg.addColorStop(1, 'rgba(255, 244, 224, 0)');
+            ctx.fillStyle = hg;
+            ctx.beginPath();
+            ctx.arc(hx, hy, hRad, 0, Math.PI * 2);
+            ctx.fill();
+          }
         }
         ctx.restore();
       }
@@ -545,39 +614,108 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
       ctx.restore();
     }
 
-    // CME WAVES: an expanding front that visibly fades as it dissipates —
-    // the alpha IS the falloff, so you can see how much teeth it has left.
-    // A bright hairline rides the exact front: its whiteness is the danger
-    // read. Directed arcs get end-cap dots so the wedge reads as a wedge,
-    // not a broken ring.
+    // CME WAVES — ERUPTIVE EJECTA (Adam, 2026-10-21): stellar matter
+    // bursting off the surface and escaping — plumes of plasma blobs and
+    // streamers along the cone (or a full corona for a radial burst),
+    // NOT an expanding force-field ring. Each streamer is matter ejected
+    // at fire time: a few leaders ride the exact front, the rest trail
+    // behind, stretching and cooling (white-hot → the star's stage tint
+    // → dark ember) as they go. The dissipation stays READABLE the same
+    // way the sim computes it: strength = 1 - distance / maxRange, and
+    // the matter itself thins — fewer, fainter streamers survive as the
+    // falloff falls, and nothing reaches past the front. Where the
+    // matter ends, safety starts.
     (state.cmes || []).forEach(w => {
       const frac = Math.max(0, 1 - w.radius / w.maxRange);
-      const col = w.owner === 'home' ? '51, 255, 51' : '244, 63, 94';
-      const a0 = w.dirAngle === null ? 0 : w.dirAngle - 0.6;
-      const a1 = w.dirAngle === null ? Math.PI * 2 : w.dirAngle + 0.6;
+      if (frac <= 0 || w.radius <= 0) return;
+      const star = (state.stars || []).find(st => st.ownerId === w.ownerId);
+      const stage = star ? stageStateForInfused(star.totalScrapInfused).stage : null;
+      const tint: [number, number, number] = (stage && CME_STAGE_TINTS[stage])
+        || (w.owner === 'home' ? [51, 255, 51] : [244, 63, 94]);
+      const radial = w.dirAngle === null;
+      const count = radial ? 46 : 30;
       ctx.save();
-      ctx.strokeStyle = `rgba(${col}, ${0.12 + 0.55 * frac})`;
-      ctx.lineWidth = 5;
-      ctx.beginPath();
-      ctx.arc(w.pos.x, w.pos.y, w.radius, a0, a1);
-      ctx.stroke();
-      ctx.strokeStyle = `rgba(${col}, ${0.25 + 0.45 * frac})`;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(w.pos.x, w.pos.y, Math.max(0, w.radius - 16), a0, a1);
-      ctx.stroke();
-      // Leading edge: bright hairline exactly at the front.
-      ctx.strokeStyle = `rgba(255, 255, 255, ${0.3 + 0.65 * frac})`;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(w.pos.x, w.pos.y, w.radius, a0, a1);
-      ctx.stroke();
-      if (w.dirAngle !== null) {
-        ctx.fillStyle = `rgba(255, 255, 255, ${0.35 + 0.55 * frac})`;
-        for (const ea of [a0, a1]) {
+      ctx.lineCap = 'round';
+      for (let i = 0; i < count; i++) {
+        const rA = cmeHash(w.id, i * 7);
+        const rS = cmeHash(w.id, i * 7 + 1);
+        const rW = cmeHash(w.id, i * 7 + 2);
+        const rL = cmeHash(w.id, i * 7 + 3);
+        const rKeep = cmeHash(w.id, i * 7 + 4);
+        const rBow = cmeHash(w.id, i * 7 + 5);
+        // Thinning: as the wave's strength falls, matter disperses —
+        // streamers wink out deterministically instead of fading as
+        // one sheet.
+        if (rKeep > 0.2 + 0.8 * frac) continue;
+        const ang = radial
+          ? (i / count) * Math.PI * 2 + (rA - 0.5) * 0.35
+          : (w.dirAngle as number) + (rA * 2 - 1) * PHYSICS.CME.CONE_RAD;
+        // Speed factor: most matter trails; ~1 in 10 blobs leads at
+        // the true front, so the front reads off the brightest heads.
+        const head = Math.max(6, w.radius * (0.45 + 0.55 * rS * rS));
+        const q = head / w.maxRange;               // cooling coordinate
+        const fHead = Math.max(0, 1 - q);          // strength right here
+        const len = Math.min(200, Math.max(12, head * (0.16 + 0.3 * rL)));
+        const tail = Math.max(2, head - len);
+        const width = (1.2 + 3.6 * rW) * (0.45 + 0.55 * fHead);
+        // Cooling: white-hot near the star, stage tint mid-flight,
+        // dark ember as it dies.
+        const hot = Math.max(0, 1 - q * 2.4);
+        const ember = Math.max(0, (q - 0.62) / 0.38);
+        const cool = 1 - 0.5 * ember;
+        const cr = Math.round((tint[0] + (255 - tint[0]) * hot) * cool);
+        const cg = Math.round((tint[1] + (246 - tint[1]) * hot) * cool);
+        const cb = Math.round((tint[2] + (230 - tint[2]) * hot) * cool);
+        const alpha = (0.1 + 0.5 * fHead) * (0.35 + 0.65 * frac);
+        const hx = w.pos.x + Math.cos(ang) * head;
+        const hy = w.pos.y + Math.sin(ang) * head;
+        const tx = w.pos.x + Math.cos(ang) * tail;
+        const ty = w.pos.y + Math.sin(ang) * tail;
+        // Plasma arcs bend: the midpoint bows off the radial line.
+        const bow = (rBow - 0.5) * len * 0.35;
+        const mx = (hx + tx) / 2 - Math.sin(ang) * bow;
+        const my = (hy + ty) / 2 + Math.cos(ang) * bow;
+        // Under-glow, then the bright core, then the blob head.
+        ctx.strokeStyle = `rgba(${cr}, ${cg}, ${cb}, ${alpha * 0.32})`;
+        ctx.lineWidth = width * 2.6;
+        ctx.beginPath();
+        ctx.moveTo(tx, ty);
+        ctx.quadraticCurveTo(mx, my, hx, hy);
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(${cr}, ${cg}, ${cb}, ${alpha})`;
+        ctx.lineWidth = width;
+        ctx.beginPath();
+        ctx.moveTo(tx, ty);
+        ctx.quadraticCurveTo(mx, my, hx, hy);
+        ctx.stroke();
+        ctx.fillStyle = `rgba(255, 246, 230, ${alpha * (0.2 + 0.6 * hot)})`;
+        ctx.beginPath();
+        ctx.arc(hx, hy, Math.max(0.6, width * 0.85), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // ERUPTION PLUME (early life): while the front is still near the
+      // star, thick tendrils reach off the surface toward it — the
+      // burst itself, before the matter separates into streamers. A
+      // directed burst fans from the eruption site; a radial burst
+      // crowns the whole limb.
+      if (star && w.radius < w.maxRange * 0.25) {
+        const baseFrac = 1 - w.radius / (w.maxRange * 0.25);
+        const tendrils = radial ? 14 : 9;
+        for (let k = 0; k < tendrils; k++) {
+          const rA = cmeHash(w.id + ':plume', k * 3);
+          const rL = cmeHash(w.id + ':plume', k * 3 + 1);
+          const rW = cmeHash(w.id + ':plume', k * 3 + 2);
+          const ang = radial
+            ? (k / tendrils) * Math.PI * 2 + (rA - 0.5) * 0.3
+            : (w.dirAngle as number) + (rA * 2 - 1) * 0.55;
+          const inner = star.size * 0.92;
+          const outer = Math.max(inner + 8, Math.min(w.radius * (0.75 + 0.3 * rL), star.size + (40 + 110 * rL) * baseFrac + w.radius * 0.3));
+          ctx.strokeStyle = `rgba(${tint[0]}, ${tint[1]}, ${tint[2]}, ${0.4 * baseFrac * (0.5 + 0.5 * rW)})`;
+          ctx.lineWidth = 2.5 + 3.5 * rW;
           ctx.beginPath();
-          ctx.arc(w.pos.x + Math.cos(ea) * w.radius, w.pos.y + Math.sin(ea) * w.radius, 2.5, 0, Math.PI * 2);
-          ctx.fill();
+          ctx.moveTo(w.pos.x + Math.cos(ang) * inner, w.pos.y + Math.sin(ang) * inner);
+          ctx.lineTo(w.pos.x + Math.cos(ang) * outer, w.pos.y + Math.sin(ang) * outer);
+          ctx.stroke();
         }
       }
       ctx.restore();
