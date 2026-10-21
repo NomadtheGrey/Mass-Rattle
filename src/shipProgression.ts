@@ -125,30 +125,30 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
     types: [
       SKIFF,
       {
-        name: 'SOWER',
+        name: 'MOLE', // The saboteur ladder (Adam, adopted 2026-10-21): MOLE / SKULKER / SABOTEUR / NAUTILUS — SOWER retired.
         hullStepCap: 3,
         trackCaps: { thrust: 5, handling: 5, vac: 4, fuel: 4, cargo: 4 },
         hardPoints: 1, autoGuns: 0, minesPerDrop: 2, dronesFielded: 1, cargoBonus: 0, vacBonus: 0,
       },
       {
-        name: 'TRAPPER',
+        name: 'SKULKER', // Saboteur ladder: TRAPPER retired (SKULKER is Adam's substitution for the proposed SLEEPER).
         hullStepCap: 5,
         // PEAK: cargo (+1 over baseline at T3).
         trackCaps: { thrust: 8, handling: 8, vac: 6, fuel: 7, cargo: 7 },
         hardPoints: 2, autoGuns: 0, minesPerDrop: 3, dronesFielded: 2, cargoBonus: 2, vacBonus: 10,
       },
       {
-        name: 'WIDOW',
+        name: 'SABOTEUR', // Saboteur ladder: WIDOW retired.
         hullStepCap: 8,
         // PEAK: cargo (+2 over baseline at T4).
         trackCaps: { thrust: 12, handling: 12, vac: 10, fuel: 10, cargo: 12 },
         hardPoints: 2, autoGuns: 0, minesPerDrop: 5, dronesFielded: 2, cargoBonus: 4, vacBonus: 20,
       },
       {
-        // T5 CROWN — NAME UNSETTLED (draft placeholder, Adam's pick
-        // pending): NAUTILUS leads the pool in the line's submarine
-        // register (Adam's ruling, 2026-10-21); QUAGMIRE / MINEFIELD
-        // / BLOCKADE / KRAKEN also stand. The STATS are drafted.
+        // T5 CROWN — NAUTILUS (Adam, adopted 2026-10-21): the
+        // submarine line's crown, and the ladder's fourth saboteur
+        // name (MOLE / SKULKER / SABOTEUR / NAUTILUS). The STATS
+        // are drafted.
         name: 'NAUTILUS',
         hullStepCap: 11,
         // PEAK: cargo (+3 over the T5 baseline).

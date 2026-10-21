@@ -23,7 +23,7 @@ import {
 } from '../sim/starStages';
 import { stepDrones } from '../sim/drones';
 import { stepMines, stepProjectiles } from '../sim/projectiles';
-import { isStealthShip, isVisibleTo, PERISCOPE_REVEAL_S, STAR_SYSTEMS_RESPECT_STEALTH } from '../sim/stealth';
+import { isStealthShip, isVisibleTo, PERISCOPE_REVEAL_S } from '../sim/stealth';
 import { stepCme } from '../sim/cme';
 import { computeStandings } from '../sim/standings';
 import { areHostile, areTeammates } from '../sim/teams';
@@ -2026,10 +2026,11 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
             let bd = Infinity;
             for (const os of simSeats) {
               if (!os.ship || !areHostile(simSeats, os.ownerId, s.ownerId)) continue;
-              // SUBMARINE: turrets do not engage what the star
-              // cannot see (src/sim/stealth.ts) — gated by the
-              // UNRULED star-systems switch, defaulting to respect.
-              if (STAR_SYSTEMS_RESPECT_STEALTH && !isVisibleTo(os.ship, s.pos)) continue;
+              // SUBMARINE (RULED, Adam, 2026-10-21): turrets
+              // respect the cloak like everything else — they do
+              // not engage what the star cannot see, the reveal
+              // geometry measured from the star (src/sim/stealth.ts).
+              if (!isVisibleTo(os.ship, s.pos)) continue;
               const dd = Math.hypot(os.ship.pos.x - s.pos.x, os.ship.pos.y - s.pos.y);
               if (dd < bd) { bd = dd; target = os.ship; }
             }

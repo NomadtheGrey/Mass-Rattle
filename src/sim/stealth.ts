@@ -33,12 +33,12 @@
  * tomorrow the offensive-bots item — bot drivers and seekers get
  * the same geometry then, RULED, not re-debated.
  *
- * STAR SYSTEMS (turret targeting, CME aim): do they respect the
- * cloak, measured from the STAR? — UNRULED. Dev recommended yes.
- * STAR_SYSTEMS_RESPECT_STEALTH carries the recommendation as its
- * default so the game plays the recommended way while the question
- * is open; Adam's word flips this one constant and both systems
- * follow. Do not "fix" either system's behavior around it.
+ * STAR SYSTEMS (turret targeting, CME aim) respect the cloak
+ * like everything else — RULED (Adam, 2026-10-21): acquisition
+ * reads the reveal geometry measured from the STAR. (The question
+ * rode a switchable default during its open hours; the ruling
+ * removed the switch rather than leaving a toggle on a settled
+ * question.)
  *
  * NUMBERS: DRAFT (Adam's pin pass pending). The anchors are the
  * design brief's ~500 invisible / ~150 solid, seated at T4 — the
@@ -77,12 +77,6 @@ export const STEALTH_BANDS: Record<TypeTier, StealthBand> = {
 
 /** Periscope moment: seconds firing/laying reveals a cloaked ship (RULED ~2 s). */
 export const PERISCOPE_REVEAL_S = 2.0;
-
-/**
- * UNRULED switch — see the header. Default = dev's recommendation
- * (star systems respect the cloak). Adam's ruling flips it.
- */
-export const STAR_SYSTEMS_RESPECT_STEALTH = true;
 
 /** A ship flies the submarine: minelayer line, T2 or deeper. */
 export const isStealthShip = (ship: Pick<Ship, 'line' | 'typeTier'>): boolean =>
