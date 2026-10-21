@@ -16,7 +16,10 @@
  *   (line === null): it is the unaligned SKIFF. The T2 purchase chooses
  *   the line; later type purchases climb within it. switchLine moves a
  *   T2+ ship sideways for a toll.
- * - TYPE TIER: 1..4 within the line. T1 is the SKIFF for every line.
+ * - TYPE TIER: 1..5 within the line. T1 is the SKIFF for every line;
+ *   T5 is the line's CROWN (added 2026-10-21 — see the crown notes
+ *   in the table: names are Adam's adoptions, two crown names are
+ *   still UNSETTLED drafts, and every crown number is DRAFT).
  * - HULL STEPS: the grind inside a type; each step is +2 size, +10 max
  *   health. A type's hullStepCap says how far the hull may grow before
  *   the next size step REQUIRES a bigger type (Adam's two-ladder rule).
@@ -28,7 +31,7 @@
  */
 
 export type ShipLine = 'fighter' | 'minelayer' | 'hauler' | 'drone' | 'cruiser';
-export type TypeTier = 1 | 2 | 3 | 4;
+export type TypeTier = 1 | 2 | 3 | 4 | 5;
 
 export interface TrackCaps {
   thrust: number;
@@ -62,10 +65,10 @@ export interface ShipTypeDef {
 }
 
 export interface ShipLineDef {
-  /** Step prices to climb INTO T2 / T3 / T4 (Table 1a, DRAFT). */
-  stepPrices: [number, number, number];
-  /** Index 0..3 = T1..T4. Index 0 is the shared SKIFF for every line. */
-  types: [ShipTypeDef, ShipTypeDef, ShipTypeDef, ShipTypeDef];
+  /** Step prices to climb INTO T2 / T3 / T4 / T5 (Table 1a, DRAFT). */
+  stepPrices: [number, number, number, number];
+  /** Index 0..4 = T1..T5. Index 0 is the shared SKIFF for every line. */
+  types: [ShipTypeDef, ShipTypeDef, ShipTypeDef, ShipTypeDef, ShipTypeDef];
 }
 
 // The SKIFF: every line's T1, and the whole ship when line === null.
@@ -84,7 +87,7 @@ const SKIFF: ShipTypeDef = {
 
 export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
   fighter: {
-    stepPrices: [150, 400, 900],
+    stepPrices: [150, 400, 900, 1450],
     types: [
       SKIFF,
       {
@@ -107,10 +110,18 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         trackCaps: { thrust: 14, handling: 14, vac: 10, fuel: 10, cargo: 10 },
         hardPoints: 4, autoGuns: 0, minesPerDrop: 2, dronesFielded: 2, cargoBonus: 2, vacBonus: 20,
       },
+      {
+        // T5 CROWN — WARMONGER (Adam, adopted 2026-10-21).
+        name: 'WARMONGER',
+        hullStepCap: 11,
+        // PEAK: thrust + handling (+3 over the T5 baseline).
+        trackCaps: { thrust: 19, handling: 19, vac: 13, fuel: 13, cargo: 13 },
+        hardPoints: 5, autoGuns: 0, minesPerDrop: 2, dronesFielded: 3, cargoBonus: 2, vacBonus: 30,
+      },
     ],
   },
   minelayer: {
-    stepPrices: [150, 400, 900],
+    stepPrices: [150, 400, 900, 1450],
     types: [
       SKIFF,
       {
@@ -133,10 +144,21 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         trackCaps: { thrust: 12, handling: 12, vac: 10, fuel: 10, cargo: 12 },
         hardPoints: 2, autoGuns: 0, minesPerDrop: 5, dronesFielded: 2, cargoBonus: 4, vacBonus: 20,
       },
+      {
+        // T5 CROWN — NAME UNSETTLED (draft placeholder, Adam's pick
+        // pending): NAUTILUS leads the pool in the line's submarine
+        // register (Adam's ruling, 2026-10-21); QUAGMIRE / MINEFIELD
+        // / BLOCKADE / KRAKEN also stand. The STATS are drafted.
+        name: 'NAUTILUS',
+        hullStepCap: 11,
+        // PEAK: cargo (+3 over the T5 baseline).
+        trackCaps: { thrust: 16, handling: 16, vac: 13, fuel: 13, cargo: 16 },
+        hardPoints: 2, autoGuns: 0, minesPerDrop: 7, dronesFielded: 3, cargoBonus: 6, vacBonus: 30,
+      },
     ],
   },
   hauler: {
-    stepPrices: [160, 440, 1000],
+    stepPrices: [160, 440, 1000, 1600],
     types: [
       SKIFF,
       {
@@ -146,7 +168,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hardPoints: 1, autoGuns: 0, minesPerDrop: 1, dronesFielded: 1, cargoBonus: 4, vacBonus: 20,
       },
       {
-        name: 'PACKHORSE',
+        name: 'MAMMOTH', // Renamed from PACKHORSE (Adam, adopted 2026-10-21).
         hullStepCap: 5,
         // PEAK: vac + cargo (+1 over baseline at T3).
         trackCaps: { thrust: 8, handling: 8, vac: 7, fuel: 7, cargo: 7 },
@@ -159,10 +181,20 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         trackCaps: { thrust: 12, handling: 12, vac: 12, fuel: 10, cargo: 12 },
         hardPoints: 2, autoGuns: 0, minesPerDrop: 2, dronesFielded: 2, cargoBonus: 12, vacBonus: 60,
       },
+      {
+        // T5 CROWN — NAME UNSETTLED (draft placeholder, Adam's pick
+        // pending): BEHEMOTH (the beast register completes Mule /
+        // Mammoth / Leviathan) vs ATLAS — both liked by Adam.
+        name: 'BEHEMOTH',
+        hullStepCap: 12,
+        // PEAK: vac + cargo (+3 over the T5 baseline).
+        trackCaps: { thrust: 16, handling: 16, vac: 16, fuel: 13, cargo: 16 },
+        hardPoints: 2, autoGuns: 0, minesPerDrop: 2, dronesFielded: 3, cargoBonus: 16, vacBonus: 80,
+      },
     ],
   },
   drone: {
-    stepPrices: [190, 500, 1125],
+    stepPrices: [190, 500, 1125, 1700],
     types: [
       SKIFF,
       {
@@ -185,10 +217,18 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         trackCaps: { thrust: 12, handling: 12, vac: 10, fuel: 12, cargo: 10 },
         hardPoints: 2, autoGuns: 0, minesPerDrop: 2, dronesFielded: 5, cargoBonus: 4, vacBonus: 30,
       },
+      {
+        // T5 CROWN — MOTHERSHIP (Adam, adopted 2026-10-21).
+        name: 'MOTHERSHIP',
+        hullStepCap: 11,
+        // PEAK: fuel (+3 over the T5 baseline).
+        trackCaps: { thrust: 16, handling: 16, vac: 13, fuel: 16, cargo: 13 },
+        hardPoints: 2, autoGuns: 0, minesPerDrop: 2, dronesFielded: 7, cargoBonus: 6, vacBonus: 40,
+      },
     ],
   },
   cruiser: {
-    stepPrices: [200, 600, 1800],
+    stepPrices: [200, 600, 1800, 2600],
     types: [
       SKIFF,
       {
@@ -200,18 +240,34 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hardPoints: 1, autoGuns: 1, minesPerDrop: 2, dronesFielded: 1, cargoBonus: 2, vacBonus: 0,
       },
       {
-        name: 'BATTLESTAR',
-        hullStepCap: 6, // Cruiser T3 peaks hull steps.
+        // T3 VANGUARD — the interpolated rung (Adam, adopted
+        // 2026-10-21): the ladder's NAMES moved up a tier; the
+        // STATS stayed in their slots, so this slot keeps the old
+        // T3 (Battlestar) numbers under the Vanguard name.
+        name: 'VANGUARD',
+        hullStepCap: 6,
         // Handling -1; fuel +1 (T3/T4).
         trackCaps: { thrust: 8, handling: 7, vac: 6, fuel: 8, cargo: 6 },
         hardPoints: 1, autoGuns: 2, minesPerDrop: 2, dronesFielded: 2, cargoBonus: 4, vacBonus: 10,
       },
       {
-        name: 'DREADNOUGHT',
-        hullStepCap: 10, // The biggest hull in the game: max size 35.
+        // T4 BATTLESTAR — the old T4 (Dreadnought) numbers under
+        // the Battlestar name (see the Vanguard note above).
+        name: 'BATTLESTAR',
+        hullStepCap: 10, // Max size 35.
         // Handling -1; fuel +1 (T3/T4).
         trackCaps: { thrust: 12, handling: 11, vac: 10, fuel: 11, cargo: 10 },
         hardPoints: 1, autoGuns: 4, minesPerDrop: 3, dronesFielded: 3, cargoBonus: 6, vacBonus: 20,
+      },
+      {
+        // T5 CROWN — DREADNOUGHT (Adam, FINAL 2026-10-21: the name
+        // belongs to the cruiser line; the biggest hull in the
+        // game, past the Battlestar's 35: max size 41).
+        name: 'DREADNOUGHT',
+        hullStepCap: 13,
+        // Handling -1; fuel +1.
+        trackCaps: { thrust: 16, handling: 15, vac: 13, fuel: 14, cargo: 13 },
+        hardPoints: 1, autoGuns: 6, minesPerDrop: 3, dronesFielded: 4, cargoBonus: 8, vacBonus: 30,
       },
     ],
   },
@@ -247,7 +303,8 @@ export const HULL_STEP_HEALTH = 10;
  * Line-switching toll (DRAFT curve, Adam: "free at first, costlier as
  * progression goes"): your FIRST switch ever is free at any tier; after
  * that the toll is set by the tier of the ship you're leaving.
- * T1 = 0 (no line to leave), T2 = 40, T3 = 120, T4 = 300.
+ * T1 = 0 (no line to leave), T2 = 40, T3 = 120, T4 = 300,
+ * T5 = 500 (DRAFT extension of the same curve).
  */
 export const switchToll = (s: { lineSwitchesUsed: number; typeTier: TypeTier }): number => {
   if (s.lineSwitchesUsed <= 0) return 0;
@@ -255,6 +312,7 @@ export const switchToll = (s: { lineSwitchesUsed: number; typeTier: TypeTier }):
     case 2: return 40;
     case 3: return 120;
     case 4: return 300;
+    case 5: return 500;
     default: return 0;
   }
 };

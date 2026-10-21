@@ -454,7 +454,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   const buyType = useCallback((line?: ShipLine) => {
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // types are bought at home
-      if (prev.ship.typeTier >= 4) return prev; // top of the ladder
+      if (prev.ship.typeTier >= 5) return prev; // top of the ladder (T5 crowns, 2026-10-21)
       // From the SKIFF (T1) the purchase CHOOSES the line; from T2 up it
       // climbs within the line the ship already flies.
       const targetLine = prev.ship.typeTier === 1 ? line : prev.ship.line;
