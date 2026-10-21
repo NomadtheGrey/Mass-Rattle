@@ -19,8 +19,8 @@ import { generateUniqueRoomName } from '../../net/roomNames';
  */
 
 export interface LobbyCallbacks {
-  onCreate: (name: string, starCount: 2 | 3 | 4, isPrivate: boolean, callsign: string) => void;
-  onJoin: (code: string, callsign: string) => void;
+  onCreate: (name: string, starCount: 2 | 3 | 4, isPrivate: boolean, callsign: string, callsignPassword?: string) => void;
+  onJoin: (code: string, callsign: string, callsignPassword?: string) => void;
   onStart: () => void;
   /** STEP AWAY: plain leave — the seat parks in grace, a bot flies
    *  it, reclaimable all match. */
@@ -137,6 +137,14 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   reclaimedOwnerId = null, notice = null, callbacks,
 }) => {
   const [callsign, setCallsign] = React.useState(defaultCallsign);
+  // RESERVED-NAME CLAIM (Adam, 2026-10-21): the callsign 'Nomad' is
+  // reserved and claimed with a PASSWORD. The password box exists
+  // only while the typed name is the reserved one — no friction for
+  // anyone else. The word is never stored: it lives in this state,
+  // rides the create/join call into the session's memory-only ref,
+  // and typing a different name clears it.
+  const [callsignPassword, setCallsignPassword] = React.useState('');
+  const asksReserved = callsign.trim().toLowerCase() === 'nomad';
   const [roomName, setRoomName] = React.useState('');
   const [starCount, setStarCount] = React.useState<2 | 3 | 4>(2);
   const [isPrivate, setIsPrivate] = React.useState(false);
@@ -234,6 +242,13 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   if (room) {
     const iAmHost = myPlayerId !== null && room.hostPlayerId === myPlayerId;
     const mySeat = room.seats.find(seat => seat.occupant.playerId !== null && seat.occupant.playerId === myPlayerId) ?? null;
+    // RESERVED-NAME OUTCOME: I asked for the reserved name and the
+    // seat came back suffixed — a suffixed seat is the only feedback
+    // the claim ever gives (no error, by design), so the room says
+    // it plainly and offers the claim again right here.
+    const issuedCallsign = mySeat?.occupant.callsign ?? null;
+    const reservedSuffixed = asksReserved && issuedCallsign !== null && issuedCallsign.toLowerCase() !== 'nomad';
+    const claimTried = callsignPassword.trim() !== '';
     return (
       <div className="fixed inset-0 z-[100] overflow-y-auto glass-modal text-[#33ff33] flex justify-center p-3 sm:p-6">
       {closeButton}
@@ -256,6 +271,33 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
           {notice && (
             <div className="hud-panel px-3 py-2 rounded border-2 border-amber-500 bg-amber-950/30 text-center">
               <span className="text-[11px] font-mono font-bold text-amber-300">{notice}</span>
+            </div>
+          )}
+
+          {reservedSuffixed && (
+            <div className="hud-panel px-3 py-3 rounded border-2 border-amber-500 bg-amber-950/30 flex flex-col gap-2">
+              <span className="text-[11px] font-mono font-bold text-amber-300 text-center leading-snug">
+                {claimTried ? "THAT PASSWORD DIDN'T CLAIM THE NAME" : 'THE NAME NOMAD IS RESERVED'} — YOU FLY AS {issuedCallsign}
+              </span>
+              <div className="flex gap-1.5">
+                <input
+                  type="password"
+                  value={callsignPassword}
+                  onChange={e => setCallsignPassword(e.target.value)}
+                  maxLength={64}
+                  placeholder="ITS PASSWORD"
+                  autoComplete="off"
+                  className="flex-1 min-w-0 rounded px-3 py-2 bg-zinc-900 border border-amber-700 font-mono text-sm text-zinc-50 placeholder:text-zinc-600 outline-none focus:border-amber-400"
+                />
+                <button
+                  type="button"
+                  onClick={() => callbacks.onJoin(room.code, callsign.trim(), callsignPassword || undefined)}
+                  className="cta-go shrink-0 px-4 py-2 rounded font-bold text-xs tracking-widest touch-manipulation active:scale-95"
+                >
+                  CLAIM IT
+                </button>
+              </div>
+              <span className="text-[9px] font-mono text-zinc-500 leading-snug text-center">Claims are timed — if a try just missed, wait a few seconds before trying again.</span>
             </div>
           )}
 
@@ -382,12 +424,28 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
           <span className="text-[9px] font-mono tracking-[0.25em] text-zinc-500">YOUR CALLSIGN</span>
           <input
             value={callsign}
-            onChange={e => setCallsign(e.target.value)}
+            onChange={e => { setCallsign(e.target.value); if (e.target.value.trim().toLowerCase() !== 'nomad') setCallsignPassword(''); }}
             maxLength={16}
             placeholder="e.g. NOMAD"
             className="hud-panel rounded px-3 py-2.5 bg-zinc-900 border border-zinc-700 font-mono text-sm text-zinc-50 placeholder:text-zinc-600 outline-none focus:border-[#33ff33]"
           />
         </label>
+
+        {asksReserved && (
+          <label className="flex flex-col gap-1">
+            <span className="text-[9px] font-mono tracking-[0.25em] text-amber-400">NOMAD IS RESERVED — ITS PASSWORD</span>
+            <input
+              type="password"
+              value={callsignPassword}
+              onChange={e => setCallsignPassword(e.target.value)}
+              maxLength={64}
+              placeholder="PASSWORD"
+              autoComplete="off"
+              className="hud-panel rounded px-3 py-2.5 bg-zinc-900 border border-amber-700 font-mono text-sm text-zinc-50 placeholder:text-zinc-600 outline-none focus:border-amber-400"
+            />
+            <span className="text-[9px] font-mono text-zinc-600 leading-snug">With its password, the name is yours plain. Without it — or with a wrong one — you fly as Nomad-2. No fuss either way.</span>
+          </label>
+        )}
 
         <div className="hud-panel p-3 sm:p-4 rounded border-2 border-zinc-800 flex flex-col gap-3">
           <div className="text-[10px] font-mono font-bold tracking-[0.25em] text-zinc-400">CREATE A ROOM</div>
@@ -438,7 +496,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             </span>
           </button>
           <button
-            onClick={() => callbacks.onCreate(roomName.trim(), starCount, isPrivate, callsign.trim())}
+            onClick={() => callbacks.onCreate(roomName.trim(), starCount, isPrivate, callsign.trim(), asksReserved && callsignPassword ? callsignPassword : undefined)}
             disabled={busy || !callsignOk}
             className={`w-full py-3 rounded font-bold text-sm tracking-widest touch-manipulation active:scale-[0.98] ${
               busy || !callsignOk ? 'cta-wait' : 'cta-go'
@@ -459,7 +517,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             className="rounded px-3 py-2.5 bg-zinc-900 border border-zinc-700 font-mono text-xl font-bold tracking-[0.4em] text-center text-zinc-50 placeholder:text-zinc-700 outline-none focus:border-[#33ff33]"
           />
           <button
-            onClick={() => callbacks.onJoin(joinCode, callsign.trim())}
+            onClick={() => callbacks.onJoin(joinCode, callsign.trim(), asksReserved && callsignPassword ? callsignPassword : undefined)}
             disabled={busy || !callsignOk || joinCode.length < 6}
             className={`w-full py-3 rounded font-bold text-sm tracking-widest touch-manipulation active:scale-[0.98] ${
               busy || !callsignOk || joinCode.length < 6
