@@ -283,6 +283,20 @@ export const HUD: React.FC<HUDProps> = ({
   const [showGuide, setShowGuide] = React.useState(false);
   // Workshop tabs: the five base ship tracks, then the Arsenal categories.
   const [shopTab, setShopTab] = React.useState<'ship' | 'bank' | ArsenalCategory>('ship');
+  // SHIP FRAME DOOR + WORKSHOP NOTICE (Adam live-test, 2026-10-21):
+  // the progression panel's header was a display div wearing the
+  // game's button material — a decoy — and every buy button in this
+  // tab refused silently while disabled. The header is now a real
+  // button opening the frame choices, and a click that can't afford
+  // (or is capped) says why in a notice line atop the tab.
+  const [frameOpen, setFrameOpen] = React.useState(true);
+  const [shopNotice, setShopNotice] = React.useState<string | null>(null);
+  const shopNoticeTimer = React.useRef<number | null>(null);
+  const flashShopNotice = (msg: string) => {
+    setShopNotice(msg);
+    if (shopNoticeTimer.current) window.clearTimeout(shopNoticeTimer.current);
+    shopNoticeTimer.current = window.setTimeout(() => setShopNotice(null), 2800);
+  };
   const [localRadarOpen, setLocalRadarOpen] = React.useState(false);
 
   const radarActive = isMobileRadarOpen || localRadarOpen;
@@ -1249,17 +1263,22 @@ export const HUD: React.FC<HUDProps> = ({
               {/* Upgrades List (Scrollable on small mobile screens) */}
               {shopTab === 'ship' && (
               <div className="flex flex-col gap-3 overflow-y-auto pr-1 max-h-[60vh] scrollbar-thin">
+              {shopNotice && (
+                <div className="text-[10px] sm:text-[11px] font-mono font-bold text-amber-300 border border-amber-700 bg-amber-950/40 rounded px-2 py-1.5">{shopNotice}</div>
+              )}
               {/* PROGRESSION FACES (Phase 3): the TYPE ladder, the line
                   switch with its toll, the HULL ladder, and drone builds —
                   the faces for BackGround's progression core. Every number
                   reads from src/shipProgression.ts; the shop only opens in
                   the well, and the loop re-gates each action there. */}
               <div className="pitted-metal p-3 sm:p-4 rounded-lg border border-zinc-700 flex flex-col gap-3">
-                <div className="flex justify-between items-center gap-2 flex-wrap">
-                  <span className="text-xs sm:text-sm font-bold uppercase text-[#33ff33]">🛸 {progType.name}{shipLine ? ` · ${shipLine.toUpperCase()} LINE · T${typeTier}` : ' · UNALIGNED'}</span>
+                <button type="button" onClick={() => setFrameOpen(o => !o)} aria-expanded={frameOpen}
+                  className="flex justify-between items-center gap-2 flex-wrap w-full text-left touch-manipulation active:scale-[0.99]">
+                  <span className="text-xs sm:text-sm font-bold uppercase text-[#33ff33]">🛸 SHIP FRAME — {progType.name}{shipLine ? ` · ${shipLine.toUpperCase()} LINE · T${typeTier}` : ' · UNALIGNED'} {frameOpen ? '▾' : '▸ CHOOSE'}</span>
                   <span className="text-[9px] sm:text-[10px] font-mono text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded">SIZE {hullSizeFor(hullSteps)} · HULL {hullSteps}/{progType.hullStepCap}</span>
-                </div>
+                </button>
                 <p className="text-[9px] sm:text-[10px] text-zinc-400 leading-tight">{capSummary(progType)} — the special is built into the frame's price, never sold separately.</p>
+                {frameOpen && (<>
 
                 {typeTier < 4 && shipLine === null && (
                   <div className="flex flex-col gap-1.5">
@@ -1269,7 +1288,7 @@ export const HUD: React.FC<HUDProps> = ({
                       const price = typeStepPrice(ln, 1);
                       const afford = funds >= price;
                       return (
-                        <button key={ln} onClick={() => onBuyType(ln)} disabled={!afford}
+                        <button key={ln} onClick={() => afford ? onBuyType(ln) : flashShopNotice(`NOT ENOUGH SCRAP — ${ln.toUpperCase()} → ${t2.name} COSTS ${price}U · YOU HAVE ${funds}U`)}
                           className={`pitted-metal px-3 py-2 rounded flex items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
                           <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">{ln} → {t2.name}</span>
                           <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(t2)}</span>
@@ -1285,7 +1304,7 @@ export const HUD: React.FC<HUDProps> = ({
                   const price = typeStepPrice(shipLine, typeTier);
                   const afford = funds >= price;
                   return (
-                    <button onClick={() => onBuyType()} disabled={!afford}
+                    <button onClick={() => afford ? onBuyType() : flashShopNotice(`NOT ENOUGH SCRAP — CLIMB TO ${next.name} COSTS ${price}U · YOU HAVE ${funds}U`)}
                       className={`pitted-metal px-3 py-2 rounded flex items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
                       <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">⬆ CLIMB → {next.name} (T{typeTier + 1})</span>
                       <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(next)} · HULL CAP {next.hullStepCap}</span>
@@ -1305,7 +1324,7 @@ export const HUD: React.FC<HUDProps> = ({
                       {(Object.keys(SHIP_LINES) as ShipLine[]).filter(ln => ln !== shipLine).map(ln => {
                         const afford = funds >= switchCost;
                         return (
-                          <button key={ln} onClick={() => onSwitchLine(ln)} disabled={!afford}
+                          <button key={ln} onClick={() => afford ? onSwitchLine(ln) : flashShopNotice(`NOT ENOUGH SCRAP — THE SWITCH TOLL IS ${switchCost}U · YOU HAVE ${funds}U`)}
                             className={`flex-1 min-w-[86px] px-2 py-1.5 rounded text-[9px] sm:text-[10px] font-mono font-bold border touch-manipulation active:scale-95 ${afford ? 'bg-zinc-900 text-zinc-200 border-zinc-600' : 'bg-zinc-900 text-zinc-500 border-zinc-800 cursor-not-allowed'}`}>
                             ⇄ {ln.toUpperCase()} · {switchCost === 0 ? 'FREE' : `${switchCost}U`}
                           </button>
@@ -1317,7 +1336,7 @@ export const HUD: React.FC<HUDProps> = ({
 
                 <div className="flex gap-2 flex-wrap">
                   {hullSteps < progType.hullStepCap ? (
-                    <button onClick={onBuyHullStep} disabled={funds < hullStepPrice(hullSteps)}
+                    <button onClick={() => funds >= hullStepPrice(hullSteps) ? onBuyHullStep() : flashShopNotice(`NOT ENOUGH SCRAP — HULL STEP ${hullSteps + 1} COSTS ${hullStepPrice(hullSteps)}U · YOU HAVE ${funds}U`)}
                       className={`flex-1 min-w-[150px] pitted-metal px-3 py-2 rounded text-left touch-manipulation active:scale-[0.98] ${funds >= hullStepPrice(hullSteps) ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
                       <div className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🔩 GROW HULL — STEP {hullSteps + 1}/{progType.hullStepCap}</div>
                       <div className="text-[8px] sm:text-[9px] font-mono text-zinc-400">SIZE {hullSizeFor(hullSteps)} → {hullSizeFor(hullSteps + 1)} · +{HULL_STEP_HEALTH} MAX HULL · <span className="text-pink-400 font-bold">{hullStepPrice(hullSteps)}U</span></div>
@@ -1328,12 +1347,13 @@ export const HUD: React.FC<HUDProps> = ({
                       <div className="text-[8px] sm:text-[9px] font-mono text-zinc-400">A BIGGER TYPE RAISES THE CAP — CLIMB OR SWITCH LINES</div>
                     </div>
                   )}
-                  <button onClick={onBuildDrone} disabled={playerDrones >= progType.dronesFielded || funds < DRONE_PRICE}
+                  <button onClick={() => playerDrones >= progType.dronesFielded ? flashShopNotice(`DRONE COMPLEMENT FULL — ${progType.dronesFielded} FIELDED ON THIS FRAME`) : funds >= DRONE_PRICE ? onBuildDrone() : flashShopNotice(`NOT ENOUGH SCRAP — A DRONE COSTS ${DRONE_PRICE}U · YOU HAVE ${funds}U`)}
                     className={`flex-1 min-w-[150px] pitted-metal px-3 py-2 rounded text-left touch-manipulation active:scale-[0.98] ${playerDrones < progType.dronesFielded && funds >= DRONE_PRICE ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
                     <div className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🤖 BUILD DRONE — {playerDrones}/{progType.dronesFielded} FIELDED</div>
                     <div className="text-[8px] sm:text-[9px] font-mono text-zinc-400">HARVESTER DRONE, REPLACES LOSSES · <span className="text-pink-400 font-bold">{DRONE_PRICE}U</span></div>
                   </button>
                 </div>
+                </>)}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
@@ -1350,8 +1370,7 @@ export const HUD: React.FC<HUDProps> = ({
                   return (
                     <button 
                       key={u.type}
-                      onClick={() => onUpgrade(u.type)}
-                      disabled={!canAfford}
+                      onClick={() => maxed ? flashShopNotice(`${u.label.toUpperCase()} IS MAXED ON THIS FRAME — LVL ${u.cap} IS ITS CAP`) : canAfford ? onUpgrade(u.type) : flashShopNotice(`NOT ENOUGH SCRAP — ${u.label.toUpperCase()} LVL ${u.lvl + 1} COSTS ${cost}U · YOU HAVE ${funds}U`)}
                       className={`pitted-metal p-3 sm:p-4 flex flex-col gap-1.5 sm:gap-2 relative transition-all text-left rounded-lg touch-manipulation ${
                         canAfford ? 'hover:bg-zinc-900 border-zinc-700 active:scale-[0.98]' : 'border-zinc-800 grayscale cursor-not-allowed text-zinc-500'
                       }`}
