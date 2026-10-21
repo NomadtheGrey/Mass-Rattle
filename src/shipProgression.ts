@@ -120,7 +120,11 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
       {
         name: 'WARFANG',
         turnFactor: 1.2,
-        hullStepCap: 8,
+        // GLASS CANNON (Arsenal slice 1, 2026-10-21): hull cap cut
+        // 8 -> 7 — the fighter ladder (3/5/7/9) is the LIGHTEST in
+        // the table, tier for tier. The whole arsenal rides on the
+        // thinnest hull. DRAFT for Adam's pin pass.
+        hullStepCap: 7,
         // PEAK: thrust + handling (+2 over baseline at T4).
         trackCaps: { thrust: 14, handling: 14, vac: 10, fuel: 10, cargo: 10 },
         hardPoints: 4, autoGuns: 0, minesPerDrop: 2, dronesFielded: 2, cargoBonus: 2, vacBonus: 20,
@@ -129,7 +133,9 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         // T5 CROWN — WARMONGER (Adam, adopted 2026-10-21).
         name: 'WARMONGER',
         turnFactor: 1.15,
-        hullStepCap: 11,
+        // GLASS CANNON (Arsenal slice 1, 2026-10-21): hull cap cut
+        // 11 -> 9 (see WARFANG) — lightest ladder in the table.
+        hullStepCap: 9,
         // PEAK: thrust + handling (+3 over the T5 baseline).
         trackCaps: { thrust: 19, handling: 19, vac: 13, fuel: 13, cargo: 13 },
         hardPoints: 5, autoGuns: 0, minesPerDrop: 2, dronesFielded: 3, cargoBonus: 2, vacBonus: 30,

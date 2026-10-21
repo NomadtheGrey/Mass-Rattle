@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { GameState, SeatSimState, Star, Vector2D, Ship, Scrap } from '../types';
 import { PHYSICS, COLORS } from '../constants';
-import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER } from '../loadout';
+import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, canMountWeapon } from '../loadout';
 import { inBankWell } from '../bank';
 import { infuseStar, milestonesForInfused } from '../starGrowth';
 import { ownerIdForSeat, starIdForSeat } from '../sim/ownership';
@@ -332,6 +332,12 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     setState(prev => {
       const owned = prev.ship.arsenal[itemId] || 0;
       if (owned >= MAX_ITEM_TIER) return prev;
+      // MOUNT ACCESS (Arsenal slice 1): a weapon the current
+      // line/tier cannot mount cannot be BOUGHT either — ownership
+      // follows mounting (src/loadout.ts MOUNT_ACCESS). Defenses
+      // and hybrids are never gated. Silent refusal, like every
+      // other gated purchase in this file.
+      if (!canMountWeapon(prev.ship.line, prev.ship.typeTier, itemId)) return prev;
       const cost = itemTierCost(def, owned);
       const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost, inTeamWell(prev.seats, prev.ship));
       if (!payment) return prev;
@@ -355,6 +361,10 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     setState(prev => {
       const owned = prev.ship.arsenal[itemId] || 0;
       if (owned <= 0) return prev; // cannot equip what you do not own
+      // MOUNT ACCESS (Arsenal slice 1): nor equip a weapon the
+      // current line/tier cannot mount (e.g. after a line switch
+      // into a light-only hull). Same silent refusal as the buy.
+      if (!canMountWeapon(prev.ship.line, prev.ship.typeTier, itemId)) return prev;
       const slot = def.category;
       const current = prev.ship.loadout[slot];
       if (current === itemId) return prev; // already equipped
@@ -875,6 +885,14 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // TEXT-FIELD SEAL (chat surface, 2026-10-21): while the player
+      // is typing — the chat composer, the lobby's fields — a
+      // keystroke is text, not flight: it never enters the held-keys
+      // set and no hotkey fires. KeyUP is deliberately NOT sealed:
+      // releasing a key over a field must still clear it from the
+      // set, or a key held while clicking into the composer sticks.
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       keys.current.add(e.code);
       
       // Upgrade Hotkeys

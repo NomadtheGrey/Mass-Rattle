@@ -142,6 +142,29 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
   // world wrap firing — remember when it happened so the rim can flash.
   const prevShipPosRef = useRef<{ x: number; y: number } | null>(null);
   const wrapFlashAtRef = useRef(0);
+  // HIT FLASH (Adam, 2026-10-21, live test of the painted fleet):
+  // the green edge is hit feedback, not furniture — a painted hull
+  // wears NO outline at rest, and the edge appears only for a beat
+  // when the ship takes a hit. The canvas watches each ship's health
+  // itself: a drop stamps a flash. Presentation-only — no sim field,
+  // no wire change; a health drop reads identically on host, guest,
+  // local hull and remote hull.
+  const prevHealthRef = useRef<Map<string, number>>(new Map());
+  const hitFlashAtRef = useRef<Map<string, number>>(new Map());
+  const noteHealth = (ownerId: string, health: number) => {
+    const prev = prevHealthRef.current.get(ownerId);
+    if (prev !== undefined && health < prev) {
+      hitFlashAtRef.current.set(ownerId, performance.now());
+    }
+    prevHealthRef.current.set(ownerId, health);
+  };
+  // 1 at the hit, fading to 0 over the flash window; 0 at rest.
+  const hitFlashFor = (ownerId: string): number => {
+    const at = hitFlashAtRef.current.get(ownerId);
+    if (at === undefined) return 0;
+    const age = performance.now() - at;
+    return age < 260 ? 1 - age / 260 : 0;
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -242,31 +265,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
             ctx.stroke();
           }
         }
-
-      // Turret Hubs — read straight from state (Phase 1c): star.turrets
-      // is the ladder's list ({shell, angle, tier} per turret, a pure
-      // function of milestone count — see starDefense.ts). Angles are
-      // ABSOLUTE: the sim fires from pos + angle x turretRingRadius, so
-      // the hubs sit exactly where the bolts come from. (The old draw
-      // rotated the ring by starOrbit and showed one hub — the hubs
-      // appeared to orbit while the sim fired from fixed angles.)
-      // Hub box grows a little per tier, matching its fire stats.
-      (s.turrets || []).forEach(t => {
-        const ring = turretRingRadius(s.size, t.shell);
-        const hub = 9 + Math.min(t.tier, 4);
-        ctx.save();
-        ctx.rotate(t.angle);
-        ctx.translate(ring, 0);
-        ctx.fillStyle = isHome ? '#1a1a1c' : '#300';
-        ctx.strokeStyle = isHome ? COLORS.CRT_GLOW : '#f43f5e';
-        ctx.lineWidth = 1;
-        ctx.fillRect(-hub / 2, -hub / 2, hub, hub);
-        ctx.strokeRect(-hub / 2, -hub / 2, hub, hub);
-        // Barrel
-        ctx.fillRect(hub / 2, -2, 8, 4);
-        ctx.strokeRect(hub / 2, -2, 8, 4);
-        ctx.restore();
-      });
 
       // BANK WELL (home star only): the gravity-well ring that IS the bank,
       // plus one orbiting mote per banked scrap (capped for readability) so
@@ -404,7 +402,56 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       ctx.fillStyle = isHome ? '#33ff33' : '#f43f5e';
       ctx.font = '10px monospace';
       ctx.fillText(isHome ? 'SYS: HOME_STAR_CORE' : 'SYS: ENEMY_STAR_CORE', -30, -s.size - 20);
-      
+
+      // Turret Hubs — read straight from state (Phase 1c): star.turrets
+      // is the ladder's list ({shell, angle, tier} per turret, a pure
+      // function of milestone count — see starDefense.ts). Angles are
+      // ABSOLUTE: the sim fires from pos + angle x turretRingRadius, so
+      // the hubs sit exactly where the bolts come from. (The old draw
+      // rotated the ring by starOrbit and showed one hub — the hubs
+      // appeared to orbit while the sim fired from fixed angles.)
+      // Hub box grows a little per tier, matching its fire stats.
+      // DRAWN LAST IN THE STAR BLOCK (Adam's live-test ticket,
+      // 2026-10-21): the hub orbits OUTSIDE the body, on rings that
+      // STAND OFF the visible surface (Adam's paired ruling — the
+      // pads live in PHYSICS.STAR_DEFENSE as INNER_RING_PAD /
+      // OUTER_RING_PAD and are read through turretRingRadius, the
+      // same helper the sim fires from) — it was never inside the
+      // star, it was UNDER its
+      // light: the noise flares, the core gradient's rim and the CME
+      // agitation all painted over a 10px dark box, and a gun you
+      // can't see feels like cheating when it kills you. So the hub
+      // now draws after body + glow and wears a bright allegiance
+      // core on a black contrast halo: visible against the bright
+      // rim and against dark space alike.
+      (s.turrets || []).forEach(t => {
+        const ring = turretRingRadius(s.size, t.shell);
+        const hub = 9 + Math.min(t.tier, 4);
+        const allegiance = isHome ? COLORS.CRT_GLOW : '#f43f5e';
+        ctx.save();
+        ctx.rotate(t.angle);
+        ctx.translate(ring, 0);
+        // Contrast halo, then the dark box with its allegiance rim.
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.lineWidth = 3.5;
+        ctx.strokeRect(-hub / 2, -hub / 2, hub, hub);
+        ctx.fillStyle = isHome ? '#1a1a1c' : '#300';
+        ctx.fillRect(-hub / 2, -hub / 2, hub, hub);
+        ctx.strokeStyle = allegiance;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(-hub / 2, -hub / 2, hub, hub);
+        // The bright core: the gun's lit heart, half the box.
+        ctx.fillStyle = allegiance;
+        const core = hub * 0.5;
+        ctx.fillRect(-core / 2, -core / 2, core, core);
+        // Barrel, lit the same way — the threat direction reads too.
+        ctx.fillRect(hub / 2, -2, 8, 4);
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(hub / 2, -2, 8, 4);
+        ctx.restore();
+      });
+
       ctx.restore();
     });
 
@@ -950,11 +997,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
 
     // Ship Body — the painted SPRITE when it has loaded (Pretty
     // Ships): rotated from nose-up into the hull's forward, drawn at
-    // SPRITE_SCALE over the outline's footprint, with the outline
-    // stroked thin over the art so the silhouette truth still reads.
-    // Until the image lands (or if it ever fails), the vector body
-    // below draws exactly as it always has. Armor rim (under) and
-    // the capability tells (over) are unchanged either way.
+    // SPRITE_SCALE over the outline's footprint. NO outline rides the
+    // art at rest (Adam, 2026-10-21): the green edge is the HIT
+    // FLASH now, stroked only for a beat when health drops. Until
+    // the image lands (or if it ever fails), the vector body below
+    // draws exactly as it always has — its green stroke is the body
+    // there, not an edge over paint. Armor rim (under) and the
+    // capability tells (over) are unchanged either way.
+    noteHealth(ship.ownerId, ship.health);
     const localSprite = shipSprite(ship.line, ship.typeTier);
     if (localSprite) {
       ctx.save();
@@ -962,10 +1012,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       const S = ship.size * SPRITE_SCALE;
       ctx.drawImage(localSprite, -S / 2, -S / 2, S, S);
       ctx.restore();
-      ctx.strokeStyle = COLORS.CRT_GLOW;
-      ctx.lineWidth = 1.5;
-      traceOutline(ctx, hullPts);
-      ctx.stroke();
+      const flash = hitFlashFor(ship.ownerId);
+      if (flash > 0) {
+        ctx.strokeStyle = `rgba(51, 255, 51, ${0.85 * flash})`;
+        ctx.lineWidth = 2;
+        traceOutline(ctx, hullPts);
+        ctx.stroke();
+      }
     } else {
       ctx.fillStyle = '#1a1a1c';
       ctx.strokeStyle = COLORS.CRT_GLOW;
@@ -1201,6 +1254,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       for (const seat of state.seats) {
         const rs = seat.ship;
         if (!rs || seat.ownerId === ship.ownerId) continue;
+        noteHealth(rs.ownerId, rs.health);
         const label = seatLabels[seat.ownerId];
         // Reveal IS the sim's alpha (src/sim/stealth.ts — one
         // geometry for canvas, bots, seekers, and star systems):
@@ -1241,10 +1295,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
           const S = rs.size * SPRITE_SCALE;
           ctx.drawImage(rsSprite, -S / 2, -S / 2, S, S);
           ctx.restore();
-          ctx.strokeStyle = label ? label.color : COLORS.CRT_GLOW;
-          ctx.lineWidth = 1.5;
-          traceOutline(ctx, hullOutlineFor(rs.line, rs.typeTier, rs.size));
-          ctx.stroke();
+          const rFlash = hitFlashFor(rs.ownerId);
+          if (rFlash > 0) {
+            ctx.save();
+            ctx.globalAlpha = (isStealthShip(rs) ? reveal : 1) * rFlash * 0.9;
+            ctx.strokeStyle = label ? label.color : COLORS.CRT_GLOW;
+            ctx.lineWidth = 2;
+            traceOutline(ctx, hullOutlineFor(rs.line, rs.typeTier, rs.size));
+            ctx.stroke();
+            ctx.restore();
+          }
         } else {
           ctx.fillStyle = '#1a1a1c';
           ctx.strokeStyle = ghost ? 'rgba(150, 215, 255, 0.9)' : (label ? label.color : COLORS.CRT_GLOW);

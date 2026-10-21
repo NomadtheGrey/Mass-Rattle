@@ -1,7 +1,7 @@
 import React from 'react';
 import {
-  CLIENT_VERSION,
-  ClientMessage, ServerMessage,
+  CLIENT_VERSION, CHAT_HISTORY_LIMIT, CHAT_MAX_CHARS,
+  ClientMessage, ServerMessage, ChatMessage,
   RoomState, Seat, ClientState, ErrorCode,
   Standing, StageChangedEvent, MatchEndedEvent,
   CreateRoomRequest, CreateRoomResponse,
@@ -83,6 +83,12 @@ export interface NetSession {
   stageByStar: Record<string, StageChangedEvent>;
   /** ownerId of a seat this player just reclaimed (seatClaimed flag). */
   reclaimedOwnerId: string | null;
+  /** In-game chat (2026-10-21): the room's rolling chat window,
+   *  server-stamped and echo-fed — this log is written ONLY by
+   *  server messages (chatHistory seeds it wholesale; each chat
+   *  echo appends), never by sendChat, so every client renders
+   *  one ordering with no duplicate local copy. */
+  chatLog: ChatMessage[];
   /** Transport failures the wire ErrorCode enum doesn't cover. */
   notice: string | null;
   snapshotRef: React.MutableRefObject<unknown>;
@@ -107,6 +113,11 @@ export interface NetSession {
   sendInput: (payload: NetInputPayload) => void;
   sendSnapshot: (state: unknown) => void;
   sendHostMessage: (msg: ClientMessage) => void;
+  /** Send one chat line. No local append: the server's echo is
+   *  the only write path into chatLog (see its note above). The
+   *  text is trimmed and capped client-side to mirror the
+   *  server's hygiene; the server remains the authority. */
+  sendChat: (text: string) => void;
 }
 
 export const NetSessionContext = React.createContext<NetSession | null>(null);
@@ -123,6 +134,7 @@ export function useNetClient(): NetSession {
   const [matchEnded, setMatchEnded] = React.useState<MatchEndedEvent | null>(null);
   const [stageByStar, setStageByStar] = React.useState<Record<string, StageChangedEvent>>({});
   const [reclaimedOwnerId, setReclaimedOwnerId] = React.useState<string | null>(null);
+  const [chatLog, setChatLog] = React.useState<ChatMessage[]>([]);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [snapshotVersion, setSnapshotVersion] = React.useState(0);
 
@@ -233,6 +245,20 @@ export function useNetClient(): NetSession {
           setClientState(prev => (prev.connection === 'desync' ? { connection: 'connected', lastError: prev.lastError } : prev));
           break;
         }
+        case 'chat': {
+          // Echo-only writes, ordered by the server's seq: a frame
+          // at or behind the log's tail is a duplicate — dropped.
+          setChatLog(prev => {
+            if (prev.length > 0 && msg.message.seq <= prev[prev.length - 1].seq) return prev;
+            return [...prev, msg.message].slice(-CHAT_HISTORY_LIMIT);
+          });
+          break;
+        }
+        case 'chatHistory': {
+          // The seed IS the resync: replace wholesale.
+          setChatLog(msg.messages.slice(-CHAT_HISTORY_LIMIT));
+          break;
+        }
         case 'input': {
           if (typeof msg.payload === 'object' && msg.payload !== null) {
             const payload = msg.payload as NetInputPayload;
@@ -275,6 +301,7 @@ export function useNetClient(): NetSession {
     callsignPasswordRef.current = callsignPassword;
     setMatchEnded(null);
     setStandings(null);
+    setChatLog([]);
     standingsSeqRef.current = null;
     setClientState({ connection: 'connecting', lastError: null });
     connect(clean);
@@ -346,6 +373,7 @@ export function useNetClient(): NetSession {
     setStandings(null);
     setStageByStar({});
     setReclaimedOwnerId(null);
+    setChatLog([]);
     guestInputsRef.current.clear();
     setClientState({ connection: 'idle', lastError: null });
   }, []);
@@ -366,6 +394,14 @@ export function useNetClient(): NetSession {
   const sendInput = React.useCallback((payload: NetInputPayload) => send({ type: 'input', payload }), [send]);
   const sendSnapshot = React.useCallback((state: unknown) => send({ type: 'snapshot', state }), [send]);
   const sendHostMessage = React.useCallback((msg: ClientMessage) => send(msg), [send]);
+  const sendChat = React.useCallback((text: string) => {
+    const clean = text.trim();
+    if (!clean) return;
+    // Capped here so an over-length line arrives shortened rather
+    // than dropped whole by the server; the composer should still
+    // cap its own input at CHAT_MAX_CHARS so this never bites.
+    send({ type: 'chat', text: clean.slice(0, CHAT_MAX_CHARS) });
+  }, [send]);
 
   // Host heartbeat: ~2s while hosting a live match (DO promotes after
   // 5s of silence). A promoted host starts beating by the same rule —
@@ -387,9 +423,9 @@ export function useNetClient(): NetSession {
   return {
     clientState, room, myPlayerId, mySeat, isHost,
     migration, standings, matchEnded, stageByStar,
-    reclaimedOwnerId, notice,
+    reclaimedOwnerId, chatLog, notice,
     snapshotRef, snapshotVersion, guestInputsRef,
     createRoom, joinRoom, leaveRoom, forfeitRoom, startMatch, kickPlayer, setTeam,
-    sendInput, sendSnapshot, sendHostMessage,
+    sendInput, sendSnapshot, sendHostMessage, sendChat,
   };
 }

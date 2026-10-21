@@ -20,6 +20,8 @@
  * equipped before its effect slice lands, and the shop says so honestly.
  */
 
+import type { ShipLine, TypeTier } from './shipProgression';
+
 export type ArsenalCategory = 'weapon' | 'defense' | 'hybrid';
 
 export interface LoadoutItemDef {
@@ -146,6 +148,56 @@ export const swapCostForTier = (incomingTier: number): number =>
   60 + 20 * Math.max(0, incomingTier - 1);
 
 /**
+ * WEAPON CLASSES + MOUNT ACCESS (Arsenal slice 1, 2026-10-21).
+ * =====================================================================
+ * Every weapon carries a CLASS — 'light' or 'heavy' (DRAFT
+ * assignments, Adam's pin pass pending): bolt_cannon light,
+ * ion_blaster light, mine_layer light (the minelayer line's own
+ * kit); flak_cannon, rail_lance and seeker_torpedoes heavy.
+ * Defenses and hybrids are NOT classed in this slice.
+ *
+ * MOUNT ACCESS is the one table everything reads: for each ship
+ * line and type tier, which weapon classes that hull may mount.
+ *  - unaligned (the T1 SKIFF, line === null): light only.
+ *  - fighter: light at T2; light + heavy from T3 — the whole
+ *    arsenal, the line's identity.
+ *  - cruiser: light at T2; light + heavy from T3 — the battery.
+ *  - minelayer / hauler / drone: light at every tier, heavy NEVER
+ *    (the minelayer's defense is stealth; the hauler's space is
+ *    scrap; the drone line's strength is its wing, not its gun).
+ * The game loop gates BUY and EQUIP through canMountWeapon —
+ * ownership follows mounting: a weapon the current hull cannot
+ * mount cannot be bought either. All values DRAFT.
+ */
+export type WeaponClass = 'light' | 'heavy';
+
+export const MOUNT_ACCESS: Record<ShipLine | 'unaligned', Record<TypeTier, readonly WeaponClass[]>> = {
+  unaligned: { 1: ['light'], 2: ['light'], 3: ['light'], 4: ['light'], 5: ['light'] },
+  fighter:   { 1: ['light'], 2: ['light'], 3: ['light', 'heavy'], 4: ['light', 'heavy'], 5: ['light', 'heavy'] },
+  minelayer: { 1: ['light'], 2: ['light'], 3: ['light'], 4: ['light'], 5: ['light'] },
+  hauler:    { 1: ['light'], 2: ['light'], 3: ['light'], 4: ['light'], 5: ['light'] },
+  drone:     { 1: ['light'], 2: ['light'], 3: ['light'], 4: ['light'], 5: ['light'] },
+  cruiser:   { 1: ['light'], 2: ['light'], 3: ['light', 'heavy'], 4: ['light', 'heavy'], 5: ['light', 'heavy'] },
+};
+
+/** The class of a weapon item; null for defenses, hybrids, and unknown ids. */
+export const weaponClassFor = (itemId: string | null | undefined): WeaponClass | null => {
+  if (!itemId) return null;
+  return WEAPON_STATS[itemId]?.weaponClass ?? null;
+};
+
+/**
+ * THE mount gate (Arsenal slice 1): may a ship of this line/tier
+ * mount this item? Non-weapons are never gated here (returns true)
+ * — the gate governs weapons only, via the MOUNT_ACCESS table.
+ */
+export const canMountWeapon = (line: ShipLine | null, typeTier: TypeTier, itemId: string): boolean => {
+  const cls = weaponClassFor(itemId);
+  if (cls === null) return true;
+  return MOUNT_ACCESS[line ?? 'unaligned'][typeTier].includes(cls);
+};
+
+/**
  * WEAPON STATS — how each weapon actually behaves when fired (Slice 4).
  * =====================================================================
  * Draft numbers, tuned to feel distinct rather than balanced-perfect;
@@ -163,6 +215,8 @@ export const swapCostForTier = (incomingTier: number): number =>
  */
 export interface WeaponStats {
   kind: 'bolt' | 'seeker' | 'mine';
+  /** Mount class (Arsenal slice 1): 'light' | 'heavy' — see MOUNT_ACCESS. */
+  weaponClass: WeaponClass;
   /** Hull damage at tier 1 (drones have 100). */
   damage: number;
   /** Extra damage per tier above the first. */
@@ -188,12 +242,12 @@ export interface WeaponStats {
 }
 
 export const WEAPON_STATS: Record<string, WeaponStats> = {
-  bolt_cannon:     { kind: 'bolt',   damage: 12, damagePerTier: 3,  speed: 14,   cooldownMs: 170, life: 50, size: 3 },
-  flak_cannon:     { kind: 'bolt',   damage: 4,  damagePerTier: 1,  speed: 11,   cooldownMs: 430, life: 34, pellets: 6, spread: 0.76, size: 2 },
-  rail_lance:      { kind: 'bolt',   damage: 45, damagePerTier: 12, speed: 26,   cooldownMs: 900, life: 50, pierce: true, size: 4 },
-  ion_blaster:     { kind: 'bolt',   damage: 3,  damagePerTier: 1,  speed: 13,   cooldownMs: 230, life: 50, size: 3 },
-  seeker_torpedoes:{ kind: 'seeker', damage: 30, damagePerTier: 8,  speed: 9.5,  cooldownMs: 750, life: 120, size: 6, scrapCost: 1 },
-  mine_layer:      { kind: 'mine',   damage: 40, damagePerTier: 10, speed: 0,    cooldownMs: 500, life: 0, scrapCost: 1, radius: 115 },
+  bolt_cannon:     { kind: 'bolt',   weaponClass: 'light', damage: 12, damagePerTier: 3,  speed: 14,   cooldownMs: 170, life: 50, size: 3 },
+  flak_cannon:     { kind: 'bolt',   weaponClass: 'heavy', damage: 4,  damagePerTier: 1,  speed: 11,   cooldownMs: 430, life: 34, pellets: 6, spread: 0.76, size: 2 },
+  rail_lance:      { kind: 'bolt',   weaponClass: 'heavy', damage: 45, damagePerTier: 12, speed: 26,   cooldownMs: 900, life: 50, pierce: true, size: 4 },
+  ion_blaster:     { kind: 'bolt',   weaponClass: 'light', damage: 3,  damagePerTier: 1,  speed: 13,   cooldownMs: 230, life: 50, size: 3 },
+  seeker_torpedoes:{ kind: 'seeker', weaponClass: 'heavy', damage: 30, damagePerTier: 8,  speed: 9.5,  cooldownMs: 750, life: 120, size: 6, scrapCost: 1 },
+  mine_layer:      { kind: 'mine',   weaponClass: 'light', damage: 40, damagePerTier: 10, speed: 0,    cooldownMs: 500, life: 0, scrapCost: 1, radius: 115 },
 };
 
 /** Stats for a weapon at a given owned tier, damage scaled. Null for non-weapons. */
