@@ -50,6 +50,7 @@ import type {
   StarCount,
   TeamId,
 } from '../src/net/protocol';
+import reservedCallsignsData from './reserved-callsigns.json';
 
 /** Host heartbeat cadence (design draft §6, DRAFT numbers): the host
  *  client beats every HEARTBEAT_INTERVAL_MS; the DO promotes after
@@ -314,34 +315,45 @@ export type ClaimOutcome =
  * Nova-3… First come keeps the plain name.
  */
 /**
- * RESERVED CALLSIGNS (Adam, 2026-10-21: "Nomad" is his — the lobby
- * used to hand it to anyone whose browser had it saved). A reserved
- * name (lowercase key) may be held PLAIN by exactly one playerId —
- * its owner (value). Every other claimant is suffixed like any
- * collision, in every room, whether or not the owner is present:
- * the name is held for the owner, not merely first-come. An empty
- * owner value means the pin has not been captured yet — the name
- * is then protected from EVERYONE (suffix-for-all) until Adam's
- * playerId is pinned here, a one-line change.
+ * RESERVED CALLSIGNS (Adam, 2026-10-21: "Nomad" is his). A reserved
+ * name may be held PLAIN only by a claimant who proves its
+ * PASSWORD: the hello carries the word, the server hashes it
+ * (SHA-256) and compares against the hash held here — the raw
+ * password exists nowhere server-side. (An earlier playerId-pin
+ * design died on Adam's ruling: a runtime/browser id is not a
+ * stable identity.) Without a valid proof the claim suffixes like
+ * any collision, in every room, whether or not a proven holder is
+ * present. A seated holder KEEPS the plain name across refresh and
+ * reclaim without re-proving (the seat/hold is theirs by playerId
+ * continuity — the proof gates TAKING the name, not keeping it).
+ * THE DATA IS A FILE, not code (Adam, 2026-10-21):
+ * worker/reserved-callsigns.json maps each reserved name
+ * (lowercase) to its password's SHA-256 hex; an empty value means
+ * no password is set yet — the name is then protected from
+ * EVERYONE (suffix-for-all) until the real hash is pinned, a
+ * one-line edit to that JSON.
  */
-export const RESERVED_CALLSIGNS: ReadonlyMap<string, string> = new Map([
-  ['nomad', ''],
-]);
+export const RESERVED_CALLSIGNS: ReadonlyMap<string, string> = new Map(
+  Object.entries(reservedCallsignsData as Record<string, string>),
+);
 
-function isReservedForOthers(
-  desired: string,
-  claimantPlayerId?: string,
-): boolean {
-  const owner = RESERVED_CALLSIGNS.get(desired.trim().toLowerCase());
-  if (owner === undefined) return false;
-  return claimantPlayerId !== owner;
+/** Is this callsign a reserved name (any case)? */
+export function isReservedCallsign(callsign: string): boolean {
+  return RESERVED_CALLSIGNS.has(callsign.trim().toLowerCase());
+}
+
+/** The stored SHA-256 hex for a reserved name's password, or
+ *  undefined when the name is not reserved. An empty string means
+ *  reserved-but-unset: no proof can pass. */
+export function reservedPasswordHash(callsign: string): string | undefined {
+  return RESERVED_CALLSIGNS.get(callsign.trim().toLowerCase());
 }
 
 export function disambiguateCallsign(
   record: RoomRecord,
   desired: string,
   selfOwnerId: string,
-  claimantPlayerId?: string,
+  reservedProofOk = false,
 ): string {
   const taken = new Set<string>();
   for (const s of record.seats) {
@@ -350,7 +362,15 @@ export function disambiguateCallsign(
   for (const [ownerId, held] of Object.entries(record.heldIdentities)) {
     if (ownerId !== selfOwnerId) taken.add(held.callsign.toLowerCase());
   }
-  if (isReservedForOthers(desired, claimantPlayerId)) {
+  // RESERVED gate: without a valid password proof, the plain name
+  // reads as taken — UNLESS this very seat already holds it plain
+  // (a seated holder refreshing keeps their name without
+  // re-proving; the gate guards taking, not keeping).
+  const selfSeat = record.seats.find((s) => s.ownerId === selfOwnerId);
+  const alreadyHoldsPlain =
+    selfSeat?.occupant.kind === 'human' &&
+    selfSeat.occupant.callsign.toLowerCase() === desired.trim().toLowerCase();
+  if (isReservedCallsign(desired) && !reservedProofOk && !alreadyHoldsPlain) {
     taken.add(desired.trim().toLowerCase());
   }
   if (!taken.has(desired.toLowerCase())) return desired;
@@ -367,6 +387,7 @@ export function claimSeat(
   record: RoomRecord,
   playerId: string,
   callsign: string,
+  reservedProofOk = false,
 ): ClaimOutcome {
   if (record.bannedPlayerIds.includes(playerId)) {
     return { ok: false, error: 'kicked' };
@@ -378,7 +399,7 @@ export function claimSeat(
         record,
         callsign.trim(),
         existing.ownerId,
-        playerId,
+        reservedProofOk,
       );
     }
     existing.connection = 'connected';
@@ -398,7 +419,9 @@ export function claimSeat(
         record,
         callsign.trim() || hold.held.callsign,
         seat.ownerId,
-        playerId,
+        reservedProofOk ||
+          (callsign.trim() || hold.held.callsign).toLowerCase() ===
+            hold.held.callsign.toLowerCase(),
       ),
       // color/cue are the seat's, assigned by starIndex for the match.
       color,
@@ -422,7 +445,7 @@ export function claimSeat(
       record,
       callsign.trim() || `PLAYER-${seat.starIndex + 1}`,
       seat.ownerId,
-      playerId,
+      reservedProofOk,
     ),
     // color/cue are the seat's, assigned by starIndex for the match —
     // a takeover flips kind/playerId/callsign ONLY (contract).

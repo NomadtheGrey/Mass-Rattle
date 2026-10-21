@@ -82,7 +82,7 @@ export const RepurchaseOverlay: React.FC<RepurchaseOverlayProps> = ({
   const free = price === 0;
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-3 bg-black/70 backdrop-blur-[2px] pointer-events-auto">
-      <div className="hud-panel w-full max-w-sm p-5 rounded border-4 border-red-900 bg-zinc-950/85 text-center shadow-[0_0_50px_rgba(220,38,38,0.25)] relative">
+      <div className="hud-panel hud-panel-deep w-full max-w-sm p-5 rounded border-4 border-red-900 bg-zinc-950/85 text-center shadow-[0_0_50px_rgba(220,38,38,0.25)] relative">
         <button
           type="button"
           onClick={onDismiss}

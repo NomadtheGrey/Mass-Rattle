@@ -1,6 +1,7 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { Rocket, Magnet, Disc, Wrench, Navigation, Gauge, ChevronLeft, ChevronRight, Download, Upload, Landmark, Radio, Info, Star } from 'lucide-react';
 import { getLoadoutItem } from '../loadout';
+import { useUiOptions } from '../uiOptions';
 
 interface MobileControlsProps {
   onControlChange: (action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison' | 'fire', active: boolean) => void;
@@ -51,6 +52,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
   // Touch-controls legend (HELP button in the top row): the phone's
   // CONTROLS card — closed by default, so it costs no screen until asked.
   const [showHelp, setShowHelp] = useState(false);
+  const uiOptions = useUiOptions();
   const joystickRef = useRef<HTMLDivElement>(null);
   const [stickActive, setStickActive] = useState(false);
   const [stickPos, setStickPos] = useState({ x: 0, y: 0 });
@@ -177,7 +179,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
               triggerHaptic(10);
               setShowHelp(prev => !prev);
             }}
-            className={`pitted-metal px-2.5 py-1.5 flex items-center gap-1.5 text-[10px] font-mono border bg-zinc-900/70 active:scale-95 transition-transform shadow-md rounded ${showHelp ? 'text-white border-[#33ff33]' : 'text-[#33ff33] border-zinc-700'}`}
+            className={`pitted-metal px-2.5 py-1.5 flex items-center gap-1.5 text-[10px] font-mono border bg-zinc-900/70 active:scale-95 transition-transform shadow-md rounded ${showHelp ? 'text-white border-[#33ff33]' : 'text-[#33ff33] border-zinc-700'} ${uiOptions.controlsCard ? '' : 'hidden'}`}
             title="Touch controls legend"
           >
             <Info size={12} className="text-amber-400" />
@@ -201,7 +203,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
       {/* Touch-controls legend — the phone CONTROLS card. Rows describe
           the tiles as they actually behave now (contextual included):
           if a tile is not on screen, it is not usable right now. */}
-      {showHelp && (
+      {showHelp && uiOptions.controlsCard && (
         <div className="mx-1 mb-2 pitted-metal border border-zinc-700 bg-zinc-950/85 rounded p-3 pointer-events-auto shadow-2xl">
           <div className="text-[8px] font-mono font-bold tracking-[0.25em] text-zinc-500 mb-1.5">TOUCH CONTROLS</div>
           <div className="flex flex-col gap-1">
@@ -217,9 +219,9 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
               { label: 'IN THE WELL', keys: 'FEED · BANK · WITHDRAW · WORKSHOP' },
               { label: 'WORKSHOP', keys: 'SHOP + UPGRADES — AT YOUR STAR' },
             ].map(row => (
-              <div key={row.label} className={`flex justify-between gap-3 text-[9px] font-mono ${row.dim ? 'opacity-40' : ''}`}>
-                <span className="text-zinc-400 tracking-wider whitespace-nowrap">{row.label}</span>
-                <span className="text-[#33ff33] font-bold text-right">{row.keys}</span>
+              <div key={row.label} className="flex justify-between gap-3 text-[9px] font-mono">
+                <span className={`${row.dim ? 'text-zinc-500' : 'text-zinc-400'} tracking-wider whitespace-nowrap`}>{row.label}</span>
+                <span className={`${row.dim ? 'text-zinc-500' : 'text-[#33ff33]'} font-bold text-right`}>{row.keys}</span>
               </div>
             ))}
           </div>
@@ -330,7 +332,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                 >
                   <Star size={16} className="text-amber-300" />
                   <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">FEED</span>
-                  <span className="text-[8px] font-mono opacity-90">ALL {carrying}U</span>
+                  <span className="text-[8px] font-mono">ALL {carrying}U</span>
                 </button>
               )}
               {carrying > 0 && (
@@ -340,7 +342,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                 >
                   <Download size={16} className="text-pink-400" />
                   <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">BANK</span>
-                  <span className="text-[8px] font-mono opacity-90">ALL {carrying}U</span>
+                  <span className="text-[8px] font-mono">ALL {carrying}U</span>
                 </button>
               )}
               {bankedScrap > 0 && (
@@ -350,7 +352,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                 >
                   <Upload size={16} className="text-cyan-300" />
                   <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">WITHDRAW</span>
-                  <span className="text-[8px] font-mono opacity-90">BANK {bankedScrap}U</span>
+                  <span className="text-[8px] font-mono">BANK {bankedScrap}U</span>
                 </button>
               )}
               {carrying <= 0 && bankedScrap <= 0 && (
@@ -409,7 +411,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
             >
               <span className="text-[22px] leading-none" aria-hidden>{weaponDef.icon}</span>
               <span className="text-[10px] font-mono font-black uppercase tracking-wider text-red-300">{isMineLayer ? 'DROP' : 'FIRE'}</span>
-              <span className="text-[7px] font-mono opacity-90 uppercase text-center leading-tight px-0.5 text-red-200">{weaponDef.name}</span>
+              <span className="text-[7px] font-mono uppercase text-center leading-tight px-0.5 text-red-200">{weaponDef.name}</span>
             </button>
           )}
 
@@ -421,7 +423,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
             <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-orange-500 animate-ping opacity-75" />
             <Rocket size={26} className="text-orange-400 transform -rotate-45" />
             <span className="text-[11px] font-mono font-black uppercase tracking-wider text-orange-300">THRUST</span>
-            <span className="text-[8px] font-mono opacity-90">HOLD ENG</span>
+            <span className="text-[8px] font-mono">HOLD ENG</span>
           </button>
         </div>
 

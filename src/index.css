@@ -10,7 +10,7 @@
   --crt-glow-dim: #1b3d1b;
   --accent-orange: #ea580c;
   --accent-red: #dc2626;
-  --panel-bg: rgba(27, 38, 56, 0.40); /* glass pass 2 (Adam live-test, 2026-10-21): a near-black tint at ANY alpha reads as solid black over a starfield — the tint itself lightens to blue-grey so the glass reads as glass; blur(8px) on .hud-panel keeps text legible */
+  --panel-bg: rgba(27, 38, 56, 0.12); /* glass pass 3 (Adam live-test, 2026-10-21): 'at least 90% transparent' — in-game HUD panels drop to ~0.10 alpha; borders + the same pass's brightened text carry the structure. Modal reading surfaces hold deeper via .hud-panel-deep (stated exception). */
   --panel-border: rgba(45, 45, 48, 0.6);
   --bg-dark: #0a0a0b;
   --font-mono: "VT323", "JetBrains Mono", monospace;
@@ -78,6 +78,16 @@ body {
   position: relative;
 }
 
+/* MODAL HOLD (Adam live-test, 2026-10-21): reading/working surfaces —
+   the workshop's price lists, the FIELD MANUAL's long-form text, the
+   repurchase panel, the radar — hold at 0.55 while the always-on HUD
+   panels go to ~0.10. Long text over a live battlefield at 0.10
+   loses words against bright stars; the exception is stated, and it
+   is ONE class to lift if Adam overrules it. */
+.hud-panel-deep {
+  background: rgba(22, 31, 47, 0.55);
+}
+
 .hud-panel::before {
   content: "";
   position: absolute;
@@ -110,7 +120,7 @@ body {
 }
 
 .pitted-metal {
-  background: rgba(46, 56, 74, 0.68);
+  background: rgba(46, 56, 74, 0.55);
   box-shadow: 
     inset 0 4px 8px rgba(0,0,0,0.5),
     inset 0 -4px 8px rgba(255,255,255,0.05),
@@ -158,7 +168,7 @@ body {
    a blue-grey glass — light enough in TINT to read as a window over
    black space, where a zinc-950 tint only ever reads as a wall. */
 .glass-modal {
-  background: rgba(21, 30, 47, 0.58);
+  background: rgba(21, 30, 47, 0.45);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }

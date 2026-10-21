@@ -171,11 +171,11 @@ export default function App() {
           reclaimedOwnerId={net.reclaimedOwnerId}
           notice={net.notice}
           callbacks={{
-            onCreate: (name, starCount, isPrivate, callsign) => {
-              net.createRoom(name, starCount, isPrivate, callsign);
+            onCreate: (name, starCount, isPrivate, callsign, callsignPassword) => {
+              net.createRoom(name, starCount, isPrivate, callsign, callsignPassword);
             },
-            onJoin: (code, callsign) => {
-              net.joinRoom(code, callsign);
+            onJoin: (code, callsign, callsignPassword) => {
+              net.joinRoom(code, callsign, callsignPassword);
             },
             onStart: net.startMatch,
             onSetTeam: net.setTeam,

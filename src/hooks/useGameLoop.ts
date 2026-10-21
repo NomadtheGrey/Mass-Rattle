@@ -23,12 +23,13 @@ import {
 } from '../sim/starStages';
 import { stepDrones } from '../sim/drones';
 import { stepMines, stepProjectiles } from '../sim/projectiles';
+import { isStealthShip, isVisibleTo, PERISCOPE_REVEAL_S } from '../sim/stealth';
 import { stepCme } from '../sim/cme';
 import { computeStandings } from '../sim/standings';
 import { areHostile, areTeammates } from '../sim/teams';
 import { applyDeathLoss, botRepurchaseDue, completeRespawn, respawnDue, tryRepurchase } from '../sim/deathEconomy';
 import { appendEventRecords, EventFeedEntry } from '../sim/eventFeed';
-import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, applyDeliveryHeal } from '../starDefense';
+import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, turretAngleAt, targetInTurretArc, applyDeliveryHeal } from '../starDefense';
 import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, thornDamageFor, aegisAbsorbFor } from '../loadout';
 import { ShipLine, TypeTier, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, EXTRA_MOUNT_DAMAGE, AUTO_GUN } from '../shipProgression';
 
@@ -454,7 +455,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   const buyType = useCallback((line?: ShipLine) => {
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // types are bought at home
-      if (prev.ship.typeTier >= 4) return prev; // top of the ladder
+      if (prev.ship.typeTier >= 5) return prev; // top of the ladder (T5 crowns, 2026-10-21)
       // From the SKIFF (T1) the purchase CHOOSES the line; from T2 up it
       // climbs within the line the ship already flies.
       const targetLine = prev.ship.typeTier === 1 ? line : prev.ship.line;
@@ -1352,6 +1353,9 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
               if (dropCount > 0) {
                 s.carrying -= dropCount * cost;
                 s.fireReadyAt = time + wStats.cooldownMs;
+                // PERISCOPE (ruled, src/sim/stealth.ts): laying
+                // mines while cloaked surfaces the submarine.
+                if (isStealthShip(s)) s.cloakReveal = PERISCOPE_REVEAL_S;
                 for (let mi = 0; mi < dropCount; mi++) {
                   const lateral = (mi - (dropCount - 1) / 2) * 16;
                   (next.mines = next.mines || []).push({
@@ -1414,7 +1418,12 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
                 }
                 firedAny = true;
               }
-              if (firedAny) s.fireReadyAt = time + wStats.cooldownMs;
+              if (firedAny) {
+                s.fireReadyAt = time + wStats.cooldownMs;
+                // PERISCOPE (ruled, src/sim/stealth.ts): firing
+                // while cloaked surfaces the submarine.
+                if (isStealthShip(s)) s.cloakReveal = PERISCOPE_REVEAL_S;
+              }
             }
           }
 
@@ -1896,6 +1905,15 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
               seat.survivalMs = (seat.survivalMs ?? 0) + frameDtMs;
             }
           }
+          // PERISCOPE COUNTDOWN (src/sim/stealth.ts): the reveal a
+          // cloaked submarine earned by firing or laying ticks down
+          // in seconds — a snapshot-native field, identical on
+          // every clock, where a host timestamp would be noise.
+          for (const seat of simSeats) {
+            if (seat.ship && seat.ship.cloakReveal) {
+              seat.ship.cloakReveal = Math.max(0, seat.ship.cloakReveal - frameDtMs / 1000);
+            }
+          }
           // DEATH-TAX ARRIVALS (Adam, 2026-10-21): a paid buy-back's
           // frame lands when its respawn wait elapses. Payment was
           // recorded at purchase; arrival itself is silent.
@@ -1975,6 +1993,12 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           // so the collapse never weakens the well.
           s.size = physicalSizeForStar(s);
           s.turrets = turretsForMilestones(milestonesForInfused(s.totalScrapInfused));
+          // ORBIT (Adam, 2026-10-21): the ladder list carries BASE
+          // angles; each turret's live angle is derived from the
+          // loop clock and stamped here, so the firing code below
+          // and the canvas both read the turret where it IS — and
+          // snapshots carry the stamped angle to guests as-is.
+          for (const t of s.turrets) t.angle = turretAngleAt(t, time);
         });
         // TARGETING (unchanged from the single-turret era, and shared by
         // every turret on a star): turrets may fire only while their
@@ -2002,6 +2026,11 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
             let bd = Infinity;
             for (const os of simSeats) {
               if (!os.ship || !areHostile(simSeats, os.ownerId, s.ownerId)) continue;
+              // SUBMARINE (RULED, Adam, 2026-10-21): turrets
+              // respect the cloak like everything else — they do
+              // not engage what the star cannot see, the reveal
+              // geometry measured from the star (src/sim/stealth.ts).
+              if (!isVisibleTo(os.ship, s.pos)) continue;
               const dd = Math.hypot(os.ship.pos.x - s.pos.x, os.ship.pos.y - s.pos.y);
               if (dd < bd) { bd = dd; target = os.ship; }
             }
@@ -2014,8 +2043,16 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           if (dist >= PHYSICS.DEFENSE.RANGE) return;
 
           s.turrets.forEach(t => {
-            if (Math.random() >= turretFireChanceFor(t.tier)) return;
             const ring = turretRingRadius(s.size, t.shell);
+            // FIRING ARC (Adam, 2026-10-21): a turret engages only
+            // targets inside its outward sector (see
+            // targetInTurretArc) — outside its arc it holds fire
+            // and the ring's other turrets carry that side. The
+            // shared target selection and the RANGE-from-center
+            // gate above are unchanged, and turrets still never
+            // damage stars.
+            if (!targetInTurretArc(s.pos, t, ring, target.pos)) return;
+            if (Math.random() >= turretFireChanceFor(t.tier)) return;
             const origin = {
               x: s.pos.x + Math.cos(t.angle) * ring,
               y: s.pos.y + Math.sin(t.angle) * ring,

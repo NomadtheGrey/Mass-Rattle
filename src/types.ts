@@ -28,6 +28,13 @@ export interface Ship extends GameObject {
   ownerId: string;
   /** performance.now() timestamp before which the equipped weapon cannot fire again. */
   fireReadyAt?: number;
+  /** SUBMARINE (src/sim/stealth.ts): SECONDS REMAINING of the
+   * periscope reveal — firing or laying mines while cloaked sets
+   * it to ~2.0 and the sim counts it down per frame (Adam's
+   * ruling, 2026-10-21). A countdown, not a timestamp: it rides
+   * snapshots and reads identically on every clock. Absent/0 =
+   * cloak as usual. */
+  cloakReveal?: number;
   /** Deflector Shield: current pool and the last time it took a hit (loop clock). */
   shield?: number;
   shieldHitAt?: number;

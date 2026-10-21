@@ -88,8 +88,8 @@ export interface NetSession {
   snapshotRef: React.MutableRefObject<unknown>;
   snapshotVersion: number;
   guestInputsRef: React.MutableRefObject<Map<string, NetInputPayload>>;
-  createRoom: (name: string, starCount: 2 | 3 | 4, isPrivate: boolean, callsign: string) => void;
-  joinRoom: (code: string, callsign: string) => void;
+  createRoom: (name: string, starCount: 2 | 3 | 4, isPrivate: boolean, callsign: string, callsignPassword?: string) => void;
+  joinRoom: (code: string, callsign: string, callsignPassword?: string) => void;
   /** STEP AWAY (Adam, 2026-10-21): closing the socket parks the seat
    *  in reconnect grace — a bot plays on and the seat stays
    *  reclaimable all match. This is leaveRoom; grace is what a close
@@ -131,6 +131,10 @@ export function useNetClient(): NetSession {
   const guestInputsRef = React.useRef<Map<string, NetInputPayload>>(new Map());
   const codeRef = React.useRef<string | null>(null);
   const callsignRef = React.useRef<string>('');
+  /** Reserved-callsign password proof, presented with the hello
+   *  (Adam, 2026-10-21). Held only in memory for this session's
+   *  (re)hellos — never persisted to storage. */
+  const callsignPasswordRef = React.useRef<string | undefined>(undefined);
   const intentionalRef = React.useRef(false);
   const terminalRef = React.useRef<ErrorCode | null>(null);
   const reconnectTimerRef = React.useRef<number | null>(null);
@@ -165,7 +169,7 @@ export function useNetClient(): NetSession {
 
     ws.onopen = () => {
       const stored = window.localStorage.getItem(PLAYER_ID_KEY) || undefined;
-      send({ type: 'hello', clientVersion: CLIENT_VERSION, callsign: callsignRef.current, playerId: stored });
+      send({ type: 'hello', clientVersion: CLIENT_VERSION, callsign: callsignRef.current, playerId: stored, callsignPassword: callsignPasswordRef.current });
     };
 
     ws.onmessage = (ev) => {
@@ -262,12 +266,13 @@ export function useNetClient(): NetSession {
     };
   }, [send]);
 
-  const joinRoom = React.useCallback((code: string, callsign: string) => {
+  const joinRoom = React.useCallback((code: string, callsign: string, callsignPassword?: string) => {
     const clean = code.trim().toUpperCase();
     if (clean.length < 6 || !callsign.trim()) return;
     intentionalRef.current = false;
     codeRef.current = clean;
     callsignRef.current = callsign.trim();
+    callsignPasswordRef.current = callsignPassword;
     setMatchEnded(null);
     setStandings(null);
     standingsSeqRef.current = null;
@@ -275,7 +280,7 @@ export function useNetClient(): NetSession {
     connect(clean);
   }, [connect]);
 
-  const createRoom = React.useCallback((name: string, starCount: 2 | 3 | 4, isPrivate: boolean, callsign: string) => {
+  const createRoom = React.useCallback((name: string, starCount: 2 | 3 | 4, isPrivate: boolean, callsign: string, callsignPassword?: string) => {
     if (!callsign.trim()) return;
     setClientState({ connection: 'connecting', lastError: null });
     setNotice(null);
@@ -320,7 +325,7 @@ export function useNetClient(): NetSession {
         }
         const data = (await res.json()) as CreateRoomResponse;
         // Creating != seated: hello through the socket like everyone.
-        joinRoom(data.code, callsign);
+        joinRoom(data.code, callsign, callsignPassword);
       })
       .catch(() => {
         setClientState({ connection: 'idle', lastError: null });

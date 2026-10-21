@@ -4,6 +4,9 @@ import { COLORS, PHYSICS } from '../constants';
 import { BANK_WELL_MARGIN } from '../bank';
 import { shieldMaxFor, PD_RANGE } from '../loadout';
 import { turretRingRadius } from '../starDefense';
+import { getUiOptions } from '../uiOptions';
+import { stealthAlphaFor, mineVisibleToViewer, isStealthShip } from '../sim/stealth';
+import { shipSprite, tintedShipSprite, SPRITE_SCALE } from '../shipSprites';
 import { typeFor } from '../shipProgression';
 import { stageStateForInfused } from '../sim/starStages';
 
@@ -88,7 +91,13 @@ const drawCmeBlob = (c: CanvasRenderingContext2D, sprite: HTMLCanvasElement, x: 
 // (Armor Plating's rim, Scrap Aegis plates, Thorn Hull spikes) read the
 // SAME outline, so they follow whatever frame the ship flies.
 type Pt = [number, number];
-const SKIFF_OUTLINE: Pt[] = [[1, 0], [-1, -0.7], [-0.6, 0], [-1, 0.7]];
+const SKIFF_OUTLINE: Pt[] = [[1.25, 0], [-0.55, -0.92], [-0.95, -0.28], [-0.35, 0], [-0.95, 0.28], [-0.55, 0.92]];
+// SKIFF LEGIBILITY (Adam live-test, 2026-10-21): the stock kite's
+// tail notch was 0.4 deep on paper and invisible at gameplay size —
+// the frame read as the plain prototype triangle. The reshape above
+// is the SAME kite with its character made legible: a longer nose,
+// swept wings, and a true swallow-tail notch. Every line's T1 wears
+// it (they all start as Skiffs); the other 15 frames are untouched.
 const HULL_OUTLINES: Record<string, Pt[]> = {
   'fighter:2': [[1.25, 0], [-0.9, -0.5], [-0.55, 0], [-0.9, 0.5]],
   'fighter:3': [[1.3, 0], [0.1, -0.28], [-0.7, -1.0], [-0.45, -0.3], [-0.6, 0], [-0.45, 0.3], [-0.7, 1.0], [0.1, 0.28]],
@@ -407,8 +416,34 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
 
     // DRAW MINES: pink diamonds with a blinking core (blink rides the
     // star-orbit clock so the render stays a pure function of state).
+    // MINE CONCEALMENT (Adam, 2026-10-21, the submarine ruling): a
+    // mine laid by a minelayer-line hull is dark beyond its reveal
+    // radius — shrinking per tier — and only shimmers once a hunter
+    // is inside it. Your own mines always read; allies' read dim;
+    // anyone else's non-submarine mines are ordinary ordnance and
+    // draw as they always have. Tier comes from the mine once the
+    // sim stamps it (m.tier), else from the layer's line tier.
     (state.mines || []).forEach(m => {
+      let alpha = 1;
+      if (m.ownerId !== ship.ownerId) {
+        const ownerSeat = (state.seats || []).find(se => se.ownerId === m.ownerId);
+        const ownerShip = ownerSeat?.ship;
+        const mySeat = (state.seats || []).find(se => se.ownerId === ship.ownerId);
+        const allied = !!ownerSeat && !!mySeat && ownerSeat.teamId === mySeat.teamId;
+        if (allied) {
+          alpha = 0.65; // your team's field is charted — dim, never hidden
+        } else if (ownerShip && isStealthShip(ownerShip)) {
+          // The sim's word (src/sim/stealth.ts): the layer's CURRENT
+          // tier sets the radius — a climbing submarine's whole field
+          // deepens with her. Outside it, the mine is simply not drawn.
+          if (!mineVisibleToViewer(m.pos, ownerShip.typeTier, ship.pos)) return;
+          alpha = 0.9; // inside the radius it reads — a breath under full
+        }
+        // A dead layer's ship is gone from state; her mines then draw
+        // plain (concealment can't be established) — visible, not dark.
+      }
       ctx.save();
+      ctx.globalAlpha = alpha;
       ctx.translate(m.pos.x, m.pos.y);
       ctx.rotate(Math.PI / 4);
       ctx.strokeStyle = '#f472b6';
@@ -416,10 +451,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       ctx.strokeRect(-5, -5, 10, 10);
       ctx.restore();
       if (Math.sin(state.starOrbit * 6) > 0) {
+        ctx.save();
+        ctx.globalAlpha = alpha;
         ctx.fillStyle = '#f472b6';
         ctx.beginPath();
         ctx.arc(m.pos.x, m.pos.y, 2.5, 0, Math.PI * 2);
         ctx.fill();
+        ctx.restore();
       }
     });
 
@@ -910,13 +948,32 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       ctx.stroke();
     }
 
-    // Ship Body — the frame's own silhouette (see HULL_OUTLINES).
-    ctx.fillStyle = '#1a1a1c';
-    ctx.strokeStyle = COLORS.CRT_GLOW;
-    ctx.lineWidth = 2;
-    traceOutline(ctx, hullPts);
-    ctx.fill();
-    ctx.stroke();
+    // Ship Body — the painted SPRITE when it has loaded (Pretty
+    // Ships): rotated from nose-up into the hull's forward, drawn at
+    // SPRITE_SCALE over the outline's footprint, with the outline
+    // stroked thin over the art so the silhouette truth still reads.
+    // Until the image lands (or if it ever fails), the vector body
+    // below draws exactly as it always has. Armor rim (under) and
+    // the capability tells (over) are unchanged either way.
+    const localSprite = shipSprite(ship.line, ship.typeTier);
+    if (localSprite) {
+      ctx.save();
+      ctx.rotate(Math.PI / 2);
+      const S = ship.size * SPRITE_SCALE;
+      ctx.drawImage(localSprite, -S / 2, -S / 2, S, S);
+      ctx.restore();
+      ctx.strokeStyle = COLORS.CRT_GLOW;
+      ctx.lineWidth = 1.5;
+      traceOutline(ctx, hullPts);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = '#1a1a1c';
+      ctx.strokeStyle = COLORS.CRT_GLOW;
+      ctx.lineWidth = 2;
+      traceOutline(ctx, hullPts);
+      ctx.fill();
+      ctx.stroke();
+    }
 
     // CAPABILITY TELLS: the frame's special, drawn from the same def the
     // sim fires with — extra hard points as flank mount nubs, cruiser
@@ -1113,15 +1170,23 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
     // color (friend-or-foe at a glance) with a thrust flame when its
     // sim says it's burning — and none of the viewer's instruments
     // (no VAC ring, no gauges: those belong to the seat you fly).
-    // Every ship in the room, the viewer's included, wears a
-    // NAMEPLATE: the callsign exactly as issued (bots read BOT-<n>)
-    // in the seat's team color. Solo passes no labels; nothing here
-    // draws there.
+    // NAMEPLATES ride the same block but are separately optional
+    // (DISPLAY OPTIONS): hulls always draw; plates obey their toggle.
+    // THE CLOAK (Adam, 2026-10-21): a minelayer-line hull is the
+    // submarine — invisible beyond the reveal band, a sonar GHOST
+    // inside it (pale stroke, dashed echo ring, no plate), near-solid
+    // only up close; thrust betrays it (a burning boat ghosts
+    // brighter), and firing or laying flares it fully for the
+    // periscope window the sim stamps as ship.cloakReveal (seconds
+    // remaining). Plates obey the cloak too. Solo passes no labels;
+    // nothing here draws there.
     if (seatLabels) {
-      const plateFor = (sx: number, sy: number, size: number, ownerId: string) => {
+      const platesOn = getUiOptions().nameplates;
+      const plateFor = (sx: number, sy: number, size: number, ownerId: string, alpha = 1) => {
         const label = seatLabels[ownerId];
         if (!label) return;
         ctx.save();
+        ctx.globalAlpha = alpha;
         ctx.font = '11px monospace';
         ctx.textAlign = 'center';
         const w = ctx.measureText(label.callsign).width + 10;
@@ -1132,11 +1197,28 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
         ctx.fillText(label.callsign, sx, y + 2);
         ctx.restore();
       };
+      const mySeat = state.seats.find(se => se.ownerId === ship.ownerId);
       for (const seat of state.seats) {
         const rs = seat.ship;
         if (!rs || seat.ownerId === ship.ownerId) continue;
         const label = seatLabels[seat.ownerId];
+        // Reveal IS the sim's alpha (src/sim/stealth.ts — one
+        // geometry for canvas, bots, seekers, and star systems):
+        // 0 = skip entirely, the periscope moment snaps it to 1.
+        // Teammates are exempt at this call site (a friendly
+        // submarine draws solid for her own team).
+        let reveal = 1;
+        let ghost = false;
+        if (isStealthShip(rs)) {
+          const allied = !!mySeat && seat.teamId === mySeat.teamId;
+          if (!allied) {
+            reveal = stealthAlphaFor(rs, ship.pos);
+            if (reveal <= 0) continue; // dark — the submarine is simply not there
+            ghost = reveal < 0.85;
+          }
+        }
         ctx.save();
+        if (isStealthShip(rs)) ctx.globalAlpha = reveal;
         ctx.translate(rs.pos.x, rs.pos.y);
         ctx.rotate(rs.angle);
         if (rs.thrust) {
@@ -1147,16 +1229,50 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
           ctx.lineTo(-rs.size * 0.8, (Math.random() - 0.5) * 4);
           ctx.fill();
         }
-        ctx.fillStyle = '#1a1a1c';
-        ctx.strokeStyle = label ? label.color : COLORS.CRT_GLOW;
-        ctx.lineWidth = 2;
-        traceOutline(ctx, hullOutlineFor(rs.line, rs.typeTier, rs.size));
-        ctx.fill();
-        ctx.stroke();
+        // Hull presentation: an IDENTIFIED ship (not a cloak ghost)
+        // wears its painted sprite, washed toward its team color;
+        // a ghost keeps the sonar vector — detection earns a shape,
+        // identification earns the ship. Vector fallback while the
+        // image loads, as with the local hull.
+        const rsSprite = !ghost ? tintedShipSprite(rs.line, rs.typeTier, label ? label.color : null) : null;
+        if (rsSprite) {
+          ctx.save();
+          ctx.rotate(Math.PI / 2);
+          const S = rs.size * SPRITE_SCALE;
+          ctx.drawImage(rsSprite, -S / 2, -S / 2, S, S);
+          ctx.restore();
+          ctx.strokeStyle = label ? label.color : COLORS.CRT_GLOW;
+          ctx.lineWidth = 1.5;
+          traceOutline(ctx, hullOutlineFor(rs.line, rs.typeTier, rs.size));
+          ctx.stroke();
+        } else {
+          ctx.fillStyle = '#1a1a1c';
+          ctx.strokeStyle = ghost ? 'rgba(150, 215, 255, 0.9)' : (label ? label.color : COLORS.CRT_GLOW);
+          ctx.lineWidth = 2;
+          traceOutline(ctx, hullOutlineFor(rs.line, rs.typeTier, rs.size));
+          ctx.fill();
+          ctx.stroke();
+        }
         ctx.restore();
-        plateFor(rs.pos.x, rs.pos.y, rs.size, seat.ownerId);
+        if (ghost) {
+          // The sonar echo: a dashed ring says DETECTED, not seen.
+          ctx.save();
+          ctx.globalAlpha = 0.45 * reveal;
+          ctx.strokeStyle = 'rgba(150, 215, 255, 0.8)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 5]);
+          ctx.beginPath();
+          ctx.arc(rs.pos.x, rs.pos.y, rs.size * 1.6, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+        if (platesOn && reveal > 0) {
+          // Plates obey the cloak: they fade on the same alpha, so a
+          // half-seen boat wears a half-seen name.
+          plateFor(rs.pos.x, rs.pos.y, rs.size, seat.ownerId, isStealthShip(rs) ? reveal : 1);
+        }
       }
-      plateFor(ship.pos.x, ship.pos.y, ship.size, ship.ownerId);
+      if (platesOn) plateFor(ship.pos.x, ship.pos.y, ship.size, ship.ownerId);
     }
 
     ctx.restore(); // End Camera space

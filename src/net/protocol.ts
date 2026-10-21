@@ -277,6 +277,15 @@ export type ClientMessage =
       clientVersion: number;
       callsign: string;
       playerId?: string;
+      /** Reserved-callsign proof (Adam, 2026-10-21): when the
+       *  callsign is a RESERVED name (worker/reserved-callsigns.json),
+       *  the claimant presents that name's password here. It travels
+       *  once, on this socket; the server hashes it and compares
+       *  against the stored SHA-256 hash — the raw word is never
+       *  stored, echoed, or placed in room state. Absent or wrong,
+       *  the claim simply suffixes like any collision (no refusal).
+       *  Attempts are rate-limited per connection (5 s) by the DO. */
+      callsignPassword?: string;
     }
   /** Host-only, from the lobby: phase → 'live', arena live
    *  immediately. No ready state exists anywhere. */

@@ -3,6 +3,8 @@ import React from 'react';
 import { PHYSICS } from '../constants';
 import { milestonesForInfused, progressIntoNextMilestone, nextMilestoneCost, cumulativeCostForMilestones } from '../starGrowth';
 import { stageStateForInfused, type StarStageState } from '../sim/starStages';
+import { BUILD_HISTORY, LATEST_BUILD } from '../buildHistory';
+import { useUiOptions, setUiOption, resetUiOptions, type UiOptions } from '../uiOptions';
 import type { StarStage } from '../net/protocol';
 import { STAGE_LABELS, TEAM_LABELS, TEAM_COLORS } from './lobby/lobbyTypes';
 import type { TeamId } from '../net/protocol';
@@ -280,25 +282,50 @@ export const HUD: React.FC<HUDProps> = ({
   const nextStage = homeField.next;
   const enemyField = stageFieldFor(enemyTotalInfused);
   const [showSysCfg, setShowSysCfg] = React.useState(false);
+  // BUILD HISTORY (Adam, 2026-10-21): SYSCFG wears the latest build;
+  // pressing it opens the last-20 modal, stacked over SYSCFG in the
+  // modal rule (it closes first, back into SYSCFG).
+  const [showBuilds, setShowBuilds] = React.useState(false);
+  // DISPLAY OPTIONS (Adam, 2026-10-21): the FIELD MANUAL's OPTIONS
+  // door opens this layer above the guide; the toggles gate reference
+  // surfaces only and persist on-device (src/uiOptions.ts).
+  const [showOptions, setShowOptions] = React.useState(false);
+  const uiOptions = useUiOptions();
   const [showGuide, setShowGuide] = React.useState(false);
   // Workshop tabs: the five base ship tracks, then the Arsenal categories.
   const [shopTab, setShopTab] = React.useState<'ship' | 'bank' | ArsenalCategory>('ship');
+  // SHIP FRAME DOOR + WORKSHOP NOTICE (Adam live-test, 2026-10-21):
+  // the progression panel's header was a display div wearing the
+  // game's button material — a decoy — and every buy button in this
+  // tab refused silently while disabled. The header is now a real
+  // button opening the frame choices, and a click that can't afford
+  // (or is capped) says why in a notice line atop the tab.
+  const [frameOpen, setFrameOpen] = React.useState(true);
+  const [shopNotice, setShopNotice] = React.useState<string | null>(null);
+  const shopNoticeTimer = React.useRef<number | null>(null);
+  const flashShopNotice = (msg: string) => {
+    setShopNotice(msg);
+    if (shopNoticeTimer.current) window.clearTimeout(shopNoticeTimer.current);
+    shopNoticeTimer.current = window.setTimeout(() => setShopNotice(null), 2800);
+  };
   const [localRadarOpen, setLocalRadarOpen] = React.useState(false);
 
   const radarActive = isMobileRadarOpen || localRadarOpen;
 
   // THE MODAL RULE (Adam, 2026-10-20 + 2026-10-21): every modal popup
   // exits three ways — its corner [X] button, the X key, and ESC —
-  // and one press closes the TOPMOST modal only (SYSCFG, workshop,
-  // radar, then the mechanics guide). Closing lives in ONE capture-
+  // and one press closes the TOPMOST modal only (build history over
+  // SYSCFG, then SYSCFG, workshop, radar, OPTIONS, the guide).
+  // Closing lives in ONE capture-
   // phase listener: it fires before the game loop's own key handling,
   // and stopPropagation seals the key there, so an X pressed over a
   // modal can no longer leak through and deploy a decoy behind it,
   // and an ESC cannot fall through to anything else. The results
   // screen is deliberately NOT in this chain — it is the match end,
   // a state rather than a popup, and its exit is the restart button.
-  const anyModalOpen = showSysCfg || isShopOpen || radarActive || showGuide;
+  const anyModalOpen = showBuilds || showSysCfg || isShopOpen || radarActive || showOptions || showGuide;
   const closeTopmost = React.useCallback(() => {
+    if (showBuilds) { setShowBuilds(false); return; }
     if (showSysCfg) { setShowSysCfg(false); return; }
     if (isShopOpen && onCloseShop) { onCloseShop(); return; }
     if (radarActive) {
@@ -306,8 +333,9 @@ export const HUD: React.FC<HUDProps> = ({
       setLocalRadarOpen(false);
       return;
     }
+    if (showOptions) { setShowOptions(false); return; }
     if (showGuide) { setShowGuide(false); }
-  }, [showSysCfg, isShopOpen, onCloseShop, radarActive, onToggleMobileRadar, showGuide]);
+  }, [showBuilds, showSysCfg, isShopOpen, onCloseShop, radarActive, onToggleMobileRadar, showOptions, showGuide]);
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const isEsc = e.key === 'Escape';
@@ -550,7 +578,7 @@ export const HUD: React.FC<HUDProps> = ({
       {/* MOBILE RADAR MODAL / POPOVER */}
       {radarActive && (
         <div className="md:hidden fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm pointer-events-auto">
-          <div className="hud-panel p-4 border-4 rounded-xl flex flex-col items-center gap-3 bg-zinc-950/75 shadow-2xl">
+          <div className="hud-panel hud-panel-deep p-4 border-4 rounded-xl flex flex-col items-center gap-3 bg-zinc-950/75 shadow-2xl">
             <div className="flex justify-between items-center w-full border-b border-zinc-800 pb-2">
               <span className="text-xs font-mono font-bold text-orange-400 uppercase tracking-widest">TACTICAL RADAR</span>
               <button 
@@ -564,7 +592,7 @@ export const HUD: React.FC<HUDProps> = ({
               </button>
             </div>
             {renderRadarView("w-64 h-64")}
-            <div className="text-[9px] font-mono text-zinc-400 text-center">
+            <div className="text-[9px] font-mono text-zinc-300 text-center">
               Orange: Home Core | Red: Enemy Core | Pink: Scrap Fields
             </div>
           </div>
@@ -573,16 +601,17 @@ export const HUD: React.FC<HUDProps> = ({
 
       {/* DESKTOP LEFT ASIDE (Hidden on phones) */}
       <aside className="hidden md:flex w-48 min-w-[192px] flex-col gap-4">
+        {uiOptions.astroPanel && (
         <div className="hud-panel p-4 border-4">
           <div className="absolute top-0 right-0 p-1 text-[10px] text-[#2d2d30]">MOD-CR90</div>
           <h2 className="mb-4 pb-1 font-bold">
-            <span className="embossed-label text-orange-500/80">Astronomic Data</span>
+            <span className="embossed-label text-orange-400">Astronomic Data</span>
           </h2>
           <div className="space-y-6">
             <div>
               <div className="flex justify-between text-[10px] mb-1">
                 <span>HOME STAR GROWTH</span>
-                <span className="text-[#ea580c]">{growthProgress}/{growthCost} · {totalScrapInfused} INFUSED</span>
+                <span className="text-orange-400">{growthProgress}/{growthCost} · {totalScrapInfused} INFUSED</span>
               </div>
               <div className="vu-meter h-2 bg-orange-950/20">
                 <motion.div 
@@ -595,16 +624,16 @@ export const HUD: React.FC<HUDProps> = ({
             <div className="border border-zinc-800 rounded p-2 bg-zinc-950/60">
               {myTeamId && (
                 <div className="flex justify-between text-[10px] mb-1">
-                  <span className="text-zinc-500">TEAM</span>
+                  <span className="text-zinc-300">TEAM</span>
                   <span className="font-bold" style={{ color: TEAM_COLORS[myTeamId] }}>{TEAM_LABELS[myTeamId]}</span>
                 </div>
               )}
               <div className="flex justify-between text-[10px] mb-1">
-                <span className="text-zinc-400 tracking-wider">STAR LIFECYCLE</span>
+                <span className="text-zinc-200 tracking-wider">STAR LIFECYCLE</span>
                 <span className="font-bold" style={{ color: stageColor }}>{STAGE_LABELS[stageState.stage]}</span>
               </div>
               <div className="flex justify-between text-[10px] mb-1">
-                <span className="text-zinc-500">TOTAL FED</span>
+                <span className="text-zinc-300">TOTAL FED</span>
                 <span className="text-zinc-200 font-bold">{totalScrapInfused}U</span>
               </div>
               <div className="vu-meter h-1.5 bg-zinc-900">
@@ -614,7 +643,7 @@ export const HUD: React.FC<HUDProps> = ({
                   animate={{ width: `${stageState.progressWithinStage * 100}%` }}
                 />
               </div>
-              <div className="text-[9px] font-mono text-zinc-500 mt-1">
+              <div className="text-[9px] font-mono text-zinc-300 mt-1">
                 {nextStage
                   ? `TO ${STAGE_LABELS[nextStage]}: ${stageFedInBand}/${stageBandSize}U FED`
                   : 'CRITICAL MASS — COLLAPSE ENDS THE MATCH'}
@@ -623,8 +652,8 @@ export const HUD: React.FC<HUDProps> = ({
 
             <div>
               <div className="flex justify-between text-[10px] mb-1">
-                <span className="text-red-500">ENEMY STAR INTEGRITY</span>
-                <span className="text-red-500">{Math.floor(enemyIntegrity * 100)}%</span>
+                <span className="text-red-400">ENEMY STAR INTEGRITY</span>
+                <span className="text-red-400">{Math.floor(enemyIntegrity * 100)}%</span>
               </div>
               <div className="vu-meter h-2 bg-red-950/20">
                 <motion.div 
@@ -637,16 +666,16 @@ export const HUD: React.FC<HUDProps> = ({
             <div className="border border-red-950 rounded p-2 bg-zinc-950/60">
               {enemyTeamId && (
                 <div className="flex justify-between text-[10px] mb-1">
-                  <span className="text-zinc-500">TEAM</span>
+                  <span className="text-zinc-300">TEAM</span>
                   <span className="font-bold" style={{ color: TEAM_COLORS[enemyTeamId] }}>{TEAM_LABELS[enemyTeamId]}</span>
                 </div>
               )}
               <div className="flex justify-between text-[10px] mb-1">
-                <span className="text-zinc-400 tracking-wider">ENEMY LIFECYCLE</span>
+                <span className="text-zinc-200 tracking-wider">ENEMY LIFECYCLE</span>
                 <span className="font-bold" style={{ color: enemyField.color }}>{STAGE_LABELS[enemyField.state.stage]}</span>
               </div>
               <div className="flex justify-between text-[10px] mb-1">
-                <span className="text-zinc-500">TOTAL FED</span>
+                <span className="text-zinc-300">TOTAL FED</span>
                 <span className="text-zinc-200 font-bold">{enemyTotalInfused}U</span>
               </div>
               <div className="vu-meter h-1.5 bg-zinc-900">
@@ -656,7 +685,7 @@ export const HUD: React.FC<HUDProps> = ({
                   animate={{ width: `${enemyField.state.progressWithinStage * 100}%` }}
                 />
               </div>
-              <div className="text-[9px] font-mono text-zinc-500 mt-1">
+              <div className="text-[9px] font-mono text-zinc-300 mt-1">
                 {enemyField.next
                   ? `TO ${STAGE_LABELS[enemyField.next]}: ${enemyField.fedInBand}/${enemyField.bandSize}U FED`
                   : 'CRITICAL MASS — COLLAPSE ENDS THE MATCH'}
@@ -664,20 +693,21 @@ export const HUD: React.FC<HUDProps> = ({
             </div>
 
             <div className="flex flex-col gap-2 items-center">
-              <div className="text-[10px] uppercase opacity-50 self-start">Local Nav Map [Tactical]</div>
+              <div className="text-[10px] uppercase text-zinc-300 self-start">Local Nav Map [Tactical]</div>
               {renderRadarView()}
             </div>
           </div>
         </div>
+        )}
 
         <div className="hud-panel p-4 flex-grow border-4 overflow-hidden relative">
           <h2 className="mb-4 pb-1 font-bold">
             <span className="embossed-label text-zinc-400">Comms / Logs</span>
           </h2>
-            <div className="text-[11px] leading-relaxed space-y-2 opacity-80 font-mono">
+            <div className="text-[11px] leading-relaxed space-y-2 font-mono">
               <div className="mb-4">
                 <div className="flex justify-between text-[9px] mb-1">
-                  <span className={shipHealth < 30 ? 'text-red-500 animate-pulse' : 'text-zinc-400'}>HULL_INTEGRITY</span>
+                  <span className={shipHealth < 30 ? 'text-red-500 animate-pulse' : 'text-zinc-200'}>HULL_INTEGRITY</span>
                   <span>{Math.floor(shipHealth)}%</span>
                 </div>
                 <div className="vu-meter h-3 bg-zinc-900 border border-zinc-800">
@@ -687,19 +717,21 @@ export const HUD: React.FC<HUDProps> = ({
                   />
                 </div>
               </div>
-              {velocity > 4 && <p className="text-red-500">[WARN] SPEED EXCEEDS BUFFER</p>}
-              {carrying > (PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS) && <p className="text-yellow-500">[WARN] CARGO OVERLOAD</p>}
-              {carrying > 0 && <p className="text-pink-500 font-bold">[INFO] SCRAP LOAD: {carrying}U</p>}
+              {velocity > 4 && <p className="text-red-400">[WARN] SPEED EXCEEDS BUFFER</p>}
+              {carrying > (PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS) && <p className="text-yellow-400">[WARN] CARGO OVERLOAD</p>}
+              {carrying > 0 && <p className="text-pink-400 font-bold">[INFO] SCRAP LOAD: {carrying}U</p>}
               <p className="text-cyan-400 font-bold bg-cyan-950/40 px-1 border-l-2 border-cyan-500">[FED] {teamScrap}U DELIVERED</p>
-              {fuel < 20 && <p className="text-red-600 animate-pulse font-bold">[ERR] FUEL DEPLETED</p>}
-              {glitch && <p className="text-yellow-600">[DATA] SENSORS RECALIBRATING...</p>}
+              {fuel < 20 && <p className="text-red-500 animate-pulse font-bold">[ERR] FUEL DEPLETED</p>}
+              {glitch && <p className="text-yellow-500">[DATA] SENSORS RECALIBRATING...</p>}
               <div className="border-t border-zinc-800/70 pt-1.5 mt-1 space-y-0.5 text-[10px]">
-                <div className="flex justify-between"><span className="opacity-50">PINGS</span><span>{pingMs}ms</span></div>
-                <div className="flex justify-between"><span className="opacity-50">FPS</span><span>{fpsRef.current.fps || '—'}</span></div>
-                <div className="flex justify-between"><span className="opacity-50">RANGE · HOME</span><span className="text-orange-400">{rangeHome}U</span></div>
-                <div className="flex justify-between"><span className="opacity-50">RANGE · ENEMY</span><span className="text-red-400">{rangeEnemy}U</span></div>
-                <div className="flex justify-between"><span className="opacity-50">FIELD SCRAP</span><span className="text-pink-400">{scrapList.length}</span></div>
-                <div className="flex justify-between"><span className="opacity-50">MISSION T+</span><span>{missionClock}</span></div>
+                {uiOptions.telemetry && (<>
+                <div className="flex justify-between"><span className="text-zinc-400">PINGS</span><span>{pingMs}ms</span></div>
+                <div className="flex justify-between"><span className="text-zinc-400">FPS</span><span>{fpsRef.current.fps || '—'}</span></div>
+                <div className="flex justify-between"><span className="text-zinc-400">RANGE · HOME</span><span className="text-orange-400">{rangeHome}U</span></div>
+                <div className="flex justify-between"><span className="text-zinc-400">RANGE · ENEMY</span><span className="text-red-400">{rangeEnemy}U</span></div>
+                </>)}
+                <div className="flex justify-between"><span className="text-zinc-400">FIELD SCRAP</span><span className="text-pink-400">{scrapList.length}</span></div>
+                <div className="flex justify-between"><span className="text-zinc-400">MISSION T+</span><span>{missionClock}</span></div>
               </div>
               <p className="animate-pulse">_</p>
             </div>
@@ -720,19 +752,21 @@ export const HUD: React.FC<HUDProps> = ({
           {/* CONTROLS CARD — bottom-left of the play area (desktop).
               Replaces the stale 20%-opacity help footer that lived in
               App.tsx and never learned FIRE [F] or DECOY [X]. */}
+          {uiOptions.controlsCard && (
           <div className="absolute bottom-0 left-0 pointer-events-auto">
             <div className="hud-panel border-2 bg-zinc-950/55 shadow-2xl px-3 py-2 min-w-[176px]">
-              <div className="text-[8px] font-mono font-bold tracking-[0.25em] text-zinc-500 mb-1.5">SHIP CONTROLS</div>
+              <div className="text-[8px] font-mono font-bold tracking-[0.25em] text-zinc-400 mb-1.5">SHIP CONTROLS</div>
               <div className="flex flex-col gap-1">
                 {controlRows.map(row => (
-                  <div key={row.label} className={`flex justify-between gap-3 text-[9px] font-mono ${row.dim ? 'opacity-40' : ''}`}>
-                    <span className={`${row.bold ? 'text-zinc-100 font-bold' : 'text-zinc-400'} tracking-wider`}>{row.label}</span>
-                    <span className={`text-[#33ff33] font-bold whitespace-nowrap ${row.bold ? 'text-[10px]' : ''}`}>{row.keys}</span>
+                  <div key={row.label} className="flex justify-between gap-3 text-[9px] font-mono">
+                    <span className={`${row.dim ? 'text-zinc-500' : row.bold ? 'text-zinc-100 font-bold' : 'text-zinc-300'} tracking-wider`}>{row.label}</span>
+                    <span className={`${row.dim ? 'text-zinc-500' : 'text-[#33ff33]'} font-bold whitespace-nowrap ${row.bold ? 'text-[10px]' : ''}`}>{row.keys}</span>
                   </div>
                 ))}
               </div>
             </div>
           </div>
+          )}
 
           {/* Utility Cluster */}
           <div className="absolute bottom-0 right-0 w-24 flex flex-col gap-2 items-end">
@@ -758,8 +792,8 @@ export const HUD: React.FC<HUDProps> = ({
               </button>
             </div>
             <div className="hud-panel w-20 p-2 border-2 bg-zinc-950/55 flex flex-col items-center justify-center gap-1">
-              <div className="text-[7px] text-zinc-600 uppercase whitespace-nowrap">S/N: 88-X9-R</div>
-              <div className="text-[8px] opacity-30">v2.4.0</div>
+              <div className="text-[7px] text-zinc-400 uppercase whitespace-nowrap">S/N: 88-X9-R</div>
+              <div className="text-[8px] text-zinc-400">v2.4.0</div>
             </div>
           </div>
         </div>
@@ -783,7 +817,7 @@ export const HUD: React.FC<HUDProps> = ({
               <div className="flex flex-col gap-2 w-full text-[9px]">
                 <div>
                   <div className="flex justify-between mb-0.5">
-                    <span className="opacity-60">VELOCITY</span>
+                    <span className="text-zinc-400">VELOCITY</span>
                     <span className={velocity > 6 ? 'text-red-500' : ''}>{velocity.toFixed(1)}</span>
                   </div>
                   <div className="vu-meter h-2">
@@ -795,7 +829,7 @@ export const HUD: React.FC<HUDProps> = ({
                 </div>
                 <div>
                   <div className="flex justify-between mb-0.5">
-                    <span className="opacity-60 text-pink-400">CARGO LOAD</span>
+                    <span className="text-pink-300">CARGO LOAD</span>
                     <span>{carrying}U</span>
                   </div>
                   <div className="vu-meter h-2 bg-pink-900/20">
@@ -807,7 +841,7 @@ export const HUD: React.FC<HUDProps> = ({
                 </div>
                 <div>
                   <div className="flex justify-between mb-0.5">
-                    <span className="opacity-60 text-orange-400">INERTIA SLIP</span>
+                    <span className="text-orange-400">INERTIA SLIP</span>
                     <span>{(slip * 100).toFixed(0)}%</span>
                   </div>
                   <div className="vu-meter h-2 bg-orange-900/20">
@@ -858,11 +892,11 @@ export const HUD: React.FC<HUDProps> = ({
                     onClick={() => onUpgrade(u.type)}
                     disabled={funds < cost}
                     className={`pitted-metal w-16 min-w-[64px] flex flex-col items-center py-2 relative group transition-all ${
-                      funds >= cost ? 'text-[#33ff33] opacity-100' : 'text-zinc-600 opacity-50 grayscale cursor-not-allowed'
+                      funds >= cost ? 'text-[#33ff33] opacity-100' : 'text-zinc-500 grayscale cursor-not-allowed'
                     }`}
                   >
-                    <span className="text-[9px] font-bold uppercase tracking-tighter">[{u.key}] {u.label.substring(0,4)}</span>
-                    <span className="text-[8px] opacity-60">Lvl {u.lvl}/{u.cap}</span>
+                    <span className="text-[10px] font-bold uppercase tracking-tighter">[{u.key}] {u.label.substring(0,4)}</span>
+                    <span className="text-[8px]">Lvl {u.lvl}/{u.cap}</span>
                     <div className="absolute -top-8 left-1/2 -translate-x-1/2 transition-all opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] bg-black border border-zinc-800 p-1 font-mono z-50">
                       REQ: {cost} SCRAP ({bankInWell ? 'HOLD+BANK' : 'HOLD — BANK COUNTS IN THE WELL'})
                     </div>
@@ -876,7 +910,7 @@ export const HUD: React.FC<HUDProps> = ({
           
           <div className="w-48 flex flex-col justify-between shrink-0">
             <div className="flex justify-between items-center mb-1">
-              <div className="embossed-label text-pink-400/80 text-[9px] whitespace-nowrap">Cargo Manifest</div>
+              <div className="embossed-label text-pink-300 text-[9px] whitespace-nowrap">Cargo Manifest</div>
               <div className="text-[10px] font-mono font-bold text-pink-400 ml-1">
                 {(() => {
                   const reg = PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS;
@@ -1000,14 +1034,14 @@ export const HUD: React.FC<HUDProps> = ({
           <button
             onClick={onFeedCargo}
             disabled={carrying <= 0}
-            className={`hud-panel px-3 py-1.5 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider ${carrying > 0 ? 'border-amber-400 text-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.35)]' : 'border-zinc-800 text-zinc-600 opacity-50 cursor-not-allowed'}`}
+            className={`hud-panel px-3 py-1.5 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider ${carrying > 0 ? 'border-amber-400 text-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.35)]' : 'border-zinc-800 text-zinc-500 cursor-not-allowed'}`}
           >
             ⭐ FEED{carrying > 0 ? ` ${carrying}U` : ''}
           </button>
           <button
             onClick={onDepositBank}
             disabled={carrying <= 0}
-            className={`hud-panel px-3 py-1.5 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider ${carrying > 0 ? 'border-[#33ff33] text-[#33ff33] shadow-[0_0_10px_rgba(51,255,51,0.35)]' : 'border-zinc-800 text-zinc-600 opacity-50 cursor-not-allowed'}`}
+            className={`hud-panel px-3 py-1.5 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider ${carrying > 0 ? 'border-[#33ff33] text-[#33ff33] shadow-[0_0_10px_rgba(51,255,51,0.35)]' : 'border-zinc-800 text-zinc-500 cursor-not-allowed'}`}
           >
             🏦 BANK{carrying > 0 ? ` ${carrying}U` : ''}
           </button>
@@ -1050,14 +1084,14 @@ export const HUD: React.FC<HUDProps> = ({
       <div className="fixed top-[148px] md:top-12 left-1/2 -translate-x-1/2 z-[55] flex flex-wrap justify-center items-stretch gap-1 max-w-[97vw] pointer-events-none">
         {[
           { icon: '🚀', name: 'THRUST', lvl: upgrades.thrust, cap: caps.thrust, stat: `SPD ${(PHYSICS.MAX_VELOCITY + upgrades.thrust * 0.5).toFixed(1)}` },
-          { icon: '🕹️', name: 'TURN', lvl: upgrades.handling, cap: caps.handling, stat: `${Math.round((PHYSICS.ROTATION_SPEED + upgrades.handling * 0.005) * 60 * 180 / Math.PI)}°/S` },
+          { icon: '🕹️', name: 'TURN', lvl: upgrades.handling, cap: caps.handling, stat: `${Math.round((PHYSICS.ROTATION_SPEED * progType.turnFactor + upgrades.handling * 0.005) * 60 * 180 / Math.PI)}°/S` },
           { icon: '🧲', name: 'VAC', lvl: upgrades.attractor, cap: caps.vac, stat: `${PHYSICS.BASE_ATTRACT_RADIUS + upgrades.attractor * 35}U` },
           { icon: '⚡', name: 'FUEL', lvl: upgrades.fuelCap, cap: caps.fuel, stat: `${maxFuel}` },
           { icon: '📦', name: 'HOLD', lvl: upgrades.cargo, cap: caps.cargo, stat: `${PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS}U` },
         ].map(t => (
           <div key={t.name} className="hud-panel px-1.5 py-0.5 rounded border border-zinc-800 text-center min-w-[56px]">
-            <div className="text-[7px] sm:text-[8px] font-mono text-zinc-500 tracking-widest whitespace-nowrap">{t.icon} {t.name} · L{t.lvl}/{t.cap}</div>
-            <div className="text-[8px] sm:text-[10px] font-mono font-bold text-zinc-200 leading-tight whitespace-nowrap">{t.stat}</div>
+            <div className="text-[8px] sm:text-[9px] font-mono text-zinc-300 tracking-widest whitespace-nowrap">{t.icon} {t.name} · L{t.lvl}/{t.cap}</div>
+            <div className="text-[9px] sm:text-[11px] font-mono font-bold text-zinc-50 leading-tight whitespace-nowrap">{t.stat}</div>
           </div>
         ))}
         <div className="w-px bg-zinc-800 mx-0.5" />
@@ -1071,11 +1105,11 @@ export const HUD: React.FC<HUDProps> = ({
           const isShield = slot === 'defense' && def?.id === 'deflector_shield';
           const isDecoy = slot === 'defense' && def?.id === 'decoy_beacon';
           return (
-            <div key={slot} className={`hud-panel px-1.5 py-0.5 rounded border text-center min-w-[56px] ${def ? 'border-[#33ff33]/50' : 'border-zinc-800 opacity-50'}`}>
-              <div className="text-[7px] sm:text-[8px] font-mono text-zinc-500 tracking-widest whitespace-nowrap">
+            <div key={slot} className={`hud-panel px-1.5 py-0.5 rounded border text-center min-w-[56px] ${def ? 'border-[#33ff33]/50' : 'border-zinc-800'}`}>
+              <div className="text-[8px] sm:text-[9px] font-mono text-zinc-300 tracking-widest whitespace-nowrap">
                 {label}{def ? ` · T${tier}` : ''}{isShield ? ` · POOL ${Math.ceil(shieldHp || 0)}/${shieldMaxFor(tier)}` : ''}
               </div>
-              <div className="text-[8px] sm:text-[10px] font-mono font-bold uppercase text-[#33ff33] leading-tight whitespace-nowrap max-w-[92px] truncate">
+              <div className={`text-[8px] sm:text-[10px] font-mono font-bold uppercase leading-tight whitespace-nowrap max-w-[92px] truncate ${def ? 'text-[#33ff33]' : 'text-zinc-400'}`}>
                 {def ? `${def.icon} ${def.name}` : '— EMPTY —'}
               </div>
               {isDecoy && (
@@ -1093,7 +1127,7 @@ export const HUD: React.FC<HUDProps> = ({
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="w-full max-w-xl max-h-[90vh] flex flex-col hud-panel p-4 sm:p-6 md:p-8 border-4 relative overflow-hidden bg-zinc-950/80 shadow-[0_0_50px_rgba(51,255,51,0.15)] rounded-lg"
+            className="w-full max-w-xl max-h-[90vh] flex flex-col hud-panel hud-panel-deep p-4 sm:p-6 md:p-8 border-4 relative overflow-hidden bg-zinc-950/80 shadow-[0_0_50px_rgba(51,255,51,0.15)] rounded-lg"
           >
             <div className="absolute inset-0 bg-gradient-to-br from-[#33ff33]/5 to-transparent pointer-events-none" />
             
@@ -1146,7 +1180,7 @@ export const HUD: React.FC<HUDProps> = ({
 
               {shopTab === 'bank' && (
                 <div className="flex flex-col gap-3 overflow-y-auto pr-1 max-h-[60vh] scrollbar-thin">
-                  <p className="text-[10px] sm:text-xs opacity-70 leading-snug">
+                  <p className="text-[10px] sm:text-xs text-zinc-300 leading-snug">
                     The bank is your star's <span className="text-[#33ff33] font-bold">gravity well</span> — banked scrap
                     orbits the star (watch the motes in the ring) and is safe there: it never feeds the star on
                     its own and does not count toward milestones until you withdraw it and feed it yourself.
@@ -1187,7 +1221,7 @@ export const HUD: React.FC<HUDProps> = ({
                       ⬆ WITHDRAW (FILL HOLD)
                     </button>
                   </div>
-                  <p className="text-[9px] font-mono opacity-50">Withdraw fills the hold up to capacity (including the overload allowance). Deposit is unlimited — for now.</p>
+                  <p className="text-[9px] font-mono text-zinc-400">Withdraw fills the hold up to capacity (including the overload allowance). Deposit is unlimited — for now.</p>
                 </div>
               )}
 
@@ -1212,11 +1246,11 @@ export const HUD: React.FC<HUDProps> = ({
                             <span className="text-base">{def.icon}</span>
                             <span className="text-xs sm:text-sm font-bold uppercase text-[#33ff33]">{def.name}</span>
                           </div>
-                          <span className="text-[10px] sm:text-xs font-mono opacity-70 bg-zinc-800 px-1.5 py-0.5 rounded">
+                          <span className="text-[10px] sm:text-xs font-mono text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded">
                             {owned > 0 ? `TIER ${owned}/${MAX_ITEM_TIER}` : 'NOT OWNED'}
                           </span>
                         </div>
-                        <p className="text-[9px] sm:text-[10px] opacity-60 leading-tight">{def.desc}</p>
+                        <p className="text-[9px] sm:text-[10px] text-zinc-400 leading-tight">{def.desc}</p>
                         <div className="flex gap-1.5 mt-1 pt-1.5 border-t border-zinc-800/50">
                           <button
                             onClick={() => onBuyItem(def.id)}
@@ -1249,19 +1283,24 @@ export const HUD: React.FC<HUDProps> = ({
               {/* Upgrades List (Scrollable on small mobile screens) */}
               {shopTab === 'ship' && (
               <div className="flex flex-col gap-3 overflow-y-auto pr-1 max-h-[60vh] scrollbar-thin">
+              {shopNotice && (
+                <div className="text-[10px] sm:text-[11px] font-mono font-bold text-amber-300 border border-amber-700 bg-amber-950/40 rounded px-2 py-1.5">{shopNotice}</div>
+              )}
               {/* PROGRESSION FACES (Phase 3): the TYPE ladder, the line
                   switch with its toll, the HULL ladder, and drone builds —
                   the faces for BackGround's progression core. Every number
                   reads from src/shipProgression.ts; the shop only opens in
                   the well, and the loop re-gates each action there. */}
               <div className="pitted-metal p-3 sm:p-4 rounded-lg border border-zinc-700 flex flex-col gap-3">
-                <div className="flex justify-between items-center gap-2 flex-wrap">
-                  <span className="text-xs sm:text-sm font-bold uppercase text-[#33ff33]">🛸 {progType.name}{shipLine ? ` · ${shipLine.toUpperCase()} LINE · T${typeTier}` : ' · UNALIGNED'}</span>
-                  <span className="text-[9px] sm:text-[10px] font-mono opacity-70 bg-zinc-800 px-1.5 py-0.5 rounded">SIZE {hullSizeFor(hullSteps)} · HULL {hullSteps}/{progType.hullStepCap}</span>
-                </div>
-                <p className="text-[9px] sm:text-[10px] opacity-60 leading-tight">{capSummary(progType)} — the special is built into the frame's price, never sold separately.</p>
+                <button type="button" onClick={() => setFrameOpen(o => !o)} aria-expanded={frameOpen}
+                  className="flex justify-between items-center gap-2 flex-wrap w-full text-left touch-manipulation active:scale-[0.99]">
+                  <span className="text-xs sm:text-sm font-bold uppercase text-[#33ff33]">🛸 SHIP FRAME — {progType.name}{shipLine ? ` · ${shipLine.toUpperCase()} LINE · T${typeTier}` : ' · UNALIGNED'} {frameOpen ? '▾' : '▸ CHOOSE'}</span>
+                  <span className="text-[9px] sm:text-[10px] font-mono text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded">SIZE {hullSizeFor(hullSteps)} · HULL {hullSteps}/{progType.hullStepCap}</span>
+                </button>
+                <p className="text-[9px] sm:text-[10px] text-zinc-400 leading-tight">{capSummary(progType)} — the special is built into the frame's price, never sold separately.</p>
+                {frameOpen && (<>
 
-                {typeTier < 4 && shipLine === null && (
+                {typeTier < 5 && shipLine === null && (
                   <div className="flex flex-col gap-1.5">
                     <div className="text-[9px] font-mono text-zinc-500 tracking-widest">CHOOSE YOUR LINE — BUYING THE T2 FRAME IS THE CHOICE</div>
                     {(Object.keys(SHIP_LINES) as ShipLine[]).map(ln => {
@@ -1269,8 +1308,8 @@ export const HUD: React.FC<HUDProps> = ({
                       const price = typeStepPrice(ln, 1);
                       const afford = funds >= price;
                       return (
-                        <button key={ln} onClick={() => onBuyType(ln)} disabled={!afford}
-                          className={`pitted-metal px-3 py-2 rounded flex items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'opacity-40 grayscale cursor-not-allowed border border-zinc-800'}`}>
+                        <button key={ln} onClick={() => afford ? onBuyType(ln) : flashShopNotice(`NOT ENOUGH SCRAP — ${ln.toUpperCase()} → ${t2.name} COSTS ${price}U · YOU HAVE ${funds}U`)}
+                          className={`pitted-metal px-3 py-2 rounded flex items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
                           <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">{ln} → {t2.name}</span>
                           <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(t2)}</span>
                           <span className="text-[10px] sm:text-xs font-mono font-bold text-pink-400">{price}U</span>
@@ -1280,13 +1319,13 @@ export const HUD: React.FC<HUDProps> = ({
                   </div>
                 )}
 
-                {typeTier < 4 && shipLine !== null && (() => {
+                {typeTier < 5 && shipLine !== null && (() => {
                   const next = typeFor(shipLine, (typeTier + 1) as TypeTier);
                   const price = typeStepPrice(shipLine, typeTier);
                   const afford = funds >= price;
                   return (
-                    <button onClick={() => onBuyType()} disabled={!afford}
-                      className={`pitted-metal px-3 py-2 rounded flex items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'opacity-40 grayscale cursor-not-allowed border border-zinc-800'}`}>
+                    <button onClick={() => afford ? onBuyType() : flashShopNotice(`NOT ENOUGH SCRAP — CLIMB TO ${next.name} COSTS ${price}U · YOU HAVE ${funds}U`)}
+                      className={`pitted-metal px-3 py-2 rounded flex items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
                       <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">⬆ CLIMB → {next.name} (T{typeTier + 1})</span>
                       <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(next)} · HULL CAP {next.hullStepCap}</span>
                       <span className="text-[10px] sm:text-xs font-mono font-bold text-pink-400">{price}U</span>
@@ -1294,8 +1333,8 @@ export const HUD: React.FC<HUDProps> = ({
                   );
                 })()}
 
-                {typeTier >= 4 && (
-                  <div className="text-[10px] sm:text-xs font-mono text-amber-400">★ TOP OF THE LADDER — {progType.name} IS THE {shipLine?.toUpperCase()} LINE'S PEAK FRAME</div>
+                {typeTier >= 5 && (
+                  <div className="text-[10px] sm:text-xs font-mono text-amber-400">★ TOP OF THE LADDER — {progType.name} IS THE {shipLine?.toUpperCase()} LINE'S CROWN FRAME</div>
                 )}
 
                 {shipLine !== null && (
@@ -1305,8 +1344,8 @@ export const HUD: React.FC<HUDProps> = ({
                       {(Object.keys(SHIP_LINES) as ShipLine[]).filter(ln => ln !== shipLine).map(ln => {
                         const afford = funds >= switchCost;
                         return (
-                          <button key={ln} onClick={() => onSwitchLine(ln)} disabled={!afford}
-                            className={`flex-1 min-w-[86px] px-2 py-1.5 rounded text-[9px] sm:text-[10px] font-mono font-bold border touch-manipulation active:scale-95 ${afford ? 'bg-zinc-900 text-zinc-200 border-zinc-600' : 'bg-zinc-900 text-zinc-600 border-zinc-800 opacity-50 cursor-not-allowed'}`}>
+                          <button key={ln} onClick={() => afford ? onSwitchLine(ln) : flashShopNotice(`NOT ENOUGH SCRAP — THE SWITCH TOLL IS ${switchCost}U · YOU HAVE ${funds}U`)}
+                            className={`flex-1 min-w-[86px] px-2 py-1.5 rounded text-[9px] sm:text-[10px] font-mono font-bold border touch-manipulation active:scale-95 ${afford ? 'bg-zinc-900 text-zinc-200 border-zinc-600' : 'bg-zinc-900 text-zinc-500 border-zinc-800 cursor-not-allowed'}`}>
                             ⇄ {ln.toUpperCase()} · {switchCost === 0 ? 'FREE' : `${switchCost}U`}
                           </button>
                         );
@@ -1317,8 +1356,8 @@ export const HUD: React.FC<HUDProps> = ({
 
                 <div className="flex gap-2 flex-wrap">
                   {hullSteps < progType.hullStepCap ? (
-                    <button onClick={onBuyHullStep} disabled={funds < hullStepPrice(hullSteps)}
-                      className={`flex-1 min-w-[150px] pitted-metal px-3 py-2 rounded text-left touch-manipulation active:scale-[0.98] ${funds >= hullStepPrice(hullSteps) ? 'border border-zinc-600' : 'opacity-40 grayscale cursor-not-allowed border border-zinc-800'}`}>
+                    <button onClick={() => funds >= hullStepPrice(hullSteps) ? onBuyHullStep() : flashShopNotice(`NOT ENOUGH SCRAP — HULL STEP ${hullSteps + 1} COSTS ${hullStepPrice(hullSteps)}U · YOU HAVE ${funds}U`)}
+                      className={`flex-1 min-w-[150px] pitted-metal px-3 py-2 rounded text-left touch-manipulation active:scale-[0.98] ${funds >= hullStepPrice(hullSteps) ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
                       <div className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🔩 GROW HULL — STEP {hullSteps + 1}/{progType.hullStepCap}</div>
                       <div className="text-[8px] sm:text-[9px] font-mono text-zinc-400">SIZE {hullSizeFor(hullSteps)} → {hullSizeFor(hullSteps + 1)} · +{HULL_STEP_HEALTH} MAX HULL · <span className="text-pink-400 font-bold">{hullStepPrice(hullSteps)}U</span></div>
                     </button>
@@ -1328,12 +1367,13 @@ export const HUD: React.FC<HUDProps> = ({
                       <div className="text-[8px] sm:text-[9px] font-mono text-zinc-400">A BIGGER TYPE RAISES THE CAP — CLIMB OR SWITCH LINES</div>
                     </div>
                   )}
-                  <button onClick={onBuildDrone} disabled={playerDrones >= progType.dronesFielded || funds < DRONE_PRICE}
-                    className={`flex-1 min-w-[150px] pitted-metal px-3 py-2 rounded text-left touch-manipulation active:scale-[0.98] ${playerDrones < progType.dronesFielded && funds >= DRONE_PRICE ? 'border border-zinc-600' : 'opacity-40 grayscale cursor-not-allowed border border-zinc-800'}`}>
+                  <button onClick={() => playerDrones >= progType.dronesFielded ? flashShopNotice(`DRONE COMPLEMENT FULL — ${progType.dronesFielded} FIELDED ON THIS FRAME`) : funds >= DRONE_PRICE ? onBuildDrone() : flashShopNotice(`NOT ENOUGH SCRAP — A DRONE COSTS ${DRONE_PRICE}U · YOU HAVE ${funds}U`)}
+                    className={`flex-1 min-w-[150px] pitted-metal px-3 py-2 rounded text-left touch-manipulation active:scale-[0.98] ${playerDrones < progType.dronesFielded && funds >= DRONE_PRICE ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
                     <div className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🤖 BUILD DRONE — {playerDrones}/{progType.dronesFielded} FIELDED</div>
                     <div className="text-[8px] sm:text-[9px] font-mono text-zinc-400">HARVESTER DRONE, REPLACES LOSSES · <span className="text-pink-400 font-bold">{DRONE_PRICE}U</span></div>
                   </button>
                 </div>
+                </>)}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
@@ -1350,10 +1390,9 @@ export const HUD: React.FC<HUDProps> = ({
                   return (
                     <button 
                       key={u.type}
-                      onClick={() => onUpgrade(u.type)}
-                      disabled={!canAfford}
+                      onClick={() => maxed ? flashShopNotice(`${u.label.toUpperCase()} IS MAXED ON THIS FRAME — LVL ${u.cap} IS ITS CAP`) : canAfford ? onUpgrade(u.type) : flashShopNotice(`NOT ENOUGH SCRAP — ${u.label.toUpperCase()} LVL ${u.lvl + 1} COSTS ${cost}U · YOU HAVE ${funds}U`)}
                       className={`pitted-metal p-3 sm:p-4 flex flex-col gap-1.5 sm:gap-2 relative transition-all text-left rounded-lg touch-manipulation ${
-                        canAfford ? 'hover:bg-zinc-900 border-zinc-700 active:scale-[0.98]' : 'opacity-40 border-zinc-800 grayscale cursor-not-allowed'
+                        canAfford ? 'hover:bg-zinc-900 border-zinc-700 active:scale-[0.98]' : 'border-zinc-800 grayscale cursor-not-allowed text-zinc-500'
                       }`}
                     >
                       <div className="flex justify-between items-start">
@@ -1361,9 +1400,9 @@ export const HUD: React.FC<HUDProps> = ({
                           <span className="text-base">{u.icon}</span>
                           <span className="text-xs sm:text-sm font-bold uppercase text-[#33ff33]">{u.label}</span>
                         </div>
-                        <span className="text-[10px] sm:text-xs font-mono opacity-70 bg-zinc-800 px-1.5 py-0.5 rounded">LVL {u.lvl}/{u.cap}</span>
+                        <span className="text-[10px] sm:text-xs font-mono text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded">LVL {u.lvl}/{u.cap}</span>
                       </div>
-                      <p className="text-[9px] sm:text-[10px] opacity-60 leading-tight">{u.desc}</p>
+                      <p className="text-[9px] sm:text-[10px] text-zinc-400 leading-tight">{u.desc}</p>
                       <div className="flex justify-between items-center mt-1 pt-1.5 border-t border-zinc-800/50">
                         <span className="text-[10px] sm:text-[11px] font-mono text-pink-500 font-bold">COST: {cost}U</span>
                         <span className={`px-2.5 py-1 rounded text-[9px] sm:text-[10px] font-bold ${
@@ -1380,7 +1419,7 @@ export const HUD: React.FC<HUDProps> = ({
               )}
 
               {/* Workshop Footer */}
-              <div className="mt-4 pt-3 border-t border-zinc-800 flex justify-between items-center text-[10px] font-mono opacity-60">
+              <div className="mt-4 pt-3 border-t border-zinc-800 flex justify-between items-center text-[10px] font-mono text-zinc-400">
                 <span>[TAP OUTSIDE / X TO CLOSE]</span>
                 <span className="animate-pulse">_SCAV_OS_ACTIVE</span>
               </div>
@@ -1393,7 +1432,93 @@ export const HUD: React.FC<HUDProps> = ({
           GUIDE buttons, closes via ESC / X / backdrop. Sits at the
           BOTTOM of the dialog stack (z-105) — workshop, radar, and
           SYSCFG all layer above it and close before it. */}
-      {showGuide && <MechanicsGuide onClose={() => setShowGuide(false)} />}
+      {showGuide && <MechanicsGuide onClose={() => setShowGuide(false)} onOpenOptions={() => setShowOptions(true)} />}
+
+      {/* DISPLAY OPTIONS (Adam, 2026-10-21): reference panels only —
+          instrumentation always flies. Above the guide (z-108),
+          below the workshop; [X] / X / ESC close it back to the
+          manual via the modal rule. */}
+      {showOptions && (
+        <div className="fixed inset-0 z-[108] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md pointer-events-auto" onClick={() => setShowOptions(false)}>
+          <div className="hud-panel hud-panel-deep w-full max-w-md max-h-[88vh] overflow-y-auto p-4 sm:p-6 border-4 rounded-lg" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-2 mb-3">
+              <span className="text-xs sm:text-sm font-mono font-bold tracking-[0.25em] text-[#33ff33]">⚙ DISPLAY OPTIONS</span>
+              <button
+                onClick={() => setShowOptions(false)}
+                className="text-red-500 hover:text-red-400 text-xs font-mono font-bold px-2.5 py-1.5 bg-zinc-900 border border-red-900 rounded touch-manipulation"
+              >
+                [X]
+              </button>
+            </div>
+            <div className="flex flex-col gap-2">
+              {([
+                { key: 'controlsCard', label: 'SHIP CONTROLS CARD', blurb: 'The key reference — desktop card and the phone HELP legend.' },
+                { key: 'astroPanel', label: 'ASTRONOMIC DATA', blurb: 'Star fields, growth bands, enemy lifecycle, local nav map.' },
+                { key: 'telemetry', label: 'TELEMETRY ROWS', blurb: 'PINGS · FPS · RANGE in the comms panel. Warnings always show.' },
+                { key: 'nameplates', label: 'NAMEPLATES', blurb: 'Callsigns over remote ships in multiplayer.' },
+              ] as { key: keyof UiOptions; label: string; blurb: string }[]).map(row => (
+                <div key={row.key} className="flex items-center justify-between gap-3 border border-zinc-800 rounded px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-mono font-bold text-zinc-100">{row.label}</div>
+                    <div className="text-[9px] font-mono text-zinc-400 leading-snug">{row.blurb}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setUiOption(row.key, !uiOptions[row.key])}
+                    className={`shrink-0 px-2.5 py-1.5 rounded border font-mono text-[10px] font-bold touch-manipulation ${uiOptions[row.key] ? 'bg-emerald-950/60 text-[#33ff33] border-emerald-800' : 'bg-zinc-900 text-zinc-500 border-zinc-700'}`}
+                  >
+                    {uiOptions[row.key] ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 pt-3 border-t border-zinc-800 flex items-center justify-between gap-3">
+              <span className="text-[9px] font-mono text-zinc-500 leading-snug">Instrumentation always flies. Display only — never the sim. Saved on this device.</span>
+              <button
+                type="button"
+                onClick={() => resetUiOptions()}
+                className="shrink-0 px-2.5 py-1.5 rounded border border-zinc-700 text-zinc-300 font-mono text-[10px] font-bold touch-manipulation"
+              >
+                ALL ON
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* BUILD HISTORY (Adam, 2026-10-21): the last 20 production
+          builds, opened from SYSCFG's LAST BUILD door. Topmost in the
+          modal rule — [X] / X / ESC close it back into SYSCFG. */}
+      {showBuilds && (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md pointer-events-auto" onClick={() => setShowBuilds(false)}>
+          <div className="hud-panel hud-panel-deep w-full max-w-lg max-h-[88vh] overflow-y-auto p-4 sm:p-6 border-4 rounded-lg" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-2 mb-3">
+              <span className="text-xs sm:text-sm font-mono font-bold tracking-[0.25em] text-[#33ff33]">BUILD HISTORY — LAST {Math.min(20, BUILD_HISTORY.length)}</span>
+              <button
+                onClick={() => setShowBuilds(false)}
+                className="text-red-500 hover:text-red-400 text-xs font-mono font-bold px-2.5 py-1.5 bg-zinc-900 border border-red-900 rounded touch-manipulation"
+              >
+                [X]
+              </button>
+            </div>
+            <div className="flex flex-col gap-3">
+              {BUILD_HISTORY.slice(0, 20).map((b, i) => (
+                <div key={b.ref + b.date} className={i === 0 ? 'border-l-2 border-[#33ff33] pl-3' : 'border-l-2 border-zinc-800 pl-3'}>
+                  <div className="flex justify-between items-baseline gap-2">
+                    <span className="text-[9px] font-mono tracking-[0.2em] text-zinc-400">{b.date}</span>
+                    <span className="text-[9px] font-mono text-zinc-500">{b.ref}</span>
+                  </div>
+                  <div className="text-[11px] sm:text-xs font-mono font-bold text-zinc-100">{b.title}</div>
+                  <div className="text-[10px] font-mono text-zinc-400 leading-snug">{b.detail}</div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 pt-3 border-t border-zinc-800 text-[9px] font-mono text-zinc-500 leading-snug">
+              One entry per production build, newest first — the record appends at every merge.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* SYSCFG Popup (Responsive) */}
       {showSysCfg && (
@@ -1415,22 +1540,38 @@ export const HUD: React.FC<HUDProps> = ({
               
               <div className="space-y-2.5 font-mono text-xs">
                 <div className="flex justify-between border-b border-white/5 pb-1">
-                  <span className="opacity-40">PLATFORM_RUNTIME:</span>
+                  <span className="text-zinc-400">PLATFORM_RUNTIME:</span>
                   <span className="text-[#33ff33]">TOUCH_&_KB_ACTIVE</span>
                 </div>
                 <div className="flex justify-between border-b border-white/5 pb-1">
-                  <span className="opacity-40">ENGINE_MODEL:</span>
+                  <span className="text-zinc-400">ENGINE_MODEL:</span>
                   <span className="text-zinc-300">VITE-V5.4_CORTEX</span>
                 </div>
                 <div className="flex justify-between border-b border-white/5 pb-1">
-                  <span className="opacity-40">PHYSICS_ENGINE:</span>
+                  <span className="text-zinc-400">PHYSICS_ENGINE:</span>
                   <span className="text-zinc-300">G-CONST_PHY_MOD</span>
                 </div>
                 <div className="flex justify-between border-b border-white/5 pb-1">
-                  <span className="opacity-40">SHIP_SYSTEMS:</span>
+                  <span className="text-zinc-400">SHIP_SYSTEMS:</span>
                   <span className="text-[#33ff33]">MOD-CR90_ACTIVE</span>
                 </div>
               </div>
+
+              {/* LAST BUILD (Adam, 2026-10-21): the newest production
+                  build rides SYSCFG; the door opens the last 20. */}
+              <button
+                type="button"
+                onClick={() => setShowBuilds(true)}
+                className="mt-5 w-full text-left pitted-metal px-3 py-2.5 rounded border border-amber-900/50 touch-manipulation active:scale-[0.99]"
+              >
+                <div className="flex justify-between items-baseline gap-2">
+                  <span className="text-[9px] font-mono tracking-[0.25em] text-amber-500">LAST BUILD · {LATEST_BUILD.date}</span>
+                  <span className="text-[9px] font-mono text-zinc-400">{LATEST_BUILD.ref} ▸</span>
+                </div>
+                <div className="text-xs font-mono font-bold text-zinc-100 mt-1">{LATEST_BUILD.title}</div>
+                <div className="text-[10px] font-mono text-zinc-400 leading-snug mt-0.5 line-clamp-2">{LATEST_BUILD.detail}</div>
+                <div className="text-[9px] font-mono text-[#33ff33] mt-1.5 tracking-widest">▸ BUILD HISTORY — LAST {Math.min(20, BUILD_HISTORY.length)}</div>
+              </button>
 
               {/* Identity Plate Overlay */}
               <div className="mt-6 pt-4 border-t-2 border-zinc-900/60 flex flex-col items-center gap-2">

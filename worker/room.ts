@@ -39,6 +39,8 @@ import {
   findSeatByPlayerId,
   isClientVersionSupported,
   isHost,
+  isReservedCallsign,
+  reservedPasswordHash,
   forfeitSeat,
   kickPlayer,
   reconcileHosting,
@@ -71,6 +73,26 @@ export interface RoomInitBody {
 
 interface SocketSession {
   playerId?: string;
+  /** Last reserved-callsign password attempt on THIS connection
+   *  (ms epoch) — the 5 s attempt timer is per connection
+   *  (Adam, 2026-10-21). */
+  lastReservedAttemptAt?: number;
+}
+
+/** Adam's mitigation for the reserved-callsign password box: one
+ *  evaluated attempt per connection per this interval. Attempts
+ *  inside the window are simply not evaluated — the claim takes
+ *  the suffix path, no refusal (the wire's standing shape). */
+const RESERVED_ATTEMPT_INTERVAL_MS = 5000;
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(text),
+  );
+  return [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 const ROOM_KEY = 'room';
@@ -337,13 +359,44 @@ export class RoomDO {
       msg.playerId && msg.playerId.trim()
         ? msg.playerId
         : `player-${crypto.randomUUID()}`;
-    const claim = claimSeat(this.room, playerId, msg.callsign ?? '');
+    // RESERVED-CALLSIGN PROOF (Adam, 2026-10-21): a claim on a
+    // reserved name needs its password. The presented word is
+    // hashed here and compared against the stored hash — the raw
+    // word is never stored or echoed. Attempts are rate-limited
+    // per connection (RESERVED_ATTEMPT_INTERVAL_MS): an attempt
+    // inside the window is not evaluated at all, so the claim
+    // suffixes like any collision. An unset hash (empty in the
+    // registry) passes nobody.
+    let reservedProofOk = false;
+    const desiredCallsign = (msg.callsign ?? '').trim();
+    if (
+      msg.callsignPassword !== undefined &&
+      isReservedCallsign(desiredCallsign)
+    ) {
+      const session = this.sessionOf(ws);
+      const now = Date.now();
+      if (now - (session.lastReservedAttemptAt ?? 0) >= RESERVED_ATTEMPT_INTERVAL_MS) {
+        ws.serializeAttachment({
+          ...session,
+          lastReservedAttemptAt: now,
+        } satisfies SocketSession);
+        const expected = reservedPasswordHash(desiredCallsign);
+        if (expected) {
+          reservedProofOk =
+            (await sha256Hex(msg.callsignPassword)) === expected.toLowerCase();
+        }
+      }
+    }
+    const claim = claimSeat(this.room, playerId, msg.callsign ?? '', reservedProofOk);
     if (claim.ok === false) {
       this.send(ws, { type: 'error', code: claim.error });
       ws.close(1008, claim.error);
       return;
     }
-    ws.serializeAttachment({ playerId } satisfies SocketSession);
+    ws.serializeAttachment({
+      ...this.sessionOf(ws),
+      playerId,
+    } satisfies SocketSession);
     await this.persistRoom();
     const seat = claim.seat;
     this.send(ws, {

@@ -27,14 +27,14 @@ const Row: React.FC<{ k: string; v: string; color?: string }> = ({ k, v, color }
   </div>
 );
 
-export const MechanicsGuide: React.FC<{ onClose: () => void }> = ({ onClose }) => (
+export const MechanicsGuide: React.FC<{ onClose: () => void; onOpenOptions?: () => void }> = ({ onClose, onOpenOptions }) => (
   <div
     onClick={onClose}
     className="fixed inset-0 z-[105] flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-md pointer-events-auto"
   >
     <div
       onClick={(e: React.MouseEvent) => e.stopPropagation()}
-      className="hud-panel w-full max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6 border-4 bg-zinc-950/80 rounded-lg shadow-[0_0_50px_rgba(51,255,51,0.15)]"
+      className="hud-panel hud-panel-deep w-full max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6 border-4 bg-zinc-950/80 rounded-lg shadow-[0_0_50px_rgba(51,255,51,0.15)]"
     >
       <div className="flex items-start justify-between mb-4">
         <div>
@@ -49,6 +49,19 @@ export const MechanicsGuide: React.FC<{ onClose: () => void }> = ({ onClose }) =
           [X]
         </button>
       </div>
+
+      {/* OPTIONS door (Adam, 2026-10-21): placement pinned to the
+          FIELD MANUAL — Options opens as its own layer above this
+          manual and closes back to it. */}
+      {onOpenOptions && (
+        <button
+          onClick={onOpenOptions}
+          className="w-full mb-4 px-3 py-2.5 rounded border border-emerald-800 bg-emerald-950/40 text-left touch-manipulation active:scale-[0.99]"
+        >
+          <span className="text-[11px] font-mono font-bold text-[#33ff33] tracking-widest">⚙ DISPLAY OPTIONS</span>
+          <span className="block text-[9px] font-mono text-zinc-400 mt-0.5">Choose which reference panels fly — controls card, astronomic data, telemetry, nameplates.</span>
+        </button>
+      )}
 
       <div className="space-y-5">
         <Section title="🏆 WINNING">
@@ -77,8 +90,15 @@ export const MechanicsGuide: React.FC<{ onClose: () => void }> = ({ onClose }) =
         </Section>
 
         <Section title="🚀 SHIPS & THE WORKSHOP">
-          <p>Five ship lines — <span className="text-zinc-100">FIGHTER</span> (more hard points), <span className="text-zinc-100">MINELAYER</span> (more mines per drop), <span className="text-zinc-100">HAULER</span> (cargo + tractor reach), <span className="text-zinc-100">DRONE</span> (up to a Carrier), <span className="text-zinc-100">CRUISER</span> (up to a Dreadnought, with shipboard guns). Each line climbs types, and types cap your hull size and upgrade tracks — max a type out and the next frame up is a bigger type.</p>
+          <p>Five ship lines — <span className="text-zinc-100">FIGHTER</span> (more hard points), <span className="text-zinc-100">MINELAYER</span> (more mines per drop — and the game's submarine, below), <span className="text-zinc-100">HAULER</span> (cargo + tractor reach), <span className="text-zinc-100">DRONE</span> (up to a Mothership), <span className="text-zinc-100">CRUISER</span> (up to a Dreadnought, with shipboard guns). Each line climbs types, and types cap your hull size and upgrade tracks — max a type out and the next frame up is a bigger type.</p>
           <p>A line's special is a <span className="text-zinc-100">peak, not a lock</span>: any ship can carry mines or guns, the specialist just carries more. Switching lines costs a toll that grows with the tier you leave. The workshop (in the well) sells track upgrades, weapons, defenses, and hybrids; swapping arsenal gear costs scrap by tier.</p>
+        </Section>
+
+        <Section title="🌑 THE SUBMARINE">
+          <p>A minelayer past its Skiff — <span className="text-zinc-100">MOLE, SKULKER, SABOTEUR, NAUTILUS</span> — flies cloaked: <span className="text-zinc-100 font-bold">invisible on radar</span>, and on the field it only fades in as an enemy closes. The deeper the line climbs, the closer an enemy must be — and its nameplate fades with it.</p>
+          <p>Its <span className="text-zinc-100 font-bold">mines are cloaked the same way</span>: hidden beyond a reveal distance that shrinks as the layer climbs. Your own team's mines are always charted.</p>
+          <p><span className="text-zinc-100 font-bold">The periscope rule:</span> firing a weapon or laying a mine reveals the boat fully for about two seconds. Attacking costs the cloak, briefly — for everyone watching, at every range.</p>
+          <p><span className="text-zinc-100 font-bold">Star defenses obey it too.</span> Turrets and flares cannot engage a cloaked minelayer until it closes inside the reveal band of the star itself. And one geometry serves everyone — bots, seekers, turrets, and players all read the same reveal. Stealth gates sight, never physics: a cloaked ship still collides, still trips mines, and still takes fire aimed true.</p>
         </Section>
 
         <Section title="💀 DEATH & BUY-BACK" tag="MULTIPLAYER">

@@ -3,7 +3,8 @@ Status: Mandatory Engineering Specification
 Adapted 2026-10-21 from BioForge's Code Manifesto — Adam's constitution
 across his games, translated here to Mass Rattle's codebase and machinery.
 The ten tenets' substance and law-form are unchanged; the engine-specifics
-are this repo's own.
+are this repo's own. An eleventh tenet — on comments — is Mass Rattle's own
+addition (Adam, 2026-10-21).
 
 **Layout note.** Mass Rattle's source is organized by responsibility:
 `src/sim/` holds the pure simulation modules, `src/net/` the wire protocol
@@ -13,7 +14,7 @@ and client session, `worker/` the Cloudflare Worker and Durable Objects,
 are born as their own files in their home layer.
 
 Scope: All Code Generation, Features, Refactoring, and Architecture
-This document defines the strict architectural, style, and performance rules governing all code contributions and refactors in the Mass Rattle codebase. Every developer, agent, and reviewer must adhere strictly to these 10 tenets:
+This document defines the strict architectural, style, and performance rules governing all code contributions and refactors in the Mass Rattle codebase. Every developer, agent, and reviewer must adhere strictly to these 11 tenets:
 
 1. Guard Clauses, Fail-Fast Flow & Zero 'else' / 'else if'
 STRICT RULE: Avoid using else or else if blocks entirely across all code. Use guard clauses, early returns, and discrete, independent if checks to keep code completely flat at depth 0.
@@ -153,5 +154,9 @@ Pattern:
     return dist < star.size + 280;
   }
 
+11. Comments Carry the Why — and Explain the Obtuse
+Rule: Code says what it does. A comment earns its place in exactly three ways: (a) PROVENANCE — a ruling, its date, and its reason, cited where the decision lives ('Adam's ruling of 2026-10-21: the Rail Lance fires through stars'); (b) STATUS — a number or behavior flagged DRAFT awaiting its pin, or an invariant a future editor would otherwise 'fix' into a bug; (c) THE OBTUSE — where code is necessarily dense or clever, the comment explains the mechanism so no reader must reverse-engineer it.
+Prohibition: comments that merely restate what the code plainly says are noise and are deleted on sight; commented-out code is never committed — history remembers, the file shouldn't. A tuned constant without its provenance comment is unfinished (see Tenet 10).
+
 Verification & Compliance
-All pull requests, agent tasks, and automated refactors must verify compliance against these 10 rules prior to merging.
+All pull requests, agent tasks, and automated refactors must verify compliance against these 11 rules prior to merging.
