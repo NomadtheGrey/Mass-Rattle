@@ -5,6 +5,7 @@ import { milestonesForInfused, progressIntoNextMilestone, nextMilestoneCost, cum
 import { stageStateForInfused, type StarStageState } from '../sim/starStages';
 import { BUILD_HISTORY, LATEST_BUILD } from '../buildHistory';
 import { useUiOptions, setUiOption, resetUiOptions, type UiOptions } from '../uiOptions';
+import { DEBUG_ARMED } from '../debug';
 import type { StarStage } from '../net/protocol';
 import { STAGE_LABELS, TEAM_LABELS, TEAM_COLORS } from './lobby/lobbyTypes';
 import type { TeamId } from '../net/protocol';
@@ -182,6 +183,9 @@ interface HUDProps {
   playerDrones: number;
   playerDefenseDrones: number;
   onBuildDefenseDrone: () => void;
+  onDebugGrantScrap?: (amount: number) => void;
+  onDebugGrantFed?: (amount: number) => void;
+  onDebugJumpTo?: (line: ShipLine | null, tier: TypeTier) => void;
   onBuyType: (line?: ShipLine) => void;
   onBuyHullStep: () => void;
   onBuyTurretMount: () => void;
@@ -240,6 +244,9 @@ export const HUD: React.FC<HUDProps> = ({
   playerDrones,
   playerDefenseDrones,
   onBuildDefenseDrone,
+  onDebugGrantScrap,
+  onDebugGrantFed,
+  onDebugJumpTo,
   onBuyType,
   onBuyHullStep,
   onBuyTurretMount,
@@ -320,6 +327,10 @@ export const HUD: React.FC<HUDProps> = ({
   const nextStage = homeField.next;
   const enemyField = stageFieldFor(enemyTotalInfused);
   const [showSysCfg, setShowSysCfg] = React.useState(false);
+  // TESTER KIT feedback line (SysCfg DEV section): the kit's actions
+  // confirm in place — the workshop's notice line is not visible
+  // from inside SysCfg, so the section keeps its own.
+  const [devNote, setDevNote] = React.useState<string | null>(null);
   // BUILD HISTORY (Adam, 2026-10-21): SYSCFG wears the latest build;
   // pressing it opens the last-20 modal, stacked over SYSCFG in the
   // modal rule (it closes first, back into SYSCFG).
@@ -1756,6 +1767,61 @@ export const HUD: React.FC<HUDProps> = ({
                 <div className="text-[10px] font-mono text-zinc-400 leading-snug mt-0.5 line-clamp-2">{LATEST_BUILD.detail}</div>
                 <div className="text-[9px] font-mono text-[#33ff33] mt-1.5 tracking-widest">▸ BUILD HISTORY — LAST {Math.min(20, BUILD_HISTORY.length)}</div>
               </button>
+
+              {/* DEV — TESTER KIT (Adam's commission, 2026-10-21; state
+                  side BackGround 4650b48, surface UI lane). Renders ONLY
+                  when armed via ?debug=1 (src/debug.ts) — unarmed, this
+                  section does not exist. The hooks refuse in any
+                  networked room, so the copy says the law plainly; the
+                  fuchsia trim is deliberate — the kit is not part of
+                  the fiction's furniture and should never blend in. */}
+              {DEBUG_ARMED && (
+                <div className="mt-5 border border-fuchsia-800/70 rounded p-3 bg-fuchsia-950/15 flex flex-col gap-2.5">
+                  <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                    <span className="text-[10px] sm:text-xs font-mono font-bold tracking-widest text-fuchsia-400">🧪 DEV — TESTER KIT · ARMED</span>
+                    <span className="text-[8px] sm:text-[9px] font-mono text-fuchsia-300/70">VIA ?debug=1 · REMOVE IT FROM THE URL TO DISARM</span>
+                  </div>
+                  <p className="text-[8px] sm:text-[9px] font-mono text-zinc-400 leading-snug">
+                    SOLO ONLY — EVERY ACTION REFUSES WHILE A NETWORKED ROOM IS JOINED, HOST OR GUEST. THE FLAG LIVES IN THE URL ONLY: NEVER SAVED, NEVER IN A SNAPSHOT, NEVER ON THE WIRE. SCRAP LANDS IN THE BANK; FED RUNS THROUGH THE STAR'S REAL GROWTH (MILESTONES FOLLOW); JUMPS ARE FREE, NEED NO WELL, AND OBEY THE MOUNT GATE — A HEAVY WEAPON SHELVES INTO A LIGHT-ONLY HULL.
+                  </p>
+                  {devNote && <div className="text-[9px] sm:text-[10px] font-mono font-bold text-fuchsia-300 border border-fuchsia-800/60 bg-fuchsia-950/30 rounded px-2 py-1">{devNote}</div>}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[9px] font-mono text-zinc-400 w-full">GRANT SCRAP → BANK</span>
+                    {[100, 1000].map(n => (
+                      <button key={n} onClick={() => { onDebugGrantScrap?.(n); setDevNote(`🧪 +${n} SCRAP → BANK`); }}
+                        className="px-2.5 py-1.5 rounded bg-zinc-900 border border-fuchsia-800/70 text-fuchsia-300 text-[10px] font-mono font-bold touch-manipulation active:scale-95">+{n}U</button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[9px] font-mono text-zinc-400 w-full">GRANT FED → HOME STAR</span>
+                    {[250, 1000].map(n => (
+                      <button key={n} onClick={() => { onDebugGrantFed?.(n); setDevNote(`🧪 +${n} FED → HOME STAR — WATCH IT GROW`); }}
+                        className="px-2.5 py-1.5 rounded bg-zinc-900 border border-fuchsia-800/70 text-fuchsia-300 text-[10px] font-mono font-bold touch-manipulation active:scale-95">+{n} FED</button>
+                    ))}
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-[9px] font-mono text-zinc-400">JUMP TO FRAME — ONE TAP, ANY HULL</span>
+                    <button onClick={() => { onDebugJumpTo?.(null, 1); setDevNote('🧪 JUMPED → SKIFF (UNALIGNED T1)'); }}
+                      className={`px-2.5 py-1.5 rounded text-left text-[10px] font-mono font-bold border touch-manipulation active:scale-95 ${shipLine === null ? 'bg-fuchsia-900/50 border-fuchsia-500 text-fuchsia-200' : 'bg-zinc-900 border-zinc-700 text-zinc-300'}`}>
+                      SKIFF · T1 — UNALIGNED
+                    </button>
+                    {(Object.keys(SHIP_LINES) as ShipLine[]).map(ln => (
+                      <div key={ln} className="flex items-center gap-1 flex-wrap">
+                        <span className="text-[8px] sm:text-[9px] font-mono font-bold text-zinc-400 w-[74px]">{ln.toUpperCase()}</span>
+                        {([2, 3, 4, 5] as TypeTier[]).map(t => {
+                          const here = shipLine === ln && typeTier === t;
+                          return (
+                            <button key={t} onClick={() => { onDebugJumpTo?.(ln, t); setDevNote(`🧪 JUMPED → ${typeFor(ln, t).name} (${ln.toUpperCase()} T${t})`); }}
+                              className={`flex-1 min-w-[62px] px-1.5 py-1.5 rounded text-[8px] sm:text-[9px] font-mono font-bold border touch-manipulation active:scale-95 ${here ? 'bg-fuchsia-900/50 border-fuchsia-500 text-fuchsia-200' : 'bg-zinc-900 border-zinc-700 text-zinc-300'}`}>
+                              {typeFor(ln, t).name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Identity Plate Overlay */}
               <div className="mt-6 pt-4 border-t-2 border-zinc-900/60 flex flex-col items-center gap-2">

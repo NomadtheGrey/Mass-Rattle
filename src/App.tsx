@@ -72,6 +72,9 @@ export default function App() {
     buyHullStep,
     buyTurretMount,
     buildDefenseDrone,
+    debugGrantScrap,
+    debugGrantFed,
+    debugJumpTo,
     switchLine,
     buildDrone,
     repurchaseShip,
@@ -248,6 +251,9 @@ export default function App() {
         playerDrones={state.drones.filter(d => d.owner === 'player' && d.mode !== 'defense').length}
         playerDefenseDrones={state.drones.filter(d => d.owner === 'player' && d.mode === 'defense').length}
         onBuildDefenseDrone={buildDefenseDrone}
+        onDebugGrantScrap={debugGrantScrap}
+        onDebugGrantFed={debugGrantFed}
+        onDebugJumpTo={debugJumpTo}
         onBuyType={buyType}
         onBuyHullStep={buyHullStep}
         onBuyTurretMount={buyTurretMount}
