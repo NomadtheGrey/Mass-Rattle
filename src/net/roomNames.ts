@@ -8,21 +8,31 @@
  * lists and can never drift apart. Two-word galactic pulp: any FIRST
  * pairs with any SECOND. Keep names <= 24 chars (the lobby field's
  * maxLength) — the longest current pairing is 17.
+ *
+ * The lists are the UNION of both lanes' drafts (the UI lane's noun
+ * pulp + the BackGround lane's rowdier set, merged 2026-10-21 after
+ * the two were briefly written in parallel — the drift this module
+ * exists to prevent).
  */
 export const ROOM_NAME_FIRST: readonly string[] = [
   'Star', 'Fat', 'Iron', 'Void', 'Solar', 'Rogue',
-  'Crimson', 'Silent', 'Golden', 'Cosmic', 'Rusty', 'Neon',
-  'Lone', 'Savage', 'Electric', 'Hollow', 'Burning', 'Frozen',
-  'Astral', 'Velvet', 'Grim', 'Howling', 'Patient', 'Reckless',
-  'Ancient', 'Midnight',
+  'Cosmic', 'Rusty', 'Silent', 'Velvet', 'Crimson', 'Golden',
+  'Neon', 'Lone', 'Savage', 'Electric', 'Hollow', 'Burning',
+  'Frozen', 'Astral', 'Grim', 'Howling', 'Patient', 'Reckless',
+  'Ancient', 'Midnight', 'Ship', 'Nova', 'Plasma', 'Nebula',
+  'Lunar', 'Warp', 'Astro', 'Quantum', 'Diesel', 'Thunder',
+  'Soggy', 'Angry', 'Drunken', 'Turbo', 'Mega',
 ];
 
 export const ROOM_NAME_SECOND: readonly string[] = [
-  'Killer', 'Hauler', 'Comet', 'Anvil', 'Mule', 'Serpent',
-  'Forge', 'Ghost', 'Harvest', 'Vandal', 'Pilgrim', 'Kraken',
-  'Barge', 'Warden', 'Tempest', 'Coyote', 'Monolith', 'Drifter',
+  'Killer', 'Hauler', 'Drifter', 'Comet', 'Anvil', 'Mule',
+  'Serpent', 'Forge', 'Ghost', 'Harvest', 'Vandal', 'Pilgrim',
+  'Kraken', 'Barge', 'Warden', 'Tempest', 'Coyote', 'Monolith',
   'Requiem', 'Jackal', 'Choir', 'Sextant', 'Marrow', 'Tinker',
-  'Verdict', 'Lantern',
+  'Verdict', 'Lantern', 'Basher', 'Mauler', 'Eater', 'Runner',
+  'Wraith', 'Gobbler', 'Smasher', 'Cruiser', 'Wanderer', 'Chomper',
+  'Brawler', 'Sneaker', 'Howler', 'Muncher', 'Prowler', 'Grinder',
+  'Dasher', 'Lurker', 'Bouncer',
 ];
 
 /** A random two-word room name, e.g. "Fat Hauler". */
