@@ -412,8 +412,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       // appeared to orbit while the sim fired from fixed angles.)
       // Hub box grows a little per tier, matching its fire stats.
       // DRAWN LAST IN THE STAR BLOCK (Adam's live-test ticket,
-      // 2026-10-21): the hub orbits OUTSIDE the body (inner ring =
-      // size + 15) — it was never inside the star, it was UNDER its
+      // 2026-10-21): the hub orbits OUTSIDE the body, on rings that
+      // STAND OFF the visible surface (Adam's paired ruling — the
+      // pads live in PHYSICS.STAR_DEFENSE as INNER_RING_PAD /
+      // OUTER_RING_PAD and are read through turretRingRadius, the
+      // same helper the sim fires from) — it was never inside the
+      // star, it was UNDER its
       // light: the noise flares, the core gradient's rim and the CME
       // agitation all painted over a 10px dark box, and a gun you
       // can't see feels like cheating when it kills you. So the hub
