@@ -27,7 +27,7 @@ const Row: React.FC<{ k: string; v: string; color?: string }> = ({ k, v, color }
   </div>
 );
 
-export const MechanicsGuide: React.FC<{ onClose: () => void }> = ({ onClose }) => (
+export const MechanicsGuide: React.FC<{ onClose: () => void; onOpenOptions?: () => void }> = ({ onClose, onOpenOptions }) => (
   <div
     onClick={onClose}
     className="fixed inset-0 z-[105] flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-md pointer-events-auto"
@@ -49,6 +49,19 @@ export const MechanicsGuide: React.FC<{ onClose: () => void }> = ({ onClose }) =
           [X]
         </button>
       </div>
+
+      {/* OPTIONS door (Adam, 2026-10-21): placement pinned to the
+          FIELD MANUAL — Options opens as its own layer above this
+          manual and closes back to it. */}
+      {onOpenOptions && (
+        <button
+          onClick={onOpenOptions}
+          className="w-full mb-4 px-3 py-2.5 rounded border border-emerald-800 bg-emerald-950/40 text-left touch-manipulation active:scale-[0.99]"
+        >
+          <span className="text-[11px] font-mono font-bold text-[#33ff33] tracking-widest">⚙ DISPLAY OPTIONS</span>
+          <span className="block text-[9px] font-mono text-zinc-400 mt-0.5">Choose which reference panels fly — controls card, astronomic data, telemetry, nameplates.</span>
+        </button>
+      )}
 
       <div className="space-y-5">
         <Section title="🏆 WINNING">

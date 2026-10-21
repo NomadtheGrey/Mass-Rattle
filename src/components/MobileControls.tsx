@@ -1,6 +1,7 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { Rocket, Magnet, Disc, Wrench, Navigation, Gauge, ChevronLeft, ChevronRight, Download, Upload, Landmark, Radio, Info, Star } from 'lucide-react';
 import { getLoadoutItem } from '../loadout';
+import { useUiOptions } from '../uiOptions';
 
 interface MobileControlsProps {
   onControlChange: (action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison' | 'fire', active: boolean) => void;
@@ -51,6 +52,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
   // Touch-controls legend (HELP button in the top row): the phone's
   // CONTROLS card — closed by default, so it costs no screen until asked.
   const [showHelp, setShowHelp] = useState(false);
+  const uiOptions = useUiOptions();
   const joystickRef = useRef<HTMLDivElement>(null);
   const [stickActive, setStickActive] = useState(false);
   const [stickPos, setStickPos] = useState({ x: 0, y: 0 });
@@ -177,7 +179,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
               triggerHaptic(10);
               setShowHelp(prev => !prev);
             }}
-            className={`pitted-metal px-2.5 py-1.5 flex items-center gap-1.5 text-[10px] font-mono border bg-zinc-900/70 active:scale-95 transition-transform shadow-md rounded ${showHelp ? 'text-white border-[#33ff33]' : 'text-[#33ff33] border-zinc-700'}`}
+            className={`pitted-metal px-2.5 py-1.5 flex items-center gap-1.5 text-[10px] font-mono border bg-zinc-900/70 active:scale-95 transition-transform shadow-md rounded ${showHelp ? 'text-white border-[#33ff33]' : 'text-[#33ff33] border-zinc-700'} ${uiOptions.controlsCard ? '' : 'hidden'}`}
             title="Touch controls legend"
           >
             <Info size={12} className="text-amber-400" />
@@ -201,7 +203,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
       {/* Touch-controls legend — the phone CONTROLS card. Rows describe
           the tiles as they actually behave now (contextual included):
           if a tile is not on screen, it is not usable right now. */}
-      {showHelp && (
+      {showHelp && uiOptions.controlsCard && (
         <div className="mx-1 mb-2 pitted-metal border border-zinc-700 bg-zinc-950/85 rounded p-3 pointer-events-auto shadow-2xl">
           <div className="text-[8px] font-mono font-bold tracking-[0.25em] text-zinc-500 mb-1.5">TOUCH CONTROLS</div>
           <div className="flex flex-col gap-1">

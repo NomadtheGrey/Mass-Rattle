@@ -4,6 +4,7 @@ import { COLORS, PHYSICS } from '../constants';
 import { BANK_WELL_MARGIN } from '../bank';
 import { shieldMaxFor, PD_RANGE } from '../loadout';
 import { turretRingRadius } from '../starDefense';
+import { getUiOptions } from '../uiOptions';
 import { typeFor } from '../shipProgression';
 import { stageStateForInfused } from '../sim/starStages';
 
@@ -1123,7 +1124,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
     // NAMEPLATE: the callsign exactly as issued (bots read BOT-<n>)
     // in the seat's team color. Solo passes no labels; nothing here
     // draws there.
-    if (seatLabels) {
+    if (seatLabels && getUiOptions().nameplates) {
       const plateFor = (sx: number, sy: number, size: number, ownerId: string) => {
         const label = seatLabels[ownerId];
         if (!label) return;

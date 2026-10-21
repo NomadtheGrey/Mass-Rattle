@@ -4,6 +4,7 @@ import { PHYSICS } from '../constants';
 import { milestonesForInfused, progressIntoNextMilestone, nextMilestoneCost, cumulativeCostForMilestones } from '../starGrowth';
 import { stageStateForInfused, type StarStageState } from '../sim/starStages';
 import { BUILD_HISTORY, LATEST_BUILD } from '../buildHistory';
+import { useUiOptions, setUiOption, resetUiOptions, type UiOptions } from '../uiOptions';
 import type { StarStage } from '../net/protocol';
 import { STAGE_LABELS, TEAM_LABELS, TEAM_COLORS } from './lobby/lobbyTypes';
 import type { TeamId } from '../net/protocol';
@@ -285,6 +286,11 @@ export const HUD: React.FC<HUDProps> = ({
   // pressing it opens the last-20 modal, stacked over SYSCFG in the
   // modal rule (it closes first, back into SYSCFG).
   const [showBuilds, setShowBuilds] = React.useState(false);
+  // DISPLAY OPTIONS (Adam, 2026-10-21): the FIELD MANUAL's OPTIONS
+  // door opens this layer above the guide; the toggles gate reference
+  // surfaces only and persist on-device (src/uiOptions.ts).
+  const [showOptions, setShowOptions] = React.useState(false);
+  const uiOptions = useUiOptions();
   const [showGuide, setShowGuide] = React.useState(false);
   // Workshop tabs: the five base ship tracks, then the Arsenal categories.
   const [shopTab, setShopTab] = React.useState<'ship' | 'bank' | ArsenalCategory>('ship');
@@ -309,7 +315,7 @@ export const HUD: React.FC<HUDProps> = ({
   // THE MODAL RULE (Adam, 2026-10-20 + 2026-10-21): every modal popup
   // exits three ways — its corner [X] button, the X key, and ESC —
   // and one press closes the TOPMOST modal only (build history over
-  // SYSCFG, then SYSCFG, workshop, radar, the mechanics guide).
+  // SYSCFG, then SYSCFG, workshop, radar, OPTIONS, the guide).
   // Closing lives in ONE capture-
   // phase listener: it fires before the game loop's own key handling,
   // and stopPropagation seals the key there, so an X pressed over a
@@ -317,7 +323,7 @@ export const HUD: React.FC<HUDProps> = ({
   // and an ESC cannot fall through to anything else. The results
   // screen is deliberately NOT in this chain — it is the match end,
   // a state rather than a popup, and its exit is the restart button.
-  const anyModalOpen = showBuilds || showSysCfg || isShopOpen || radarActive || showGuide;
+  const anyModalOpen = showBuilds || showSysCfg || isShopOpen || radarActive || showOptions || showGuide;
   const closeTopmost = React.useCallback(() => {
     if (showBuilds) { setShowBuilds(false); return; }
     if (showSysCfg) { setShowSysCfg(false); return; }
@@ -327,8 +333,9 @@ export const HUD: React.FC<HUDProps> = ({
       setLocalRadarOpen(false);
       return;
     }
+    if (showOptions) { setShowOptions(false); return; }
     if (showGuide) { setShowGuide(false); }
-  }, [showBuilds, showSysCfg, isShopOpen, onCloseShop, radarActive, onToggleMobileRadar, showGuide]);
+  }, [showBuilds, showSysCfg, isShopOpen, onCloseShop, radarActive, onToggleMobileRadar, showOptions, showGuide]);
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const isEsc = e.key === 'Escape';
@@ -594,6 +601,7 @@ export const HUD: React.FC<HUDProps> = ({
 
       {/* DESKTOP LEFT ASIDE (Hidden on phones) */}
       <aside className="hidden md:flex w-48 min-w-[192px] flex-col gap-4">
+        {uiOptions.astroPanel && (
         <div className="hud-panel p-4 border-4">
           <div className="absolute top-0 right-0 p-1 text-[10px] text-[#2d2d30]">MOD-CR90</div>
           <h2 className="mb-4 pb-1 font-bold">
@@ -690,6 +698,7 @@ export const HUD: React.FC<HUDProps> = ({
             </div>
           </div>
         </div>
+        )}
 
         <div className="hud-panel p-4 flex-grow border-4 overflow-hidden relative">
           <h2 className="mb-4 pb-1 font-bold">
@@ -715,10 +724,12 @@ export const HUD: React.FC<HUDProps> = ({
               {fuel < 20 && <p className="text-red-500 animate-pulse font-bold">[ERR] FUEL DEPLETED</p>}
               {glitch && <p className="text-yellow-500">[DATA] SENSORS RECALIBRATING...</p>}
               <div className="border-t border-zinc-800/70 pt-1.5 mt-1 space-y-0.5 text-[10px]">
+                {uiOptions.telemetry && (<>
                 <div className="flex justify-between"><span className="text-zinc-400">PINGS</span><span>{pingMs}ms</span></div>
                 <div className="flex justify-between"><span className="text-zinc-400">FPS</span><span>{fpsRef.current.fps || '—'}</span></div>
                 <div className="flex justify-between"><span className="text-zinc-400">RANGE · HOME</span><span className="text-orange-400">{rangeHome}U</span></div>
                 <div className="flex justify-between"><span className="text-zinc-400">RANGE · ENEMY</span><span className="text-red-400">{rangeEnemy}U</span></div>
+                </>)}
                 <div className="flex justify-between"><span className="text-zinc-400">FIELD SCRAP</span><span className="text-pink-400">{scrapList.length}</span></div>
                 <div className="flex justify-between"><span className="text-zinc-400">MISSION T+</span><span>{missionClock}</span></div>
               </div>
@@ -741,6 +752,7 @@ export const HUD: React.FC<HUDProps> = ({
           {/* CONTROLS CARD — bottom-left of the play area (desktop).
               Replaces the stale 20%-opacity help footer that lived in
               App.tsx and never learned FIRE [F] or DECOY [X]. */}
+          {uiOptions.controlsCard && (
           <div className="absolute bottom-0 left-0 pointer-events-auto">
             <div className="hud-panel border-2 bg-zinc-950/55 shadow-2xl px-3 py-2 min-w-[176px]">
               <div className="text-[8px] font-mono font-bold tracking-[0.25em] text-zinc-400 mb-1.5">SHIP CONTROLS</div>
@@ -754,6 +766,7 @@ export const HUD: React.FC<HUDProps> = ({
               </div>
             </div>
           </div>
+          )}
 
           {/* Utility Cluster */}
           <div className="absolute bottom-0 right-0 w-24 flex flex-col gap-2 items-end">
@@ -1419,7 +1432,59 @@ export const HUD: React.FC<HUDProps> = ({
           GUIDE buttons, closes via ESC / X / backdrop. Sits at the
           BOTTOM of the dialog stack (z-105) — workshop, radar, and
           SYSCFG all layer above it and close before it. */}
-      {showGuide && <MechanicsGuide onClose={() => setShowGuide(false)} />}
+      {showGuide && <MechanicsGuide onClose={() => setShowGuide(false)} onOpenOptions={() => setShowOptions(true)} />}
+
+      {/* DISPLAY OPTIONS (Adam, 2026-10-21): reference panels only —
+          instrumentation always flies. Above the guide (z-108),
+          below the workshop; [X] / X / ESC close it back to the
+          manual via the modal rule. */}
+      {showOptions && (
+        <div className="fixed inset-0 z-[108] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md pointer-events-auto" onClick={() => setShowOptions(false)}>
+          <div className="hud-panel hud-panel-deep w-full max-w-md max-h-[88vh] overflow-y-auto p-4 sm:p-6 border-4 rounded-lg" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-2 mb-3">
+              <span className="text-xs sm:text-sm font-mono font-bold tracking-[0.25em] text-[#33ff33]">⚙ DISPLAY OPTIONS</span>
+              <button
+                onClick={() => setShowOptions(false)}
+                className="text-red-500 hover:text-red-400 text-xs font-mono font-bold px-2.5 py-1.5 bg-zinc-900 border border-red-900 rounded touch-manipulation"
+              >
+                [X]
+              </button>
+            </div>
+            <div className="flex flex-col gap-2">
+              {([
+                { key: 'controlsCard', label: 'SHIP CONTROLS CARD', blurb: 'The key reference — desktop card and the phone HELP legend.' },
+                { key: 'astroPanel', label: 'ASTRONOMIC DATA', blurb: 'Star fields, growth bands, enemy lifecycle, local nav map.' },
+                { key: 'telemetry', label: 'TELEMETRY ROWS', blurb: 'PINGS · FPS · RANGE in the comms panel. Warnings always show.' },
+                { key: 'nameplates', label: 'NAMEPLATES', blurb: 'Callsigns over remote ships in multiplayer.' },
+              ] as { key: keyof UiOptions; label: string; blurb: string }[]).map(row => (
+                <div key={row.key} className="flex items-center justify-between gap-3 border border-zinc-800 rounded px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-mono font-bold text-zinc-100">{row.label}</div>
+                    <div className="text-[9px] font-mono text-zinc-400 leading-snug">{row.blurb}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setUiOption(row.key, !uiOptions[row.key])}
+                    className={`shrink-0 px-2.5 py-1.5 rounded border font-mono text-[10px] font-bold touch-manipulation ${uiOptions[row.key] ? 'bg-emerald-950/60 text-[#33ff33] border-emerald-800' : 'bg-zinc-900 text-zinc-500 border-zinc-700'}`}
+                  >
+                    {uiOptions[row.key] ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 pt-3 border-t border-zinc-800 flex items-center justify-between gap-3">
+              <span className="text-[9px] font-mono text-zinc-500 leading-snug">Instrumentation always flies. Display only — never the sim. Saved on this device.</span>
+              <button
+                type="button"
+                onClick={() => resetUiOptions()}
+                className="shrink-0 px-2.5 py-1.5 rounded border border-zinc-700 text-zinc-300 font-mono text-[10px] font-bold touch-manipulation"
+              >
+                ALL ON
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* BUILD HISTORY (Adam, 2026-10-21): the last 20 production
           builds, opened from SYSCFG's LAST BUILD door. Topmost in the
