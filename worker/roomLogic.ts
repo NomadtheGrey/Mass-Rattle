@@ -50,6 +50,7 @@ import type {
   StarCount,
   TeamId,
 } from '../src/net/protocol';
+import reservedCallsignsData from './reserved-callsigns.json';
 
 /** Host heartbeat cadence (design draft §6, DRAFT numbers): the host
  *  client beats every HEARTBEAT_INTERVAL_MS; the DO promotes after
@@ -322,11 +323,14 @@ export type ClaimOutcome =
  * the name is held for the owner, not merely first-come. An empty
  * owner value means the pin has not been captured yet — the name
  * is then protected from EVERYONE (suffix-for-all) until Adam's
- * playerId is pinned here, a one-line change.
+ * playerId is pinned for him. THE DATA IS A FILE, not code
+ * (Adam, 2026-10-21): worker/reserved-callsigns.json maps each
+ * reserved name to its owner's playerId — pinning is a one-line
+ * edit to that JSON, never a logic change.
  */
-export const RESERVED_CALLSIGNS: ReadonlyMap<string, string> = new Map([
-  ['nomad', ''],
-]);
+export const RESERVED_CALLSIGNS: ReadonlyMap<string, string> = new Map(
+  Object.entries(reservedCallsignsData as Record<string, string>),
+);
 
 function isReservedForOthers(
   desired: string,
