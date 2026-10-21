@@ -74,8 +74,12 @@ export const RESPAWN_WAIT_BASE_MS = 5000;
  *  the wait. Whether the tax grows at all is Adam's open number —
  *  it is one constant, and 0 flattens it. */
 export const RESPAWN_WAIT_PER_DEATH_MS = 1000;
-/** DRAFT: the wait never exceeds this, however often a seat dies. */
-export const RESPAWN_WAIT_MAX_MS = 10000;
+/** PINNED (Adam, 2026-10-21): the wait never exceeds 30 seconds,
+ *  however often a seat dies. His reasoning: the per-death price
+ *  discount could otherwise be farmed by deliberate repeat deaths
+ *  ("shills") — a wait climbing toward a 30 s ceiling makes the
+ *  farming cost real time. */
+export const RESPAWN_WAIT_MAX_MS = 30000;
 
 /**
  * The death-tax wait for a seat's NEXT paid repurchase, from its
