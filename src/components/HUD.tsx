@@ -1408,13 +1408,17 @@ export const HUD: React.FC<HUDProps> = ({
                       {(Object.keys(SHIP_LINES) as ShipLine[]).filter(ln => ln !== shipLine).map(ln => {
                         const afford = funds >= switchCost;
                         const equippedCls = weaponClassFor(loadout.weapon);
+                        // Slice 4's close (BackGround, c7d69fa): a weapon
+                        // the target hull can't mount SHELVES on the
+                        // switch — slot empties, item stays owned. The
+                        // warning names that outcome before the toll.
                         const targetGateWarn = !!equippedCls && !lineMountsClass(ln, typeTier, equippedCls);
                         return (
                           <button key={ln} onClick={() => afford ? onSwitchLine(ln) : flashShopNotice(`NOT ENOUGH SCRAP — THE SWITCH TOLL IS ${switchCost}U · YOU HAVE ${funds}U`)}
                             className={`flex-1 min-w-[86px] px-2 py-1.5 rounded text-[9px] sm:text-[10px] font-mono font-bold border touch-manipulation active:scale-95 flex flex-col items-center justify-center gap-0.5 ${afford ? 'bg-zinc-900 text-zinc-200 border-zinc-600' : 'bg-zinc-900 text-zinc-500 border-zinc-800 cursor-not-allowed'}`}>
                             <span>⇄ {ln.toUpperCase()} · {switchCost === 0 ? 'FREE' : `${switchCost}U`}</span>
                             {targetGateWarn && (
-                              <span className="text-[7px] sm:text-[8px] text-amber-400 tracking-normal">⚠ EQUIPPED {equippedCls!.toUpperCase()} WON'T MOUNT THERE</span>
+                              <span className="text-[7px] sm:text-[8px] text-amber-400 tracking-normal">⚠ EQUIPPED {equippedCls!.toUpperCase()} SHELVES THERE — STAYS OWNED, RE-EQUIPS ON A HULL THAT MOUNTS IT</span>
                             )}
                           </button>
                         );
