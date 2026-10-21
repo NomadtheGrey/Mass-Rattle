@@ -182,10 +182,11 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hardPoints: 2, autoGuns: 0, minesPerDrop: 2, dronesFielded: 2, cargoBonus: 12, vacBonus: 60,
       },
       {
-        // T5 CROWN — NAME UNSETTLED (draft placeholder, Adam's pick
-        // pending): BEHEMOTH (the beast register completes Mule /
-        // Mammoth / Leviathan) vs ATLAS — both liked by Adam.
-        name: 'BEHEMOTH',
+        // T5 CROWN — ATLAS (Adam, adopted 2026-10-21: 'That's even
+        // better for the Hauler T5'): the beast ladder tops out in
+        // the Titan who carries the world — the hauler's whole job,
+        // crowned. BEHEMOTH was the runner-up.
+        name: 'ATLAS',
         hullStepCap: 12,
         // PEAK: vac + cargo (+3 over the T5 baseline).
         trackCaps: { thrust: 16, handling: 16, vac: 16, fuel: 13, cargo: 16 },
