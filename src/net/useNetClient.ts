@@ -283,12 +283,14 @@ export function useNetClient(): NetSession {
           // server ANSWERED and refused — say so honestly, with its
           // reason. The connection wording below is reserved for when
           // no answer ever arrived. A refusal is not a connection.
+          // The shape is PINNED (BackGround, 2026-10-21): {error: code}
+          // is the whole body — no human detail field exists, and if
+          // one ever ships it arrives as an announced contract change.
+          // The copy keys off the code alone; nothing speculative.
           let code = '';
-          let detail = '';
           try {
-            const e = (await res.json()) as { error?: string; detail?: string };
+            const e = (await res.json()) as { error?: string };
             code = typeof e.error === 'string' ? e.error : '';
-            detail = typeof e.detail === 'string' ? e.detail : '';
           } catch { /* an unparseable refusal is still a refusal */ }
           setClientState({ connection: 'idle', lastError: null });
           if (code === 'version_mismatch') {
@@ -304,7 +306,7 @@ export function useNetClient(): NetSession {
             // curiosity, honest enough to name.
             setNotice('THE SERVER COULD NOT MINT A ROOM CODE — TRY AGAIN IN A MOMENT');
           } else {
-            setNotice(`THE SERVER REFUSED THAT ROOM${detail ? ` — ${detail.toUpperCase()}` : ''} (ERROR ${res.status}) — TRY AGAIN`);
+            setNotice(`THE SERVER REFUSED THAT ROOM (ERROR ${res.status}) — TRY AGAIN`);
           }
           return;
         }
