@@ -8,6 +8,7 @@ import { ownerIdForSeat, starIdForSeat } from '../sim/ownership';
 import { createMatchLayout, DEFAULT_MATCH_SEED } from '../sim/matchInit';
 import { advanceSeatTracking, createSeatSimState, createStarterShip } from '../sim/seatState';
 import { stepBotShip } from '../sim/botDriver';
+import { DEBUG_ARMED } from '../debug';
 import { stepStarBurn, stepShipPhysics, ShipPhysicsInputs } from '../sim/physics';
 import { createMatch } from '../sim/matchAssembly';
 import type { NetSession } from '../net/useNetClient';
@@ -548,6 +549,67 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       const ship = { ...prev.ship, carrying: payment.carrying, line, lineSwitchesUsed: prev.ship.lineSwitchesUsed + 1, loadout: mountableLoadout(line, prev.ship.typeTier, prev.ship.loadout) };
       ship.attractRadius = attractRadiusForShip(ship.upgrades.attractor, ship.line, ship.typeTier);
       return { ...prev, ship, bankedScrap: payment.banked, glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
+    });
+  }, []);
+
+  // =====================================================================
+  // DEBUG KIT (Adam's tester kit, 2026-10-21) — see src/debug.ts for
+  // the arming contract. EVERY action below carries the same double
+  // guard: the kit must be ARMED (?debug=1) AND this client must not
+  // be in a networked room (host or guest — netRef.current.room is
+  // the loop's networked signal). A refused call changes nothing.
+  // The SysCfg DEV section (UI's surface) renders only when armed
+  // and calls exactly these three hooks.
+  // =====================================================================
+
+  /** GRANT SCRAP: top up the bank (the wallet every purchase reads). */
+  const debugGrantScrap = useCallback((amount: number) => {
+    if (!DEBUG_ARMED || netRef.current?.room) return;
+    if (!(amount > 0)) return;
+    setState(prev => ({ ...prev, bankedScrap: prev.bankedScrap + amount }));
+  }, []);
+
+  /**
+   * GRANT FED: infuse the home star on demand — the same infusion a
+   * delivery runs (milestones, mass, size all follow through the
+   * growth functions; the per-frame reconciliation walks the stages
+   * and turret ladder from there). The star's own growth record is
+   * what grows; teamScrap (the seat's hand-fed counter) is untouched
+   * — no hands did this feeding.
+   */
+  const debugGrantFed = useCallback((amount: number) => {
+    if (!DEBUG_ARMED || netRef.current?.room) return;
+    if (!(amount > 0)) return;
+    setState(prev => {
+      const star = { ...prev.star };
+      infuseStar(star, amount);
+      return { ...prev, star, glitchActive: true, lastGlitchTime: performance.now() };
+    });
+  }, []);
+
+  /**
+   * LINE/TIER JUMP: sit in any hull instantly. The derivation is
+   * buyType's, minus the toll and the well: line + tier set, the
+   * VAC bonus follows via attractRadius, and the equipped weapon
+   * rides through mountableLoadout — jumping into a light-only hull
+   * SHELVES a heavy weapon (slice 4's law, no debug exception).
+   * Tier 1 is the SKIFF: line clears to unaligned. Hull steps, track
+   * levels, cargo and the bank all ride — the jump exercises the
+   * TABLES at the destination, not a fresh frame.
+   */
+  const debugJumpTo = useCallback((line: ShipLine | null, tier: TypeTier) => {
+    if (!DEBUG_ARMED || netRef.current?.room) return;
+    setState(prev => {
+      const targetLine = tier === 1 ? null : line;
+      if (targetLine === prev.ship.line && tier === prev.ship.typeTier) return prev;
+      const ship = {
+        ...prev.ship,
+        line: targetLine,
+        typeTier: tier,
+        loadout: mountableLoadout(targetLine, tier, prev.ship.loadout),
+      };
+      ship.attractRadius = attractRadiusForShip(ship.upgrades.attractor, ship.line, ship.typeTier);
+      return { ...prev, ship, glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
     });
   }, []);
 
@@ -2227,6 +2289,9 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     switchLine,
     buildDrone,
     buildDefenseDrone,
+    debugGrantScrap,
+    debugGrantFed,
+    debugJumpTo,
     repurchaseShip,
     feedCargo,
     depositBank, 
