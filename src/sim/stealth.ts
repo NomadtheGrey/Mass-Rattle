@@ -58,13 +58,21 @@ export interface StealthBand {
   mineReveal: number;
 }
 
-/** Per type tier of the minelayer line (T1 Skiff has no line yet). */
+/**
+ * Per type tier of the minelayer line (T1 Skiff has no line yet).
+ * THE ONE GEOMETRY TABLE (Adam's shared-geometry ruling): the
+ * renderer (src/cloak.ts) imports these bands — its own file
+ * holds presentation only (ghost styling, floors, plate
+ * threshold), never a second set of distances. Mine radii are
+ * the UI lane's renderer-tuned values, adopted 2026-10-21 when
+ * the two draft tables converged here.
+ */
 export const STEALTH_BANDS: Record<TypeTier, StealthBand> = {
   1: { far: 0, near: 0, mineReveal: 260 },
-  2: { far: 425, near: 175, mineReveal: 260 },
-  3: { far: 475, near: 160, mineReveal: 230 },
-  4: { far: 500, near: 150, mineReveal: 200 },
-  5: { far: 550, near: 135, mineReveal: 170 },
+  2: { far: 425, near: 175, mineReveal: 230 },
+  3: { far: 475, near: 160, mineReveal: 200 },
+  4: { far: 500, near: 150, mineReveal: 165 },
+  5: { far: 550, near: 135, mineReveal: 130 },
 };
 
 /** Periscope moment: seconds firing/laying reveals a cloaked ship (RULED ~2 s). */
