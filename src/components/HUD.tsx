@@ -265,6 +265,12 @@ export const HUD: React.FC<HUDProps> = ({
   // you — instead of the random number it used to roll. When the
   // host-run multiplayer lands, this same readout takes the real
   // network round-trip from the sync layer.
+  // PLACEMENT (Adam, 2026-10-21 — 'HUD chat figures out a good place
+  // for ping and framerate'): both figures graduated OUT of the comms
+  // panel into an always-on instrumentation chip at the play field's
+  // top-right corner (see INSTRUMENTATION CHIP below) — machine
+  // vitals are glanced at, not read in a log, and instrumentation
+  // never toggles. The telemetry option now governs RANGE only.
   const pingRef = React.useRef({ last: performance.now(), ema: 16 });
   {
     const now = performance.now();
@@ -757,8 +763,6 @@ export const HUD: React.FC<HUDProps> = ({
               {glitch && <p className="text-yellow-500">[DATA] SENSORS RECALIBRATING...</p>}
               <div className="border-t border-zinc-800/70 pt-1.5 mt-1 space-y-0.5 text-[10px]">
                 {uiOptions.telemetry && (<>
-                <div className="flex justify-between"><span className="text-zinc-400">PINGS</span><span>{pingMs}ms</span></div>
-                <div className="flex justify-between"><span className="text-zinc-400">FPS</span><span>{fpsRef.current.fps || '—'}</span></div>
                 <div className="flex justify-between"><span className="text-zinc-400">RANGE · HOME</span><span className="text-orange-400">{rangeHome}U</span></div>
                 <div className="flex justify-between"><span className="text-zinc-400">RANGE · ENEMY</span><span className="text-red-400">{rangeEnemy}U</span></div>
                 </>)}
@@ -1113,6 +1117,28 @@ export const HUD: React.FC<HUDProps> = ({
           is evicted (the bank lives in the dock row + the BANK tab). When
           ship classes land with per-class caps, each track cell gains
           its /MAX — no denominator is printed until a real cap exists. */}
+      {/* INSTRUMENTATION CHIP — PING + FPS (Adam's placement call,
+          2026-10-21, UI lane's pick): the play field's TOP-RIGHT
+          corner. Reasoning, on the record: (a) the corner is the one
+          piece of screen no system already owns — the status strip
+          holds top-center (fit data; machine vitals must not compete
+          with it), the dock and loadout tiles hold bottom-center,
+          gauges and the phone action cluster hold bottom-right, the
+          controls card bottom-left, the chat tab the left edge;
+          (b) vitals are a glance, not a read — one short line, dim
+          labels / bright values, subordinate to every functional
+          element; (c) instrumentation class: always on, no toggle
+          governs it. Desktop: the frame's inner top-right. Mobile:
+          the verified gap between the header (~76px) and the status
+          strip (148px) — the chip's bottom edge clears the strip. */}
+      <div className="fixed top-[104px] right-2 md:top-6 md:right-6 z-[54] pointer-events-none">
+        <div className="hud-panel border border-zinc-800 px-2 py-1 font-mono text-[9px] sm:text-[10px] leading-none flex items-center gap-1.5 shadow-lg">
+          <span><span className="text-zinc-500">PING</span> <span className="text-zinc-100 font-bold">{pingMs}MS</span></span>
+          <span className="text-zinc-700">·</span>
+          <span><span className="text-zinc-500">FPS</span> <span className="text-zinc-100 font-bold">{fpsRef.current.fps || '—'}</span></span>
+        </div>
+      </div>
+
       <div className="fixed top-[148px] md:top-12 left-1/2 -translate-x-1/2 z-[55] flex flex-wrap justify-center items-stretch gap-1 max-w-[97vw] pointer-events-none">
         {[
           { icon: '🚀', name: 'THRUST', lvl: upgrades.thrust, cap: caps.thrust, stat: `SPD ${(PHYSICS.MAX_VELOCITY + upgrades.thrust * 0.5).toFixed(1)}` },
@@ -1612,7 +1638,7 @@ export const HUD: React.FC<HUDProps> = ({
               {([
                 { key: 'controlsCard', label: 'SHIP CONTROLS CARD', blurb: 'The key reference — desktop card and the phone HELP legend.' },
                 { key: 'astroPanel', label: 'ASTRONOMIC DATA', blurb: 'Star fields, growth bands, enemy lifecycle, local nav map.' },
-                { key: 'telemetry', label: 'TELEMETRY ROWS', blurb: 'PINGS · FPS · RANGE in the comms panel. Warnings always show.' },
+                { key: 'telemetry', label: 'TELEMETRY ROWS', blurb: 'RANGE · HOME / ENEMY in the comms panel. PING + FPS are always-on instrumentation (top-right) and never toggle. Warnings always show.' },
                 { key: 'nameplates', label: 'NAMEPLATES', blurb: 'Callsigns over remote ships in multiplayer.' },
               ] as { key: keyof UiOptions; label: string; blurb: string }[]).map(row => (
                 <div key={row.key} className="flex items-center justify-between gap-3 border border-zinc-800 rounded px-3 py-2">
