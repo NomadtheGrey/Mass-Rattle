@@ -5,7 +5,7 @@ import { BANK_WELL_MARGIN } from '../bank';
 import { shieldMaxFor, PD_RANGE } from '../loadout';
 import { turretRingRadius } from '../starDefense';
 import { getUiOptions } from '../uiOptions';
-import { CLOAK, shipRevealFor, mineRevealRadius } from '../cloak';
+import { stealthAlphaFor, mineVisibleToViewer, isStealthShip } from '../sim/stealth';
 import { typeFor } from '../shipProgression';
 import { stageStateForInfused } from '../sim/starStages';
 
@@ -427,23 +427,19 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       if (m.ownerId !== ship.ownerId) {
         const ownerSeat = (state.seats || []).find(se => se.ownerId === m.ownerId);
         const ownerShip = ownerSeat?.ship;
-        const stamped = (m as unknown as { tier?: number }).tier;
-        const tier = stamped ?? (ownerShip && ownerShip.line === 'minelayer' ? ownerShip.typeTier : undefined);
-        if (tier !== undefined) {
-          const mySeat = (state.seats || []).find(se => se.ownerId === ship.ownerId);
-          const allied = !!ownerSeat && !!mySeat && ownerSeat.teamId === mySeat.teamId;
-          if (allied) {
-            alpha = 0.65;
-          } else {
-            const dist = Math.hypot(m.pos.x - ship.pos.x, m.pos.y - ship.pos.y);
-            const radius = mineRevealRadius(tier);
-            if (dist > radius) return; // dark — beyond the reveal radius
-            const inside = 1 - dist / radius; // 0 at the rim, 1 overhead
-            const phase = (m.id.charCodeAt(0) || 0) + (m.id.charCodeAt(1) || 0);
-            const shimmer = 0.8 + 0.2 * Math.sin(state.starOrbit * 6 + phase);
-            alpha = Math.min(1, (0.25 + 0.75 * inside) * shimmer + ((m as unknown as { cloakReveal?: number }).cloakReveal ? 0.3 : 0));
-          }
+        const mySeat = (state.seats || []).find(se => se.ownerId === ship.ownerId);
+        const allied = !!ownerSeat && !!mySeat && ownerSeat.teamId === mySeat.teamId;
+        if (allied) {
+          alpha = 0.65; // your team's field is charted — dim, never hidden
+        } else if (ownerShip && isStealthShip(ownerShip)) {
+          // The sim's word (src/sim/stealth.ts): the layer's CURRENT
+          // tier sets the radius — a climbing submarine's whole field
+          // deepens with her. Outside it, the mine is simply not drawn.
+          if (!mineVisibleToViewer(m.pos, ownerShip.typeTier, ship.pos)) return;
+          alpha = 0.9; // inside the radius it reads — a breath under full
         }
+        // A dead layer's ship is gone from state; her mines then draw
+        // plain (concealment can't be established) — visible, not dark.
       }
       ctx.save();
       ctx.globalAlpha = alpha;
@@ -1186,21 +1182,23 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
         const rs = seat.ship;
         if (!rs || seat.ownerId === ship.ownerId) continue;
         const label = seatLabels[seat.ownerId];
-        // Reveal: 1 = fully seen. Only the submarine line cloaks.
+        // Reveal IS the sim's alpha (src/sim/stealth.ts — one
+        // geometry for canvas, bots, seekers, and star systems):
+        // 0 = skip entirely, the periscope moment snaps it to 1.
+        // Teammates are exempt at this call site (a friendly
+        // submarine draws solid for her own team).
         let reveal = 1;
         let ghost = false;
-        if (rs.line === 'minelayer') {
-          const dist = Math.hypot(rs.pos.x - ship.pos.x, rs.pos.y - ship.pos.y);
-          reveal = shipRevealFor(dist);
-          const periscope = (rs as unknown as { cloakReveal?: number }).cloakReveal ?? 0;
-          if (periscope > 0) reveal = 1;
-          if (rs.thrust) reveal = Math.max(reveal, CLOAK.thrustFloor);
-          if (mySeat && seat.teamId === mySeat.teamId) reveal = Math.max(reveal, CLOAK.allyFloor);
-          if (reveal <= 0.02) continue; // dark — the submarine is simply not there
-          ghost = reveal < CLOAK.plateReveal;
+        if (isStealthShip(rs)) {
+          const allied = !!mySeat && seat.teamId === mySeat.teamId;
+          if (!allied) {
+            reveal = stealthAlphaFor(rs, ship.pos, performance.now());
+            if (reveal <= 0) continue; // dark — the submarine is simply not there
+            ghost = reveal < 0.85;
+          }
         }
         ctx.save();
-        if (rs.line === 'minelayer') ctx.globalAlpha = Math.min(0.92, 0.15 + 0.8 * reveal);
+        if (isStealthShip(rs)) ctx.globalAlpha = reveal;
         ctx.translate(rs.pos.x, rs.pos.y);
         ctx.rotate(rs.angle);
         if (rs.thrust) {
@@ -1221,7 +1219,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
         if (ghost) {
           // The sonar echo: a dashed ring says DETECTED, not seen.
           ctx.save();
-          ctx.globalAlpha = 0.35 * reveal + 0.1;
+          ctx.globalAlpha = 0.45 * reveal;
           ctx.strokeStyle = 'rgba(150, 215, 255, 0.8)';
           ctx.lineWidth = 1;
           ctx.setLineDash([4, 5]);
@@ -1230,8 +1228,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
           ctx.stroke();
           ctx.restore();
         }
-        if (platesOn && (!ghost || reveal >= CLOAK.plateReveal)) {
-          plateFor(rs.pos.x, rs.pos.y, rs.size, seat.ownerId, rs.line === 'minelayer' ? reveal : 1);
+        if (platesOn && reveal > 0) {
+          // Plates obey the cloak: they fade on the same alpha, so a
+          // half-seen boat wears a half-seen name.
+          plateFor(rs.pos.x, rs.pos.y, rs.size, seat.ownerId, isStealthShip(rs) ? reveal : 1);
         }
       }
       if (platesOn) plateFor(ship.pos.x, ship.pos.y, ship.size, ship.ownerId);

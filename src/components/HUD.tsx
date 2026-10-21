@@ -1300,7 +1300,7 @@ export const HUD: React.FC<HUDProps> = ({
                 <p className="text-[9px] sm:text-[10px] text-zinc-400 leading-tight">{capSummary(progType)} — the special is built into the frame's price, never sold separately.</p>
                 {frameOpen && (<>
 
-                {typeTier < 4 && shipLine === null && (
+                {typeTier < 5 && shipLine === null && (
                   <div className="flex flex-col gap-1.5">
                     <div className="text-[9px] font-mono text-zinc-500 tracking-widest">CHOOSE YOUR LINE — BUYING THE T2 FRAME IS THE CHOICE</div>
                     {(Object.keys(SHIP_LINES) as ShipLine[]).map(ln => {
@@ -1319,7 +1319,7 @@ export const HUD: React.FC<HUDProps> = ({
                   </div>
                 )}
 
-                {typeTier < 4 && shipLine !== null && (() => {
+                {typeTier < 5 && shipLine !== null && (() => {
                   const next = typeFor(shipLine, (typeTier + 1) as TypeTier);
                   const price = typeStepPrice(shipLine, typeTier);
                   const afford = funds >= price;
@@ -1333,8 +1333,8 @@ export const HUD: React.FC<HUDProps> = ({
                   );
                 })()}
 
-                {typeTier >= 4 && (
-                  <div className="text-[10px] sm:text-xs font-mono text-amber-400">★ TOP OF THE LADDER — {progType.name} IS THE {shipLine?.toUpperCase()} LINE'S PEAK FRAME</div>
+                {typeTier >= 5 && (
+                  <div className="text-[10px] sm:text-xs font-mono text-amber-400">★ TOP OF THE LADDER — {progType.name} IS THE {shipLine?.toUpperCase()} LINE'S CROWN FRAME</div>
                 )}
 
                 {shipLine !== null && (
