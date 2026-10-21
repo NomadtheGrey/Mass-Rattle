@@ -9,8 +9,11 @@
  * UI lane's NetInputPayload (imported as a type only).
  */
 
-import type { GameState } from '../types';
+import type { GameState, SeatSimState } from '../types';
 import type { NetInputPayload } from './useNetClient';
+import { tryRepurchase } from '../sim/deathEconomy';
+import { starIdForSeat } from '../sim/ownership';
+import type { EventFeedEntry } from '../sim/eventFeed';
 
 /** Host snapshot cadence: one full-state snapshot every 5 frames —
  *  12 Hz at the sim's 60 fps (design draft §1, DRAFT rate). */
@@ -142,9 +145,67 @@ export const acceptGuestPayload = (
 export let droppedRemoteActionIntents = 0;
 
 export const countDroppedActions = (payload: NetInputPayload): number => {
-  const n = payload.actions?.length ?? 0;
+  // 'repurchase' is NOT counted: since the P2-5 follow-on it is
+  // consumed (consumeRepurchaseIntent, below), not dropped. Every
+  // other economy kind remains counted + dropped, unchanged.
+  const n = (payload.actions ?? []).filter(a => a.kind !== 'repurchase').length;
   droppedRemoteActionIntents += n;
   return n;
+};
+
+/* ------------------------------------------------------------------ */
+/* Guest repurchase consumption (P2-5 follow-on)                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A relayed payload asks for a repurchase when its discrete intents
+ * include the bare { kind: 'repurchase' } member (the UI lane's
+ * NetActionIntent addition): the host derives the seat from the
+ * relay tag, so the intent carries no argument.
+ */
+export const hasRepurchaseIntent = (payload: NetInputPayload): boolean =>
+  (payload.actions ?? []).some(a => a.kind === 'repurchase');
+
+export interface GuestRepurchase {
+  /** Scrap the seat actually paid (host-computed; 0 at the floor). */
+  cost: number;
+  /** The feed record to append — the same shape the bot buy-back
+   *  and the local repurchaseShip callback append. */
+  record: EventFeedEntry;
+}
+
+/**
+ * Apply a guest's repurchase intent to the SENDER's seat, through
+ * the same sim operation the local callback uses (deathEconomy's
+ * tryRepurchase: price from the seat's bank, fresh starter through
+ * the assembly placement, shipless stamp cleared). Returns null —
+ * and mutates nothing — when the payload carries no repurchase
+ * intent or the sim refuses (ship alive, never died, eliminated
+ * seat): silent and total, per the wire's no-error-code
+ * philosophy; the guest's next snapshot simply shows the seat
+ * still shipless. Exactly-once is structural: the caller runs
+ * this inside the seq gate (one shot per fresh payload), and a
+ * second application would find a live ship and refuse.
+ */
+export const consumeRepurchaseIntent = (
+  seat: SeatSimState,
+  payload: NetInputPayload,
+  at: number,
+): GuestRepurchase | null => {
+  if (!hasRepurchaseIntent(payload)) return null;
+  const bought = tryRepurchase(seat);
+  if (!bought) return null;
+  return {
+    cost: bought.cost,
+    record: {
+      type: 'repurchase',
+      ownerId: seat.ownerId,
+      starId: starIdForSeat(seat.starIndex),
+      cost: bought.cost,
+      deaths: seat.deaths,
+      at,
+    },
+  };
 };
 
 /* ------------------------------------------------------------------ */

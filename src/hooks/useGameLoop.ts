@@ -13,7 +13,7 @@ import { createMatch } from '../sim/matchAssembly';
 import type { NetSession } from '../net/useNetClient';
 import {
   SNAPSHOT_EVERY_FRAMES, snapshotDue, localShipInput, remoteShipInput,
-  idleShipInput, acceptGuestPayload, countDroppedActions,
+  idleShipInput, acceptGuestPayload, countDroppedActions, consumeRepurchaseIntent,
   projectStateForViewer, ShipFrameInput,
 } from '../net/sessionAdapter';
 import {
@@ -517,12 +517,15 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
    * repurchase screen wires to this exact callback:
    * repurchaseShip(ownerId).
    *
-   * HOST / SOLO ONLY in v1: a guest's state is a projection of the
+   * HOST / SOLO ONLY: a guest's state is a projection of the
    * host's snapshots, so a guest calling this would mutate a
-   * projection the next snapshot overwrites — guest invocation
-   * needs a wire intent the current NetActionIntent set does not
-   * have (a repurchase kind; flagged follow-on), so on a guest
-   * client this is a no-op. In single-player it is likewise inert:
+   * projection the next snapshot overwrites — the guest's screen
+   * instead sends the { kind: 'repurchase' } action intent, and
+   * the HOST applies it to the sender's seat in the frame (via
+   * the session adapter's consumeRepurchaseIntent — the same
+   * tryRepurchase, so a repurchase is a repurchase regardless of
+   * whose finger sent it). On a guest client this callback stays
+   * a no-op. In single-player it is likewise inert:
    * SP seats are never death-economy shipless (the local death is
    * game over; the enemy seat never flew) and tryRepurchase
    * refuses them.
@@ -1413,33 +1416,49 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         // seat with a ship runs the same routine, driven by its
         // relayed payload (freshest per seat in the net hook's ref;
         // the seq gate here drops stale frames and makes the
-        // action counting fire once per payload). Their scrap pass
-        // threads the same array the local pass returned — no
-        // distant cull for them: the cull is the local ship's
-        // shipped field-keeping, already applied above.
+        // per-payload side effects fire once per payload). Their
+        // scrap pass threads the same array the local pass
+        // returned — no distant cull for them: the cull is the
+        // local ship's shipped field-keeping, already applied above.
         // ECONOMY ACTION INTENTS (buy/equip/feed/bank/shop) riding
         // in those payloads are deliberately NOT applied in v1:
         // per-seat banks/wallets are not sim-wired beyond the local
         // seat (P2-2b), so a remote seat has no wallet to pay from.
         // They are counted in the session adapter
         // (droppedRemoteActionIntents) and dropped — the deferral
-        // is flagged in the P2-3b report.
+        // is flagged in the P2-3b report. THE ONE EXCEPTION (P2-5
+        // follow-on): a { kind: 'repurchase' } intent IS consumed —
+        // the death economy's per-seat banks are sim-wired, so the
+        // host applies it to the sender's seat through the same
+        // tryRepurchase the local repurchaseShip callback uses.
         if (hosting && frameSession) {
           for (const seat of simSeats) {
             if (seat.controller !== 'human' || seat.ownerId === localOwnerId) continue;
-            const sShip = seat.ship;
-            if (!sShip || seat.eliminated) continue;
+            if (seat.eliminated) continue;
             const payload = frameSession.guestInputsRef.current.get(seat.ownerId);
-            let input = idleShipInput();
-            // Cinematic lockout: payloads are not consumed while it
-            // runs (their seqs stay unseen; the first payload after
-            // the window is fresh by construction).
+            // FRESH-PAYLOAD SIDE EFFECTS, seq-gated to exactly once
+            // per payload — and deliberately run BEFORE the ship
+            // check below: a shipless seat has no frame to fly, but
+            // its repurchase intent is consumed here (the only way
+            // back into a ship). Cinematic lockout: payloads are not
+            // consumed while it runs (their seqs stay unseen; the
+            // first payload after the window is fresh by
+            // construction).
             if (payload && !cinematicLocked) {
               const lastSeq = guestSeqSeenRef.current.get(seat.ownerId) ?? -1;
               if (acceptGuestPayload(lastSeq, payload)) {
                 guestSeqSeenRef.current.set(seat.ownerId, payload.seq);
                 countDroppedActions(payload);
+                if (!prev.matchEnd) {
+                  const consumed = consumeRepurchaseIntent(seat, payload, time);
+                  if (consumed) feedEntries.push(consumed.record);
+                }
               }
+            }
+            const sShip = seat.ship;
+            if (!sShip) continue;
+            let input = idleShipInput();
+            if (payload && !cinematicLocked) {
               input = remoteShipInput(payload);
             }
             const physKeys = new Set<string>();
