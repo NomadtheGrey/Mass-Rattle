@@ -88,13 +88,15 @@ export const PHYSICS = {
      *  turret record already carries (src/starDefense.ts). */
     ORBIT_PERIOD_INNER_MS: 120000,
     ORBIT_PERIOD_OUTER_MS: 240000,
-    /** Turret FIRING ARC (Adam, 2026-10-21): a turret engages
-     *  only targets within this half-angle of its radial line
-     *  (star center through the turret's current position).
-     *  DRAFT at ±85° — nearly a hemisphere, so the ring's coverage
-     *  overlaps while no turret ever fires across or through its
-     *  own star. Outside its arc a turret holds fire. */
-    TURRET_ARC_HALF_RAD: (85 * Math.PI) / 180,
+    /** Turret FIRING ARC — PINNED (Adam, 2026-10-21): a turret
+     *  engages only targets within ±45° of its radial line (star
+     *  center through the turret's current position) — a 90°
+     *  sector per turret. His logic: coverage comes from the
+     *  ladder's turret COUNT as stars grow (a full outer ring of 8
+     *  tiles the circle), not from per-turret width; the drafted
+     *  ±85° was "kinda too wide." Outside its arc a turret holds
+     *  fire. */
+    TURRET_ARC_HALF_RAD: Math.PI / 4,
   },
   /**
    * CME (Slice 7) — a star's periodic coronal mass ejection.
