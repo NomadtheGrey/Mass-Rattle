@@ -5,6 +5,7 @@ import { BANK_WELL_MARGIN } from '../bank';
 import { shieldMaxFor, PD_RANGE } from '../loadout';
 import { turretRingRadius } from '../starDefense';
 import { getUiOptions } from '../uiOptions';
+import { CLOAK, shipRevealFor, mineRevealRadius } from '../cloak';
 import { typeFor } from '../shipProgression';
 import { stageStateForInfused } from '../sim/starStages';
 
@@ -414,8 +415,38 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
 
     // DRAW MINES: pink diamonds with a blinking core (blink rides the
     // star-orbit clock so the render stays a pure function of state).
+    // MINE CONCEALMENT (Adam, 2026-10-21, the submarine ruling): a
+    // mine laid by a minelayer-line hull is dark beyond its reveal
+    // radius — shrinking per tier — and only shimmers once a hunter
+    // is inside it. Your own mines always read; allies' read dim;
+    // anyone else's non-submarine mines are ordinary ordnance and
+    // draw as they always have. Tier comes from the mine once the
+    // sim stamps it (m.tier), else from the layer's line tier.
     (state.mines || []).forEach(m => {
+      let alpha = 1;
+      if (m.ownerId !== ship.ownerId) {
+        const ownerSeat = (state.seats || []).find(se => se.ownerId === m.ownerId);
+        const ownerShip = ownerSeat?.ship;
+        const stamped = (m as unknown as { tier?: number }).tier;
+        const tier = stamped ?? (ownerShip && ownerShip.line === 'minelayer' ? ownerShip.typeTier : undefined);
+        if (tier !== undefined) {
+          const mySeat = (state.seats || []).find(se => se.ownerId === ship.ownerId);
+          const allied = !!ownerSeat && !!mySeat && ownerSeat.teamId === mySeat.teamId;
+          if (allied) {
+            alpha = 0.65;
+          } else {
+            const dist = Math.hypot(m.pos.x - ship.pos.x, m.pos.y - ship.pos.y);
+            const radius = mineRevealRadius(tier);
+            if (dist > radius) return; // dark — beyond the reveal radius
+            const inside = 1 - dist / radius; // 0 at the rim, 1 overhead
+            const phase = (m.id.charCodeAt(0) || 0) + (m.id.charCodeAt(1) || 0);
+            const shimmer = 0.8 + 0.2 * Math.sin(state.starOrbit * 6 + phase);
+            alpha = Math.min(1, (0.25 + 0.75 * inside) * shimmer + ((m as unknown as { cloakReveal?: number }).cloakReveal ? 0.3 : 0));
+          }
+        }
+      }
       ctx.save();
+      ctx.globalAlpha = alpha;
       ctx.translate(m.pos.x, m.pos.y);
       ctx.rotate(Math.PI / 4);
       ctx.strokeStyle = '#f472b6';
@@ -423,10 +454,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       ctx.strokeRect(-5, -5, 10, 10);
       ctx.restore();
       if (Math.sin(state.starOrbit * 6) > 0) {
+        ctx.save();
+        ctx.globalAlpha = alpha;
         ctx.fillStyle = '#f472b6';
         ctx.beginPath();
         ctx.arc(m.pos.x, m.pos.y, 2.5, 0, Math.PI * 2);
         ctx.fill();
+        ctx.restore();
       }
     });
 
@@ -1120,15 +1154,23 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
     // color (friend-or-foe at a glance) with a thrust flame when its
     // sim says it's burning — and none of the viewer's instruments
     // (no VAC ring, no gauges: those belong to the seat you fly).
-    // Every ship in the room, the viewer's included, wears a
-    // NAMEPLATE: the callsign exactly as issued (bots read BOT-<n>)
-    // in the seat's team color. Solo passes no labels; nothing here
-    // draws there.
-    if (seatLabels && getUiOptions().nameplates) {
-      const plateFor = (sx: number, sy: number, size: number, ownerId: string) => {
+    // NAMEPLATES ride the same block but are separately optional
+    // (DISPLAY OPTIONS): hulls always draw; plates obey their toggle.
+    // THE CLOAK (Adam, 2026-10-21): a minelayer-line hull is the
+    // submarine — invisible beyond the reveal band, a sonar GHOST
+    // inside it (pale stroke, dashed echo ring, no plate), near-solid
+    // only up close; thrust betrays it (a burning boat ghosts
+    // brighter), and firing or laying flares it fully for the
+    // periscope window the sim stamps as ship.cloakReveal (seconds
+    // remaining). Plates obey the cloak too. Solo passes no labels;
+    // nothing here draws there.
+    if (seatLabels) {
+      const platesOn = getUiOptions().nameplates;
+      const plateFor = (sx: number, sy: number, size: number, ownerId: string, alpha = 1) => {
         const label = seatLabels[ownerId];
         if (!label) return;
         ctx.save();
+        ctx.globalAlpha = alpha;
         ctx.font = '11px monospace';
         ctx.textAlign = 'center';
         const w = ctx.measureText(label.callsign).width + 10;
@@ -1139,11 +1181,26 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
         ctx.fillText(label.callsign, sx, y + 2);
         ctx.restore();
       };
+      const mySeat = state.seats.find(se => se.ownerId === ship.ownerId);
       for (const seat of state.seats) {
         const rs = seat.ship;
         if (!rs || seat.ownerId === ship.ownerId) continue;
         const label = seatLabels[seat.ownerId];
+        // Reveal: 1 = fully seen. Only the submarine line cloaks.
+        let reveal = 1;
+        let ghost = false;
+        if (rs.line === 'minelayer') {
+          const dist = Math.hypot(rs.pos.x - ship.pos.x, rs.pos.y - ship.pos.y);
+          reveal = shipRevealFor(dist);
+          const periscope = (rs as unknown as { cloakReveal?: number }).cloakReveal ?? 0;
+          if (periscope > 0) reveal = 1;
+          if (rs.thrust) reveal = Math.max(reveal, CLOAK.thrustFloor);
+          if (mySeat && seat.teamId === mySeat.teamId) reveal = Math.max(reveal, CLOAK.allyFloor);
+          if (reveal <= 0.02) continue; // dark — the submarine is simply not there
+          ghost = reveal < CLOAK.plateReveal;
+        }
         ctx.save();
+        if (rs.line === 'minelayer') ctx.globalAlpha = Math.min(0.92, 0.15 + 0.8 * reveal);
         ctx.translate(rs.pos.x, rs.pos.y);
         ctx.rotate(rs.angle);
         if (rs.thrust) {
@@ -1155,15 +1212,29 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
           ctx.fill();
         }
         ctx.fillStyle = '#1a1a1c';
-        ctx.strokeStyle = label ? label.color : COLORS.CRT_GLOW;
+        ctx.strokeStyle = ghost ? 'rgba(150, 215, 255, 0.9)' : (label ? label.color : COLORS.CRT_GLOW);
         ctx.lineWidth = 2;
         traceOutline(ctx, hullOutlineFor(rs.line, rs.typeTier, rs.size));
         ctx.fill();
         ctx.stroke();
         ctx.restore();
-        plateFor(rs.pos.x, rs.pos.y, rs.size, seat.ownerId);
+        if (ghost) {
+          // The sonar echo: a dashed ring says DETECTED, not seen.
+          ctx.save();
+          ctx.globalAlpha = 0.35 * reveal + 0.1;
+          ctx.strokeStyle = 'rgba(150, 215, 255, 0.8)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 5]);
+          ctx.beginPath();
+          ctx.arc(rs.pos.x, rs.pos.y, rs.size * 1.6, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+        if (platesOn && (!ghost || reveal >= CLOAK.plateReveal)) {
+          plateFor(rs.pos.x, rs.pos.y, rs.size, seat.ownerId, rs.line === 'minelayer' ? reveal : 1);
+        }
       }
-      plateFor(ship.pos.x, ship.pos.y, ship.size, ship.ownerId);
+      if (platesOn) plateFor(ship.pos.x, ship.pos.y, ship.size, ship.ownerId);
     }
 
     ctx.restore(); // End Camera space
