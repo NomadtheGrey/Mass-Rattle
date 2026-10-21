@@ -4,6 +4,7 @@ import {
   CUE_GLYPHS, ERROR_LABELS, SEAT_CONNECTION_LABELS,
   TeamId, TEAM_ORDER, TEAM_COLORS, TEAM_LABELS, seatTeam,
 } from './lobbyTypes';
+import { randomRoomName } from '../../net/roomNames';
 
 /**
  * Lobby front end (UI lane, Phase 2) — built against the frozen wire
@@ -292,13 +293,24 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
 
         <div className="hud-panel p-3 sm:p-4 rounded border-2 border-zinc-800 flex flex-col gap-3">
           <div className="text-[10px] font-mono font-bold tracking-[0.25em] text-zinc-400">CREATE A ROOM</div>
-          <input
-            value={roomName}
-            onChange={e => setRoomName(e.target.value)}
-            maxLength={24}
-            placeholder="ROOM NAME (OPTIONAL)"
-            className="rounded px-3 py-2 bg-zinc-900 border border-zinc-700 font-mono text-sm text-zinc-50 placeholder:text-zinc-600 outline-none focus:border-[#33ff33]"
-          />
+          <div className="flex gap-1.5">
+            <input
+              value={roomName}
+              onChange={e => setRoomName(e.target.value)}
+              maxLength={24}
+              placeholder="ROOM NAME (OPTIONAL)"
+              className="flex-1 min-w-0 rounded px-3 py-2 bg-zinc-900 border border-zinc-700 font-mono text-sm text-zinc-50 placeholder:text-zinc-600 outline-none focus:border-[#33ff33]"
+            />
+            <button
+              type="button"
+              onClick={() => setRoomName(randomRoomName())}
+              title="Roll a random name"
+              aria-label="Roll a random room name"
+              className="w-11 shrink-0 rounded bg-zinc-900 border border-zinc-700 text-lg touch-manipulation active:scale-95 hover:border-[#33ff33]"
+            >
+              🎲
+            </button>
+          </div>
           <div>
             <div className="text-[9px] font-mono tracking-[0.25em] text-zinc-500 mb-1.5">STARS IN THE ARENA</div>
             <div className="flex gap-1.5">
