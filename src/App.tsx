@@ -138,6 +138,7 @@ export default function App() {
               net.joinRoom(code, callsign);
             },
             onStart: net.startMatch,
+            onSetTeam: net.setTeam,
             onLeave: () => { net.leaveRoom(); setLobbyOpen(false); },
           }}
         />

@@ -1,6 +1,9 @@
 import React from 'react';
 import type { RoomState, Seat, ClientState } from '../../net/protocol';
-import { CUE_GLYPHS, ERROR_LABELS, SEAT_CONNECTION_LABELS } from './lobbyTypes';
+import {
+  CUE_GLYPHS, ERROR_LABELS, SEAT_CONNECTION_LABELS,
+  TeamId, TEAM_ORDER, TEAM_COLORS, TEAM_LABELS, seatTeam,
+} from './lobbyTypes';
 
 /**
  * Lobby front end (UI lane, Phase 2) — built against the frozen wire
@@ -19,6 +22,7 @@ export interface LobbyCallbacks {
   onJoin: (code: string, callsign: string) => void;
   onStart: () => void;
   onLeave: () => void;
+  onSetTeam: (teamId: TeamId) => void;
 }
 
 interface LobbyScreenProps {
@@ -38,6 +42,7 @@ interface LobbyScreenProps {
 const SeatCard: React.FC<{ seat: Seat; mine: boolean; reclaimed?: boolean }> = ({ seat, mine, reclaimed }) => {
   const { occupant } = seat;
   const glyph = CUE_GLYPHS[occupant.cue] || '●';
+  const team = seatTeam(seat);
   return (
     <div className={`hud-panel p-3 rounded border-2 flex items-center gap-3 ${mine ? 'border-[#33ff33]' : 'border-zinc-800'}`}>
       <div
@@ -61,6 +66,12 @@ const SeatCard: React.FC<{ seat: Seat; mine: boolean; reclaimed?: boolean }> = (
           {reclaimed && (
             <span className="text-[8px] font-mono font-bold px-1 py-0.5 rounded bg-amber-500/20 border border-amber-500 text-amber-300">SEAT RECLAIMED</span>
           )}
+          <span
+            className="text-[8px] font-mono font-bold px-1 py-0.5 rounded border"
+            style={{ color: TEAM_COLORS[team], borderColor: TEAM_COLORS[team], backgroundColor: `${TEAM_COLORS[team]}1a` }}
+          >
+            {TEAM_LABELS[team]}
+          </span>
         </div>
         <div className="text-[9px] font-mono text-zinc-500 tracking-wider">
           STAR {seat.starIndex + 1} · {occupant.cue.toUpperCase()} SEAT ·{' '}
@@ -95,6 +106,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   /* ------------------------------ ROOM VIEW ------------------------------ */
   if (room) {
     const iAmHost = myPlayerId !== null && room.hostPlayerId === myPlayerId;
+    const mySeat = room.seats.find(seat => seat.occupant.playerId !== null && seat.occupant.playerId === myPlayerId) ?? null;
     return (
       <div className="fixed inset-0 z-[100] overflow-y-auto bg-zinc-950 text-[#33ff33] flex justify-center p-3 sm:p-6">
         <div className="w-full max-w-md flex flex-col gap-3">
@@ -123,6 +135,35 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               />
             ))}
           </div>
+
+          {room.phase === 'lobby' && mySeat && (
+            <div className="hud-panel p-3 rounded border-2 border-zinc-800">
+              <div className="text-[9px] font-mono tracking-[0.25em] text-zinc-500 mb-2">YOUR TEAM</div>
+              <div className="grid grid-cols-4 gap-1.5">
+                {TEAM_ORDER.map(t => {
+                  const humans = room.seats.filter(seat => seat.occupant.kind === 'human' && seatTeam(seat) === t).length;
+                  const mine = seatTeam(mySeat) === t;
+                  return (
+                    <button
+                      key={t}
+                      onClick={() => callbacks.onSetTeam(t)}
+                      className={`py-2 rounded border-2 font-mono touch-manipulation active:scale-95 ${mine ? 'bg-zinc-800' : 'bg-zinc-900'}`}
+                      style={{ borderColor: mine ? TEAM_COLORS[t] : '#3f3f46', boxShadow: mine ? `0 0 10px ${TEAM_COLORS[t]}55` : undefined }}
+                    >
+                      <span className="block w-4 h-2.5 mx-auto rounded-sm mb-1" style={{ backgroundColor: TEAM_COLORS[t] }} />
+                      <span className="block text-[10px] font-bold" style={{ color: TEAM_COLORS[t] }}>{TEAM_LABELS[t]}</span>
+                      <span className="block text-[8px] text-zinc-400 mt-0.5">{humans} PLAYER{humans === 1 ? '' : 'S'}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[9px] font-mono text-zinc-600 mt-2 leading-snug">
+                Counts are real players only — bots never count, and a seat held through a reconnect counts.
+                Unbalanced teams are legal. At the start, bots hold their seat colors unless every human
+                stacks one team — then the bots form the opposition.
+              </p>
+            </div>
+          )}
 
           <p className="text-[10px] font-mono text-zinc-500 text-center leading-snug">
             Empty seats are flown by bots until a player joins and takes the seat over.
