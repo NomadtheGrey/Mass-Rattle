@@ -28,7 +28,7 @@ import { computeStandings } from '../sim/standings';
 import { areHostile, areTeammates } from '../sim/teams';
 import { applyDeathLoss, botRepurchaseDue, completeRespawn, respawnDue, tryRepurchase } from '../sim/deathEconomy';
 import { appendEventRecords, EventFeedEntry } from '../sim/eventFeed';
-import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, applyDeliveryHeal } from '../starDefense';
+import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, turretAngleAt, targetInTurretArc, applyDeliveryHeal } from '../starDefense';
 import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, thornDamageFor, aegisAbsorbFor } from '../loadout';
 import { ShipLine, TypeTier, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, EXTRA_MOUNT_DAMAGE, AUTO_GUN } from '../shipProgression';
 
@@ -1975,6 +1975,12 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           // so the collapse never weakens the well.
           s.size = physicalSizeForStar(s);
           s.turrets = turretsForMilestones(milestonesForInfused(s.totalScrapInfused));
+          // ORBIT (Adam, 2026-10-21): the ladder list carries BASE
+          // angles; each turret's live angle is derived from the
+          // loop clock and stamped here, so the firing code below
+          // and the canvas both read the turret where it IS — and
+          // snapshots carry the stamped angle to guests as-is.
+          for (const t of s.turrets) t.angle = turretAngleAt(t, time);
         });
         // TARGETING (unchanged from the single-turret era, and shared by
         // every turret on a star): turrets may fire only while their
@@ -2014,8 +2020,16 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           if (dist >= PHYSICS.DEFENSE.RANGE) return;
 
           s.turrets.forEach(t => {
-            if (Math.random() >= turretFireChanceFor(t.tier)) return;
             const ring = turretRingRadius(s.size, t.shell);
+            // FIRING ARC (Adam, 2026-10-21): a turret engages only
+            // targets inside its outward sector (see
+            // targetInTurretArc) — outside its arc it holds fire
+            // and the ring's other turrets carry that side. The
+            // shared target selection and the RANGE-from-center
+            // gate above are unchanged, and turrets still never
+            // damage stars.
+            if (!targetInTurretArc(s.pos, t, ring, target.pos)) return;
+            if (Math.random() >= turretFireChanceFor(t.tier)) return;
             const origin = {
               x: s.pos.x + Math.cos(t.angle) * ring,
               y: s.pos.y + Math.sin(t.angle) * ring,

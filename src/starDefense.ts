@@ -23,11 +23,18 @@
  * count — turretsForMilestones(m) below — and milestone count itself
  * derives from totalScrapInfused (see starGrowth.ts). The game loop
  * reconciles star.turrets to this function every frame, so there is no
- * separate turret bookkeeping to save, sync, or drift. Angles are
- * fixed: inner turrets at -PI/2 (starter) and +PI/2 (the M1 second);
- * outer turrets at even 45-degree steps in creation order (0, 45, 90
- * ... degrees). Angles are ABSOLUTE — no starOrbit rotation is baked
- * in; the canvas draws hubs at these same angles.
+ * separate turret bookkeeping to save, sync, or drift. The angles
+ * in the ladder list are BASE angles: inner turrets at -PI/2
+ * (starter) and +PI/2 (the M1 second); outer turrets at even
+ * 45-degree steps in creation order (0, 45, 90 ... degrees).
+ *
+ * ORBIT (Adam, 2026-10-21): turrets ROTATE around their star. A
+ * turret's live angle is its base angle carried at its shell's
+ * orbit rate — turretAngleAt below, a pure function of the loop
+ * clock, so there is still nothing to save, sync, or drift: the
+ * loop stamps the derived angle into the record at reconciliation
+ * and the canvas draws hubs + the firing code aims from that same
+ * stamped angle.
  *
  * TURRET TIER STATS (draft numbers from the design doc): damage =
  * PHYSICS.DEFENSE.DAMAGE + 2 x (tier - 1); fire chance per frame =
@@ -98,6 +105,45 @@ export const turretRingRadius = (starSize: number, shell: 'inner' | 'outer'): nu
   starSize + (shell === 'inner'
     ? PHYSICS.STAR_DEFENSE.INNER_RING_PAD
     : PHYSICS.STAR_DEFENSE.OUTER_RING_PAD);
+
+/**
+ * A turret's live angle at `elapsedMs` of loop clock: its ladder
+ * base angle carried around the star at its shell's orbit rate
+ * (PHYSICS.STAR_DEFENSE.ORBIT_PERIOD_*). Pure derivation from
+ * time — the caller stamps the result into the turret record, so
+ * sim, canvas, and snapshots all read the same angle and nothing
+ * extra is ever synced.
+ */
+export const turretAngleAt = (turret: StarTurret, elapsedMs: number): number => {
+  const period =
+    turret.shell === 'inner'
+      ? PHYSICS.STAR_DEFENSE.ORBIT_PERIOD_INNER_MS
+      : PHYSICS.STAR_DEFENSE.ORBIT_PERIOD_OUTER_MS;
+  return turret.angle + (elapsedMs / period) * Math.PI * 2;
+};
+
+/**
+ * FIRING ARC (Adam, 2026-10-21): is `targetPos` inside this
+ * turret's arc — the outward sector of half-angle
+ * PHYSICS.STAR_DEFENSE.TURRET_ARC_HALF_RAD around the radial line
+ * from the star's center through the turret's CURRENT position?
+ * The aim is measured from the turret's origin on its ring, the
+ * radial direction is the turret's (stamped) angle itself.
+ */
+export const targetInTurretArc = (
+  starPos: { x: number; y: number },
+  turret: StarTurret,
+  ringRadius: number,
+  targetPos: { x: number; y: number },
+): boolean => {
+  const originX = starPos.x + Math.cos(turret.angle) * ringRadius;
+  const originY = starPos.y + Math.sin(turret.angle) * ringRadius;
+  const aim = Math.atan2(targetPos.y - originY, targetPos.x - originX);
+  let diff = aim - turret.angle;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  return Math.abs(diff) <= PHYSICS.STAR_DEFENSE.TURRET_ARC_HALF_RAD;
+};
 
 /** Hull/star damage dealt by one bolt from a turret of this tier. */
 export const turretDamageFor = (tier: number): number =>

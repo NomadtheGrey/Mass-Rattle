@@ -134,6 +134,30 @@ export const stepProjectiles = (ctx: ProjectileStepContext): Projectile[] => {
     p.pos.y += p.vel.y;
     p.life -= 1;
 
+    // STARS BLOCK AMMO (Adam, 2026-10-21): a projectile that
+    // reaches ANY star's surface terminates there — stars are
+    // terrain, checked before every other hit. Damage applies
+    // only where the standing rules already allow it: ship-fired
+    // weapons (kind set) against a HOSTILE star, on the universal
+    // damage x 0.002 scale (Slice 4 repair: the old x 0.5 would
+    // have ended games outright). Turret bolts (kind unset) NEVER
+    // damage stars (Adam's ruling, 2026-10-20) and friendly stars
+    // take no damage — for those bolts this is purely a stop.
+    // PIERCE does not carry through a star: the Rail Lance pierces
+    // ships and drones; a star is a wall. (TEAMS: "hostile star"
+    // reads hostile TEAM via areHostile, as everywhere here.)
+    for (const seat of simSeats) {
+      const s = seat.star;
+      const sdx2 = s.pos.x - p.pos.x;
+      const sdy2 = s.pos.y - p.pos.y;
+      if (Math.sqrt(sdx2 * sdx2 + sdy2 * sdy2) >= s.size) continue;
+      if (p.kind !== undefined && areHostile(simSeats, s.ownerId, p.ownerId)) {
+        s.integrity -= (p.damage !== undefined ? p.damage : PHYSICS.DEFENSE.DAMAGE) * 0.002;
+        s.lastHitTime = time;
+      }
+      return false;
+    }
+
     // SIPHON VAC (Phase 1b): while the VAC runs, the tractor beam
     // eats enemy projectiles that cross its field and converts them
     // into a trickle of fuel. INTERPRETATION (flagged for Adam):
@@ -282,41 +306,10 @@ export const stepProjectiles = (ctx: ProjectileStepContext): Projectile[] => {
       }
     }
 
-    // Collision with hostile STARS. ADAM'S RULING (2026-10-20):
-    // star turrets are defensive — built to protect their star
-    // from incoming hostile ships — and turrets NEVER hurt stars.
-    // Turret bolts are exactly the projectiles with `kind` unset,
-    // so only kind-carrying projectiles damage a star: ship-fired
-    // weapons (incl. auto-guns and mirror-reflected bolts, which
-    // carry the reflecting ship's kind). Turret bolts fly through
-    // stars of every seat, harmlessly — the pre-ruling SP asymmetry
-    // (local turret bolts chipped the enemy star; P2-2b) is retired
-    // by this ruling, deliberately.
-    // (TEAMS: "hostile star" reads hostile TEAM — the loop gates on
-    // areHostile, so a ship's weapons never scratch a teammate's
-    // star, exactly like every other hit path in this step.)
-    if (p.kind !== undefined) {
-      for (const seat of simSeats) {
-        const s = seat.star;
-        if (!areHostile(simSeats, s.ownerId, p.ownerId)) continue;
-        const edx = s.pos.x - p.pos.x;
-        const edy = s.pos.y - p.pos.y;
-        const hitKey = `star:${s.ownerId}`;
-        if (Math.sqrt(edx * edx + edy * edy) < s.size && !(p.hitIds || []).includes(hitKey)) {
-          // REPAIR (Slice 4): this used to subtract DAMAGE x 0.5 = 5 from
-          // a 0..1 integrity scale — a single turret hit would have ended
-          // the game outright. Star damage is now damage x 0.002 for every
-          // shooter: a T1 bolt chips 0.024, a T5 rail lance lands 0.186.
-          s.integrity -= (p.damage !== undefined ? p.damage : PHYSICS.DEFENSE.DAMAGE) * 0.002;
-          s.lastHitTime = time;
-          if (p.pierce) {
-            (p.hitIds = p.hitIds || []).push(hitKey);
-          } else {
-            return false;
-          }
-        }
-      }
-    }
+    // (Star collisions resolve at the top of this step now —
+    // STARS BLOCK AMMO: every projectile terminates on any star's
+    // surface, damaging only a hostile star and only when
+    // ship-fired. See the block after the movement increment.)
 
     return p.life > 0;
   });
