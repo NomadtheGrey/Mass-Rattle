@@ -83,6 +83,13 @@ export default function App() {
     net.room && net.room.phase === 'live' && !net.matchEnded &&
     localSeat && localSeat.ship === null && localSeat.deaths > 0
   );
+  // Repurchase dismissal (Adam, 2026-10-21): the dead player may
+  // dismiss the buy-back panel to watch the field; a persistent pill
+  // (below) is the way back for as long as the seat is dead, and a
+  // NEW death reopens the panel outright.
+  const [repurchaseDismissed, setRepurchaseDismissed] = useState(false);
+  const localDeaths = localSeat?.deaths ?? 0;
+  useEffect(() => { setRepurchaseDismissed(false); }, [localDeaths]);
   const urlRoomCode = React.useMemo(
     () => new URLSearchParams(window.location.search).get('room') || '',
     []
@@ -111,13 +118,24 @@ export default function App() {
           {net.room ? `🌐 ROOM ${net.room.code} — LOBBY` : '🌐 MULTIPLAYER'}
         </button>
       )}
-      {localSeatDead && localSeat && (
+      {localSeatDead && localSeat && !repurchaseDismissed && (
         <RepurchaseOverlay
           deaths={localSeat.deaths}
           bankedScrap={localSeat.bankedScrap}
           price={repurchasePriceFor(localSeat.bankedScrap, localSeat.deaths)}
           onRepurchase={() => repurchaseShip(localSeat.ownerId)}
+          onLeaveMatch={() => { net.leaveRoom(); setLobbyOpen(false); }}
+          onDismiss={() => setRepurchaseDismissed(true)}
         />
+      )}
+      {localSeatDead && localSeat && repurchaseDismissed && (
+        <button
+          type="button"
+          onClick={() => setRepurchaseDismissed(false)}
+          className="fixed bottom-[150px] sm:bottom-[122px] left-1/2 -translate-x-1/2 z-[90] px-4 py-2.5 rounded-full bg-zinc-950/85 border-2 border-red-500 text-red-400 font-mono text-[11px] font-bold tracking-widest shadow-[0_0_16px_rgba(239,68,68,0.4)] animate-pulse active:scale-95 touch-manipulation"
+        >
+          ☠ YOU ARE DEAD — REPURCHASE {repurchasePriceFor(localSeat.bankedScrap, localSeat.deaths) === 0 ? 'FREE' : `${repurchasePriceFor(localSeat.bankedScrap, localSeat.deaths)}U`}
+        </button>
       )}
       {lobbyOpen && (
         <LobbyScreen
