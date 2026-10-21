@@ -9,11 +9,33 @@ import type { StarStage } from '../net/protocol';
 import { STAGE_LABELS, TEAM_LABELS, TEAM_COLORS } from './lobby/lobbyTypes';
 import type { TeamId } from '../net/protocol';
 import { MechanicsGuide } from './MechanicsGuide';
-import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor } from '../loadout';
+import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor, MOUNT_ACCESS, canMountWeapon, weaponClassFor, type WeaponClass } from '../loadout';
 import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, autoGunCapFor, turretMountPriceFor, effectiveAutoGuns, DEFENSE_DRONE_PRICE, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
 
 // One-line summary of what a type's frame DOES, read off its capability
 // fields — the workshop sells the special in the type's own numbers.
+// WEAPON MOUNT GATE COPY (Arsenal slice 4 pairing, 2026-10-21): the
+// loop has enforced MOUNT_ACCESS since slice 1, but the workshop
+// never SAID it — locked weapons looked buyable and their buttons
+// died silently. These helpers turn the one table into words: what
+// this frame may mount, and exactly why a given weapon is locked.
+const mountAccessLabel = (line: ShipLine | null, tier: TypeTier): string =>
+  MOUNT_ACCESS[line ?? 'unaligned'][tier].map(c => c.toUpperCase()).join(' + ');
+const weaponGateReason = (line: ShipLine | null, tier: TypeTier, itemId: string): string | null => {
+  const cls = weaponClassFor(itemId);
+  if (!cls || canMountWeapon(line, tier, itemId)) return null;
+  if (cls === 'heavy') {
+    if (line === 'fighter' || line === 'cruiser') {
+      return `HEAVY GATE — ${line.toUpperCase()} MOUNTS HEAVY FROM T3 · THIS FRAME IS T${tier}`;
+    }
+    if (line) return `HEAVY GATE — ${line.toUpperCase()} NEVER MOUNTS HEAVY · FIGHTER / CRUISER T3+ ONLY`;
+    return 'HEAVY GATE — THE UNALIGNED SKIFF MOUNTS LIGHT ONLY · FIGHTER / CRUISER T3+ MOUNT HEAVY';
+  }
+  return `${cls.toUpperCase()} GATE — THIS FRAME CAN'T MOUNT IT`;
+};
+const lineMountsClass = (line: ShipLine, tier: TypeTier, cls: WeaponClass): boolean =>
+  MOUNT_ACCESS[line][tier].includes(cls);
+
 const capSummary = (d: ShipTypeDef): string => {
   const parts: string[] = [];
   if (d.hardPoints > 1) parts.push(`${d.hardPoints} HARD POINTS`);
@@ -1237,50 +1259,82 @@ export const HUD: React.FC<HUDProps> = ({
 
               {shopTab !== 'ship' && shopTab !== 'bank' && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 overflow-y-auto pr-1 max-h-[60vh] scrollbar-thin">
+                  {shopNotice && (
+                    <div className="col-span-full text-[10px] sm:text-[11px] font-mono font-bold text-amber-300 border border-amber-700 bg-amber-950/40 rounded px-2 py-1.5">{shopNotice}</div>
+                  )}
+                  {shopTab === 'weapon' && (
+                    <div className="col-span-full pitted-metal px-3 py-2 rounded-lg border border-zinc-700">
+                      <div className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🎯 WEAPON MOUNT ACCESS — {progType.name}: {mountAccessLabel(shipLine, typeTier)}</div>
+                      <p className="text-[8px] sm:text-[9px] font-mono text-zinc-400 leading-snug mt-1">
+                        LIGHT MOUNTS EVERYWHERE. HEAVY MOUNTS ONLY ON FIGHTER / CRUISER FROM T3 — THE WHOLE ARSENAL AND THE BATTERY ARE THOSE LINES' IDENTITIES. A WEAPON THIS FRAME CAN'T MOUNT CAN'T BE BOUGHT OR SWAPPED IN; THE GATE IS THE SAME TABLE THE LOOP ENFORCES.
+                      </p>
+                      {loadout.weapon && weaponClassFor(loadout.weapon) && !canMountWeapon(shipLine, typeTier, loadout.weapon) && (
+                        <p className="text-[8px] sm:text-[9px] font-mono font-bold text-amber-400 leading-snug mt-1">
+                          ⚠ {getLoadoutItem(loadout.weapon)?.name.toUpperCase()} IS EQUIPPED BUT OUTSIDE THIS FRAME'S MOUNT ACCESS — ITS GATE REASON IS ON ITS CARD BELOW.
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {LOADOUT_ITEMS.filter(def => def.category === shopTab).map(def => {
                     const owned = arsenal[def.id] || 0;
                     const equipped = loadout[def.category] === def.id;
                     const nextCost = itemTierCost(def, owned);
                     const maxed = owned >= MAX_ITEM_TIER;
-                    const canBuy = !maxed && funds >= nextCost;
+                    // MOUNT GATE (slice 4): weapons carry a class and
+                    // this frame's access decides — the same
+                    // canMountWeapon the loop enforces on buy/equip.
+                    const itemClass = def.category === 'weapon' ? weaponClassFor(def.id) : null;
+                    const gateReason = def.category === 'weapon' ? weaponGateReason(shipLine, typeTier, def.id) : null;
+                    const mountable = gateReason === null;
+                    const canBuy = !maxed && mountable && funds >= nextCost;
                     // Swap pricing (Adam's pin): free into an empty slot,
                     // otherwise 60 + 20 per tier beyond the first of the
                     // item being swapped in.
                     const slotFilled = loadout[def.category] !== null;
                     const swapCost = slotFilled ? swapCostForTier(Math.max(1, owned)) : 0;
-                    const canEquip = owned > 0 && !equipped && funds >= swapCost;
+                    const canEquip = owned > 0 && !equipped && mountable && funds >= swapCost;
                     return (
-                      <div key={def.id} className={`pitted-metal p-3 sm:p-4 flex flex-col gap-1.5 sm:gap-2 relative rounded-lg text-left border ${equipped ? 'border-[#33ff33] shadow-[0_0_10px_rgba(51,255,51,0.25)]' : 'border-zinc-700'}`}>
+                      <div key={def.id} className={`pitted-metal p-3 sm:p-4 flex flex-col gap-1.5 sm:gap-2 relative rounded-lg text-left border ${equipped && !mountable ? 'border-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.25)]' : equipped ? 'border-[#33ff33] shadow-[0_0_10px_rgba(51,255,51,0.25)]' : gateReason ? 'border-zinc-800' : 'border-zinc-700'}`}>
                         <div className="flex justify-between items-start">
                           <div className="flex items-center gap-1.5">
                             <span className="text-base">{def.icon}</span>
                             <span className="text-xs sm:text-sm font-bold uppercase text-[#33ff33]">{def.name}</span>
                           </div>
-                          <span className="text-[10px] sm:text-xs font-mono text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded">
-                            {owned > 0 ? `TIER ${owned}/${MAX_ITEM_TIER}` : 'NOT OWNED'}
+                          <span className="flex flex-col items-end gap-1">
+                            <span className="text-[10px] sm:text-xs font-mono text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded">
+                              {owned > 0 ? `TIER ${owned}/${MAX_ITEM_TIER}` : 'NOT OWNED'}
+                            </span>
+                            {itemClass && (
+                              <span className={`text-[8px] sm:text-[9px] font-mono font-bold px-1.5 py-0.5 rounded ${itemClass === 'heavy' ? 'bg-rose-950 text-rose-300 border border-rose-800' : 'bg-zinc-800 text-zinc-300 border border-zinc-700'}`}>
+                                {itemClass.toUpperCase()} CLASS
+                              </span>
+                            )}
                           </span>
                         </div>
                         <p className="text-[9px] sm:text-[10px] text-zinc-400 leading-tight">{def.desc}</p>
+                        {gateReason && (
+                          <p className={`text-[8px] sm:text-[9px] font-mono font-bold leading-snug ${equipped ? 'text-amber-400' : 'text-rose-400'}`}>
+                            {equipped ? `⚠ EQUIPPED — ${gateReason}` : `🔒 ${gateReason}`}
+                          </p>
+                        )}
                         <div className="flex gap-1.5 mt-1 pt-1.5 border-t border-zinc-800/50">
                           <button
-                            onClick={() => onBuyItem(def.id)}
-                            disabled={!canBuy}
+                            onClick={() => maxed ? flashShopNotice(`${def.name.toUpperCase()} IS AT MAX TIER ${MAX_ITEM_TIER}`) : gateReason ? flashShopNotice(`${def.name.toUpperCase()} CAN'T BE BOUGHT HERE — ${gateReason}`) : canBuy ? onBuyItem(def.id) : flashShopNotice(`NOT ENOUGH SCRAP — ${def.name.toUpperCase()} ${owned > 0 ? 'UPGRADE' : 'BUY'} COSTS ${nextCost}U · YOU HAVE ${funds}U`)}
                             className={`flex-1 px-2 py-1 rounded text-[9px] sm:text-[10px] font-bold touch-manipulation active:scale-95 ${
                               canBuy ? 'bg-[#33ff33] text-black shadow-[0_0_8px_#33ff33]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
                             }`}
                           >
-                            {maxed ? 'MAX TIER' : owned > 0 ? `UPGRADE: ${nextCost}U` : `BUY: ${nextCost}U`}
+                            {maxed ? 'MAX TIER' : gateReason ? '🔒 MOUNT GATE' : owned > 0 ? `UPGRADE: ${nextCost}U` : `BUY: ${nextCost}U`}
                           </button>
                           {owned > 0 && (
                             <button
-                              onClick={() => onEquipItem(def.id)}
-                              disabled={!canEquip}
+                              onClick={() => equipped ? undefined : gateReason ? flashShopNotice(`${def.name.toUpperCase()} CAN'T SWAP IN HERE — ${gateReason}`) : canEquip ? onEquipItem(def.id) : flashShopNotice(`NOT ENOUGH SCRAP — SWAPPING IN ${def.name.toUpperCase()} COSTS ${swapCost}U · YOU HAVE ${funds}U`)}
                               className={`flex-1 px-2 py-1 rounded text-[9px] sm:text-[10px] font-bold touch-manipulation active:scale-95 ${
                                 equipped ? 'bg-zinc-800 text-[#33ff33] cursor-default' :
                                 canEquip ? 'bg-pink-600 text-white shadow-[0_0_8px_rgba(219,39,119,0.6)]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
                               }`}
                             >
-                              {equipped ? 'EQUIPPED' : swapCost > 0 ? `SWAP IN: ${swapCost}U` : 'EQUIP (FREE)'}
+                              {equipped ? 'EQUIPPED' : gateReason ? '🔒 MOUNT GATE' : swapCost > 0 ? `SWAP IN: ${swapCost}U` : 'EQUIP (FREE)'}
                             </button>
                           )}
                         </div>
@@ -1353,10 +1407,15 @@ export const HUD: React.FC<HUDProps> = ({
                     <div className="flex gap-1.5 flex-wrap">
                       {(Object.keys(SHIP_LINES) as ShipLine[]).filter(ln => ln !== shipLine).map(ln => {
                         const afford = funds >= switchCost;
+                        const equippedCls = weaponClassFor(loadout.weapon);
+                        const targetGateWarn = !!equippedCls && !lineMountsClass(ln, typeTier, equippedCls);
                         return (
                           <button key={ln} onClick={() => afford ? onSwitchLine(ln) : flashShopNotice(`NOT ENOUGH SCRAP — THE SWITCH TOLL IS ${switchCost}U · YOU HAVE ${funds}U`)}
-                            className={`flex-1 min-w-[86px] px-2 py-1.5 rounded text-[9px] sm:text-[10px] font-mono font-bold border touch-manipulation active:scale-95 ${afford ? 'bg-zinc-900 text-zinc-200 border-zinc-600' : 'bg-zinc-900 text-zinc-500 border-zinc-800 cursor-not-allowed'}`}>
-                            ⇄ {ln.toUpperCase()} · {switchCost === 0 ? 'FREE' : `${switchCost}U`}
+                            className={`flex-1 min-w-[86px] px-2 py-1.5 rounded text-[9px] sm:text-[10px] font-mono font-bold border touch-manipulation active:scale-95 flex flex-col items-center justify-center gap-0.5 ${afford ? 'bg-zinc-900 text-zinc-200 border-zinc-600' : 'bg-zinc-900 text-zinc-500 border-zinc-800 cursor-not-allowed'}`}>
+                            <span>⇄ {ln.toUpperCase()} · {switchCost === 0 ? 'FREE' : `${switchCost}U`}</span>
+                            {targetGateWarn && (
+                              <span className="text-[7px] sm:text-[8px] text-amber-400 tracking-normal">⚠ EQUIPPED {equippedCls!.toUpperCase()} WON'T MOUNT THERE</span>
+                            )}
                           </button>
                         );
                       })}
