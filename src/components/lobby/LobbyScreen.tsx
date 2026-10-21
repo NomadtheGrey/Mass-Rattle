@@ -157,7 +157,10 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                   );
                 })}
               </div>
-              <p className="text-[9px] font-mono text-zinc-600 mt-2 leading-snug">
+              <p className="text-[9px] font-mono text-zinc-500 mt-2 leading-snug">
+                Teammates can't hurt you — and the team builds together: feed or bank at any team star.
+              </p>
+              <p className="text-[9px] font-mono text-zinc-600 mt-1 leading-snug">
                 Counts are real players only — bots never count, and a seat held through a reconnect counts.
                 Unbalanced teams are legal. At the start, bots hold their seat colors unless every human
                 stacks one team — then the bots form the opposition.
