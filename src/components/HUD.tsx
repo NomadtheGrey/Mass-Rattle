@@ -436,7 +436,7 @@ export const HUD: React.FC<HUDProps> = ({
     <div className={`fixed inset-0 pointer-events-none z-50 flex flex-col md:flex-row p-2 sm:p-4 md:p-6 gap-2 md:gap-4 ${glitch ? 'animate-pulse' : ''} text-[#33ff33]`}>
       
       {/* MOBILE TOP STATUS RIBBON (Cellphones: iPhone & Android) */}
-      <header className="flex md:hidden w-full flex-col gap-1 pointer-events-auto bg-zinc-950/85 backdrop-blur-md p-2 rounded border-2 border-zinc-800 shadow-xl select-none">
+      <header className="flex md:hidden w-full flex-col gap-1 pointer-events-auto bg-zinc-950/60 backdrop-blur-md p-2 rounded border-2 border-zinc-800 shadow-xl select-none">
         {/* Top Row: Stars & Bank */}
         <div className="flex items-center justify-between text-[9px] font-mono leading-none">
           <div className="flex items-center gap-2">
@@ -510,7 +510,7 @@ export const HUD: React.FC<HUDProps> = ({
       {/* MOBILE RADAR MODAL / POPOVER */}
       {radarActive && (
         <div className="md:hidden fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm pointer-events-auto">
-          <div className="hud-panel p-4 border-4 rounded-xl flex flex-col items-center gap-3 bg-zinc-950 shadow-2xl">
+          <div className="hud-panel p-4 border-4 rounded-xl flex flex-col items-center gap-3 bg-zinc-950/75 shadow-2xl">
             <div className="flex justify-between items-center w-full border-b border-zinc-800 pb-2">
               <span className="text-xs font-mono font-bold text-orange-400 uppercase tracking-widest">TACTICAL RADAR</span>
               <button 
@@ -669,7 +669,7 @@ export const HUD: React.FC<HUDProps> = ({
               Replaces the stale 20%-opacity help footer that lived in
               App.tsx and never learned FIRE [F] or DECOY [X]. */}
           <div className="absolute bottom-0 left-0 pointer-events-auto">
-            <div className="hud-panel border-2 bg-zinc-950/90 shadow-2xl px-3 py-2 min-w-[176px]">
+            <div className="hud-panel border-2 bg-zinc-950/55 shadow-2xl px-3 py-2 min-w-[176px]">
               <div className="text-[8px] font-mono font-bold tracking-[0.25em] text-zinc-500 mb-1.5">SHIP CONTROLS</div>
               <div className="flex flex-col gap-1">
                 {controlRows.map(row => (
@@ -684,7 +684,7 @@ export const HUD: React.FC<HUDProps> = ({
 
           {/* Utility Cluster */}
           <div className="absolute bottom-0 right-0 w-24 flex flex-col gap-2 items-end">
-            <div className="hud-panel w-16 p-2 flex flex-col items-center gap-4 border-2 bg-zinc-950/90 shadow-2xl pointer-events-auto">
+            <div className="hud-panel w-16 p-2 flex flex-col items-center gap-4 border-2 bg-zinc-950/55 shadow-2xl pointer-events-auto">
               {/* Fuel state — a READOUT, not a button (audit, 2026-10-20):
                   reads the real fuel prop. Its old neighbours — inert
                   JETTISON / FIRE / VAC squares dressed as buttons and
@@ -705,7 +705,7 @@ export const HUD: React.FC<HUDProps> = ({
                 GUIDE
               </button>
             </div>
-            <div className="hud-panel w-20 p-2 border-2 bg-zinc-950/90 flex flex-col items-center justify-center gap-1">
+            <div className="hud-panel w-20 p-2 border-2 bg-zinc-950/55 flex flex-col items-center justify-center gap-1">
               <div className="text-[7px] text-zinc-600 uppercase whitespace-nowrap">S/N: 88-X9-R</div>
               <div className="text-[8px] opacity-30">v2.4.0</div>
             </div>
@@ -936,12 +936,15 @@ export const HUD: React.FC<HUDProps> = ({
           FEED it to the star, BANK it, or open the WORKSHOP. The row
           appears the moment the ship enters the star's influence and is
           gone when it leaves — no permanent clutter, no buried menus.
+          PLACEMENT (Adam, 2026-10-21): in the play area just above the
+          ship (the camera keeps the ship near screen-center), clear of
+          the hull and its flight line — not over the bottom UI.
           pointer-events-auto on the container is LOAD-BEARING: the HUD
           root is pointer-events-none, so without it the pills render and
           glow but clicks pass through to the canvas (Adam's bug report,
           2026-10-20). The DECOY pill below needs the same class. */}
       {bankInWell && !isShopOpen && (
-        <div className="fixed bottom-[104px] sm:bottom-[76px] left-1/2 -translate-x-1/2 z-[56] flex gap-2 pointer-events-auto">
+        <div className="fixed top-[38%] left-1/2 -translate-x-1/2 z-[56] flex gap-2 pointer-events-auto">
           <button
             onClick={onFeedCargo}
             disabled={carrying <= 0}
@@ -969,7 +972,7 @@ export const HUD: React.FC<HUDProps> = ({
           lives outside the well-gated dock pills. Shows only while the
           Decoy Beacon is the equipped defense and none is live. */}
       {loadout.defense === 'decoy_beacon' && !decoyActive && (
-        <div className={`fixed left-1/2 -translate-x-1/2 z-[56] pointer-events-auto ${bankInWell && !isShopOpen ? 'bottom-[146px] sm:bottom-[118px]' : 'bottom-[104px] sm:bottom-[76px]'}`}>
+        <div className="fixed bottom-[104px] sm:bottom-[76px] left-1/2 -translate-x-1/2 z-[56] pointer-events-auto">
           <button
             onClick={onDeployDecoy}
             className="hud-panel px-3 py-1.5 rounded border border-pink-500 font-mono text-[10px] sm:text-[11px] font-bold tracking-wider text-pink-400 shadow-[0_0_10px_rgba(219,39,119,0.35)]"
@@ -979,7 +982,12 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
       )}
 
-      {/* STATUS STRIP — slim indicators, bottom-center (Adam, 2026-10-20).
+      {/* STATUS STRIP — slim indicators, TOP band (Adam, 2026-10-21:
+          moved up from bottom-center, where it sat over the SHIP
+          ENHANCEMENTS gauges). The top offset clears the MULTIPLAYER
+          chip on desktop and the full mobile ribbon on phones; the
+          CME warning banner layers above it while it flashes. (Origin:
+          Adam, 2026-10-20.)
           The five ship tracks at a glance: level + the live stat the level
           buys, computed from the same formulas the sim uses. Then the
           equipped trio as compact chips. Indicators only — buying lives in
@@ -987,7 +995,7 @@ export const HUD: React.FC<HUDProps> = ({
           is evicted (the bank lives in the dock row + the BANK tab). When
           ship classes land with per-class caps, each track cell gains
           its /MAX — no denominator is printed until a real cap exists. */}
-      <div className="fixed bottom-24 sm:bottom-5 left-1/2 -translate-x-1/2 z-[55] flex flex-wrap justify-center items-stretch gap-1 max-w-[97vw] pointer-events-none">
+      <div className="fixed top-[148px] md:top-12 left-1/2 -translate-x-1/2 z-[55] flex flex-wrap justify-center items-stretch gap-1 max-w-[97vw] pointer-events-none">
         {[
           { icon: '🚀', name: 'THRUST', lvl: upgrades.thrust, cap: caps.thrust, stat: `SPD ${(PHYSICS.MAX_VELOCITY + upgrades.thrust * 0.5).toFixed(1)}` },
           { icon: '🕹️', name: 'TURN', lvl: upgrades.handling, cap: caps.handling, stat: `${Math.round((PHYSICS.ROTATION_SPEED + upgrades.handling * 0.005) * 60 * 180 / Math.PI)}°/S` },
@@ -1033,7 +1041,7 @@ export const HUD: React.FC<HUDProps> = ({
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="w-full max-w-xl max-h-[90vh] flex flex-col hud-panel p-4 sm:p-6 md:p-8 border-4 relative overflow-hidden bg-zinc-950/95 shadow-[0_0_50px_rgba(51,255,51,0.15)] rounded-lg"
+            className="w-full max-w-xl max-h-[90vh] flex flex-col hud-panel p-4 sm:p-6 md:p-8 border-4 relative overflow-hidden bg-zinc-950/80 shadow-[0_0_50px_rgba(51,255,51,0.15)] rounded-lg"
           >
             <div className="absolute inset-0 bg-gradient-to-br from-[#33ff33]/5 to-transparent pointer-events-none" />
             

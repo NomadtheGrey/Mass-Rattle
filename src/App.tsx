@@ -106,7 +106,7 @@ export default function App() {
       {!lobbyOpen && (
         <button
           onClick={() => setLobbyOpen(true)}
-          className="fixed top-2 left-1/2 -translate-x-1/2 z-[95] px-3 py-1.5 rounded-full bg-zinc-900/90 border border-[#33ff33]/60 text-[#33ff33] text-[10px] font-mono font-bold tracking-widest shadow-[0_0_10px_rgba(51,255,51,0.25)] active:scale-95 touch-manipulation"
+          className="fixed top-2 left-1/2 -translate-x-1/2 z-[95] px-3 py-1.5 rounded-full bg-zinc-900/70 border border-[#33ff33]/60 text-[#33ff33] text-[10px] font-mono font-bold tracking-widest shadow-[0_0_10px_rgba(51,255,51,0.25)] active:scale-95 touch-manipulation"
         >
           {net.room ? `🌐 ROOM ${net.room.code} — LOBBY` : '🌐 MULTIPLAYER'}
         </button>

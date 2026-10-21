@@ -149,7 +149,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
     const iAmHost = myPlayerId !== null && room.hostPlayerId === myPlayerId;
     const mySeat = room.seats.find(seat => seat.occupant.playerId !== null && seat.occupant.playerId === myPlayerId) ?? null;
     return (
-      <div className="fixed inset-0 z-[100] overflow-y-auto bg-zinc-950 text-[#33ff33] flex justify-center p-3 sm:p-6">
+      <div className="fixed inset-0 z-[100] overflow-y-auto bg-zinc-950/90 text-[#33ff33] flex justify-center p-3 sm:p-6">
         <div className="w-full max-w-md md:max-w-3xl flex gap-4 items-start">
         {/* Left margin: field notes (desktop); phones get the same
             block inline below — nothing shrunk away. */}
@@ -259,7 +259,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
 
   /* ------------------------------ ENTRY VIEW ----------------------------- */
   return (
-    <div className="fixed inset-0 z-[100] overflow-y-auto bg-zinc-950 text-[#33ff33] flex justify-center p-3 sm:p-6">
+    <div className="fixed inset-0 z-[100] overflow-y-auto bg-zinc-950/90 text-[#33ff33] flex justify-center p-3 sm:p-6">
       <div className="w-full max-w-md flex flex-col gap-4">
         <div className="text-center mt-2">
           <h1 className="text-3xl font-black tracking-tighter italic text-zinc-50">MASS RATTLE</h1>

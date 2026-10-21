@@ -21,7 +21,7 @@ export const RepurchaseOverlay: React.FC<RepurchaseOverlayProps> = ({
   deaths, bankedScrap, price, onRepurchase,
 }) => (
   <div className="fixed inset-0 z-[90] flex items-center justify-center p-3 bg-black/70 backdrop-blur-[2px] pointer-events-auto">
-    <div className="hud-panel w-full max-w-sm p-5 rounded border-4 border-red-900 bg-zinc-950/95 text-center shadow-[0_0_50px_rgba(220,38,38,0.25)]">
+    <div className="hud-panel w-full max-w-sm p-5 rounded border-4 border-red-900 bg-zinc-950/85 text-center shadow-[0_0_50px_rgba(220,38,38,0.25)]">
       <div className="text-3xl mb-1">💥</div>
       <h2 className="text-xl font-black font-mono tracking-widest text-red-500">SHIP DESTROYED</h2>
       <p className="text-[11px] font-mono text-zinc-400 mt-2 leading-relaxed">
