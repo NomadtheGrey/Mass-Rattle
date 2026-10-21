@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { GameState, SeatSimState, Star, Vector2D, Ship, Scrap } from '../types';
 import { PHYSICS, COLORS } from '../constants';
-import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, canMountWeapon } from '../loadout';
+import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, canMountWeapon, mountableLoadout } from '../loadout';
 import { inBankWell } from '../bank';
 import { infuseStar, milestonesForInfused } from '../starGrowth';
 import { ownerIdForSeat, starIdForSeat } from '../sim/ownership';
@@ -542,7 +542,10 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       // amounts) changes. If hullSteps exceeds the new line/type's cap,
       // the steps STAY; the cap only refuses buying more (same rule as
       // track caps). The VAC bonus follows the new line immediately.
-      const ship = { ...prev.ship, carrying: payment.carrying, line, lineSwitchesUsed: prev.ship.lineSwitchesUsed + 1 };
+      // The equipped weapon rides through mountableLoadout (slice 4):
+      // a weapon this hull cannot mount is SHELVED on the switch —
+      // slot emptied, ownership kept — never left live in the slot.
+      const ship = { ...prev.ship, carrying: payment.carrying, line, lineSwitchesUsed: prev.ship.lineSwitchesUsed + 1, loadout: mountableLoadout(line, prev.ship.typeTier, prev.ship.loadout) };
       ship.attractRadius = attractRadiusForShip(ship.upgrades.attractor, ship.line, ship.typeTier);
       return { ...prev, ship, bankedScrap: payment.banked, glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
     });

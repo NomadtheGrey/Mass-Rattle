@@ -198,6 +198,28 @@ export const canMountWeapon = (line: ShipLine | null, typeTier: TypeTier, itemId
 };
 
 /**
+ * The loadout a hull may actually CARRY (Arsenal slice 4, 2026-10-21
+ * — closing the switch-in hole): if the equipped weapon is not
+ * mountable on this line/tier, it is SHELVED — the slot empties,
+ * the item stays OWNED in the arsenal, and it can be re-equipped
+ * the moment a hull that mounts it returns (equipItem's gate
+ * already refuses it here). Shelved, never stripped: the same law
+ * as turret mounts over a shallow cap (slice 2) and track levels
+ * over a new line's cap. Defense/hybrid slots are not classed and
+ * always ride. Returns the input untouched when nothing shelves.
+ */
+export const mountableLoadout = (
+  line: ShipLine | null,
+  typeTier: TypeTier,
+  loadout: { weapon: string | null; defense: string | null; hybrid: string | null },
+): { weapon: string | null; defense: string | null; hybrid: string | null } => {
+  if (loadout.weapon && !canMountWeapon(line, typeTier, loadout.weapon)) {
+    return { ...loadout, weapon: null };
+  }
+  return loadout;
+};
+
+/**
  * WEAPON STATS — how each weapon actually behaves when fired (Slice 4).
  * =====================================================================
  * Draft numbers, tuned to feel distinct rather than balanced-perfect;
