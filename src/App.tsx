@@ -71,6 +71,7 @@ export default function App() {
     buyType,
     buyHullStep,
     buyTurretMount,
+    buildDefenseDrone,
     switchLine,
     buildDrone,
     repurchaseShip,
@@ -244,7 +245,9 @@ export default function App() {
         typeTier={state.ship.typeTier}
         hullSteps={state.ship.hullSteps}
         lineSwitchesUsed={state.ship.lineSwitchesUsed}
-        playerDrones={state.drones.filter(d => d.owner === 'player').length}
+        playerDrones={state.drones.filter(d => d.owner === 'player' && d.mode !== 'defense').length}
+        playerDefenseDrones={state.drones.filter(d => d.owner === 'player' && d.mode === 'defense').length}
+        onBuildDefenseDrone={buildDefenseDrone}
         onBuyType={buyType}
         onBuyHullStep={buyHullStep}
         onBuyTurretMount={buyTurretMount}

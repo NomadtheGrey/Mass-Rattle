@@ -10,7 +10,7 @@ import { STAGE_LABELS, TEAM_LABELS, TEAM_COLORS } from './lobby/lobbyTypes';
 import type { TeamId } from '../net/protocol';
 import { MechanicsGuide } from './MechanicsGuide';
 import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor } from '../loadout';
-import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, autoGunCapFor, turretMountPriceFor, effectiveAutoGuns, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
+import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, autoGunCapFor, turretMountPriceFor, effectiveAutoGuns, DEFENSE_DRONE_PRICE, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
 
 // One-line summary of what a type's frame DOES, read off its capability
 // fields — the workshop sells the special in the type's own numbers.
@@ -158,6 +158,8 @@ interface HUDProps {
   turretMounts: number;
   lineSwitchesUsed: number;
   playerDrones: number;
+  playerDefenseDrones: number;
+  onBuildDefenseDrone: () => void;
   onBuyType: (line?: ShipLine) => void;
   onBuyHullStep: () => void;
   onBuyTurretMount: () => void;
@@ -214,6 +216,8 @@ export const HUD: React.FC<HUDProps> = ({
   turretMounts,
   lineSwitchesUsed,
   playerDrones,
+  playerDefenseDrones,
+  onBuildDefenseDrone,
   onBuyType,
   onBuyHullStep,
   onBuyTurretMount,
@@ -1416,6 +1420,49 @@ export const HUD: React.FC<HUDProps> = ({
                           className={`px-3 py-2 rounded text-left touch-manipulation active:scale-[0.98] border bg-zinc-900 ${afford ? 'border-zinc-600' : 'grayscale cursor-not-allowed border-zinc-800 text-zinc-500'}`}>
                           <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🔫 FIT MOUNT {turretMounts + 1} OF {mountCap}</span>
                           <span className="float-right text-[10px] sm:text-xs font-mono font-bold text-pink-400">{nextPrice}U</span>
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* CREW — THE DEFENSE PAIR (Arsenal slice 3, 2026-10-21):
+                    the hauler's couple of guard drones. The block exists
+                    only on frames whose defenseDrones cap is above zero
+                    (the data decides, not the line's name), and the
+                    workforce quality axis prints when the frame carries
+                    one — speed is live off the current type, carry is
+                    stamped at build. Guards never harvest and never eat
+                    a workforce slot: the counts arrive mode-split. */}
+                {(progType.droneSpeedPct > 0 || progType.droneCarryBonus > 0) && (
+                  <p className="text-[8px] sm:text-[9px] font-mono text-zinc-400 leading-snug">
+                    WORKFORCE QUALITY ON THIS FRAME: <span className="text-zinc-200">+{progType.droneSpeedPct}% DRONE SPEED · +{progType.droneCarryBonus} CARRY PER DRONE</span> — THE CREW GETS BETTER AS THE FRAME CLIMBS.
+                  </p>
+                )}
+                {progType.defenseDrones > 0 && (() => {
+                  const defenseCap = progType.defenseDrones;
+                  const full = playerDefenseDrones >= defenseCap;
+                  const afford = funds >= DEFENSE_DRONE_PRICE;
+                  return (
+                    <div className="pitted-metal px-3 py-2 rounded border border-zinc-700 flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🛡️ DEFENSE DRONES — {playerDefenseDrones}/{defenseCap} ON STATION</span>
+                        <span className="flex gap-1" aria-hidden="true">
+                          {Array.from({ length: defenseCap }, (_, i) => (
+                            <span key={i} className={`w-2.5 h-2.5 rotate-45 ${i < playerDefenseDrones ? 'bg-amber-400' : 'bg-zinc-700'}`} />
+                          ))}
+                        </span>
+                      </div>
+                      <p className="text-[8px] sm:text-[9px] font-mono text-zinc-400 leading-snug">
+                        GUARDS, NOT WORKERS — THEY STATION ON YOUR SHIP (◆ ON CANVAS) AND SHOOT HOSTILES ON THEIR OWN. NO ORDERS, NO HARVESTING, AND THEY NEVER EAT A WORKFORCE SLOT. A LOST GUARD IS REBUILT HERE.
+                      </p>
+                      {full ? (
+                        <div className="text-[10px] sm:text-xs font-mono text-amber-400">DEFENSE COMPLEMENT FULL — THE PAIR IS ON STATION</div>
+                      ) : (
+                        <button onClick={() => afford ? onBuildDefenseDrone() : flashShopNotice(`NOT ENOUGH SCRAP — A DEFENSE DRONE COSTS ${DEFENSE_DRONE_PRICE}U · YOU HAVE ${funds}U`)}
+                          className={`px-3 py-2 rounded text-left touch-manipulation active:scale-[0.98] border bg-zinc-900 ${afford ? 'border-zinc-600' : 'grayscale cursor-not-allowed border-zinc-800 text-zinc-500'}`}>
+                          <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🛡️ BUILD DEFENSE DRONE {playerDefenseDrones + 1} OF {defenseCap}</span>
+                          <span className="float-right text-[10px] sm:text-xs font-mono font-bold text-pink-400">{DEFENSE_DRONE_PRICE}U</span>
                         </button>
                       )}
                     </div>

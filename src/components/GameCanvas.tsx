@@ -548,16 +548,34 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       ctx.fillStyle = '#1a1a1c';
       ctx.strokeStyle = color;
       ctx.lineWidth = 1;
-      
-      // Triangular body
-      ctx.beginPath();
-      ctx.moveTo(8, 0);
-      ctx.lineTo(-6, 6);
-      ctx.lineTo(-4, 0);
-      ctx.lineTo(-6, -6);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
+
+      if (d.mode === 'defense') {
+        // GUARD silhouette (Arsenal slice 3): a diamond with an
+        // amber heart — the defense pair stations and shoots, never
+        // harvests, and must never be mistaken for the workforce.
+        ctx.beginPath();
+        ctx.moveTo(7, 0);
+        ctx.lineTo(0, 5);
+        ctx.lineTo(-7, 0);
+        ctx.lineTo(0, -5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#fbbf24';
+        ctx.beginPath();
+        ctx.arc(0, 0, 2, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Triangular body (the harvester)
+        ctx.beginPath();
+        ctx.moveTo(8, 0);
+        ctx.lineTo(-6, 6);
+        ctx.lineTo(-4, 0);
+        ctx.lineTo(-6, -6);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
 
       // Cargo light if carrying
       if (d.carrying > 0) {
