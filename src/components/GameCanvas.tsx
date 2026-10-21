@@ -1192,7 +1192,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
         if (isStealthShip(rs)) {
           const allied = !!mySeat && seat.teamId === mySeat.teamId;
           if (!allied) {
-            reveal = stealthAlphaFor(rs, ship.pos, performance.now());
+            reveal = stealthAlphaFor(rs, ship.pos);
             if (reveal <= 0) continue; // dark — the submarine is simply not there
             ghost = reveal < 0.85;
           }
