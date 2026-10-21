@@ -217,9 +217,9 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
               { label: 'IN THE WELL', keys: 'FEED · BANK · WITHDRAW · WORKSHOP' },
               { label: 'WORKSHOP', keys: 'SHOP + UPGRADES — AT YOUR STAR' },
             ].map(row => (
-              <div key={row.label} className={`flex justify-between gap-3 text-[9px] font-mono ${row.dim ? 'opacity-40' : ''}`}>
-                <span className="text-zinc-400 tracking-wider whitespace-nowrap">{row.label}</span>
-                <span className="text-[#33ff33] font-bold text-right">{row.keys}</span>
+              <div key={row.label} className="flex justify-between gap-3 text-[9px] font-mono">
+                <span className={`${row.dim ? 'text-zinc-500' : 'text-zinc-400'} tracking-wider whitespace-nowrap`}>{row.label}</span>
+                <span className={`${row.dim ? 'text-zinc-500' : 'text-[#33ff33]'} font-bold text-right`}>{row.keys}</span>
               </div>
             ))}
           </div>

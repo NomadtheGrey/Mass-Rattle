@@ -725,9 +725,9 @@ export const HUD: React.FC<HUDProps> = ({
               <div className="text-[8px] font-mono font-bold tracking-[0.25em] text-zinc-400 mb-1.5">SHIP CONTROLS</div>
               <div className="flex flex-col gap-1">
                 {controlRows.map(row => (
-                  <div key={row.label} className={`flex justify-between gap-3 text-[9px] font-mono ${row.dim ? 'opacity-75' : ''}`}>
-                    <span className={`${row.bold ? 'text-zinc-100 font-bold' : 'text-zinc-300'} tracking-wider`}>{row.label}</span>
-                    <span className={`text-[#33ff33] font-bold whitespace-nowrap ${row.bold ? 'text-[10px]' : ''}`}>{row.keys}</span>
+                  <div key={row.label} className="flex justify-between gap-3 text-[9px] font-mono">
+                    <span className={`${row.dim ? 'text-zinc-500' : row.bold ? 'text-zinc-100 font-bold' : 'text-zinc-300'} tracking-wider`}>{row.label}</span>
+                    <span className={`${row.dim ? 'text-zinc-500' : 'text-[#33ff33]'} font-bold whitespace-nowrap ${row.bold ? 'text-[10px]' : ''}`}>{row.keys}</span>
                   </div>
                 ))}
               </div>
@@ -783,7 +783,7 @@ export const HUD: React.FC<HUDProps> = ({
               <div className="flex flex-col gap-2 w-full text-[9px]">
                 <div>
                   <div className="flex justify-between mb-0.5">
-                    <span className="opacity-60">VELOCITY</span>
+                    <span className="text-zinc-400">VELOCITY</span>
                     <span className={velocity > 6 ? 'text-red-500' : ''}>{velocity.toFixed(1)}</span>
                   </div>
                   <div className="vu-meter h-2">
@@ -807,7 +807,7 @@ export const HUD: React.FC<HUDProps> = ({
                 </div>
                 <div>
                   <div className="flex justify-between mb-0.5">
-                    <span className="opacity-60 text-orange-400">INERTIA SLIP</span>
+                    <span className="text-orange-400">INERTIA SLIP</span>
                     <span>{(slip * 100).toFixed(0)}%</span>
                   </div>
                   <div className="vu-meter h-2 bg-orange-900/20">
@@ -858,11 +858,11 @@ export const HUD: React.FC<HUDProps> = ({
                     onClick={() => onUpgrade(u.type)}
                     disabled={funds < cost}
                     className={`pitted-metal w-16 min-w-[64px] flex flex-col items-center py-2 relative group transition-all ${
-                      funds >= cost ? 'text-[#33ff33] opacity-100' : 'text-zinc-500 opacity-65 grayscale cursor-not-allowed'
+                      funds >= cost ? 'text-[#33ff33] opacity-100' : 'text-zinc-500 grayscale cursor-not-allowed'
                     }`}
                   >
                     <span className="text-[10px] font-bold uppercase tracking-tighter">[{u.key}] {u.label.substring(0,4)}</span>
-                    <span className="text-[8px] opacity-85">Lvl {u.lvl}/{u.cap}</span>
+                    <span className="text-[8px]">Lvl {u.lvl}/{u.cap}</span>
                     <div className="absolute -top-8 left-1/2 -translate-x-1/2 transition-all opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] bg-black border border-zinc-800 p-1 font-mono z-50">
                       REQ: {cost} SCRAP ({bankInWell ? 'HOLD+BANK' : 'HOLD — BANK COUNTS IN THE WELL'})
                     </div>
@@ -1000,14 +1000,14 @@ export const HUD: React.FC<HUDProps> = ({
           <button
             onClick={onFeedCargo}
             disabled={carrying <= 0}
-            className={`hud-panel px-3 py-1.5 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider ${carrying > 0 ? 'border-amber-400 text-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.35)]' : 'border-zinc-800 text-zinc-600 opacity-50 cursor-not-allowed'}`}
+            className={`hud-panel px-3 py-1.5 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider ${carrying > 0 ? 'border-amber-400 text-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.35)]' : 'border-zinc-800 text-zinc-500 cursor-not-allowed'}`}
           >
             ⭐ FEED{carrying > 0 ? ` ${carrying}U` : ''}
           </button>
           <button
             onClick={onDepositBank}
             disabled={carrying <= 0}
-            className={`hud-panel px-3 py-1.5 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider ${carrying > 0 ? 'border-[#33ff33] text-[#33ff33] shadow-[0_0_10px_rgba(51,255,51,0.35)]' : 'border-zinc-800 text-zinc-600 opacity-50 cursor-not-allowed'}`}
+            className={`hud-panel px-3 py-1.5 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider ${carrying > 0 ? 'border-[#33ff33] text-[#33ff33] shadow-[0_0_10px_rgba(51,255,51,0.35)]' : 'border-zinc-800 text-zinc-500 cursor-not-allowed'}`}
           >
             🏦 BANK{carrying > 0 ? ` ${carrying}U` : ''}
           </button>
@@ -1071,11 +1071,11 @@ export const HUD: React.FC<HUDProps> = ({
           const isShield = slot === 'defense' && def?.id === 'deflector_shield';
           const isDecoy = slot === 'defense' && def?.id === 'decoy_beacon';
           return (
-            <div key={slot} className={`hud-panel px-1.5 py-0.5 rounded border text-center min-w-[56px] ${def ? 'border-[#33ff33]/50' : 'border-zinc-800 opacity-75'}`}>
+            <div key={slot} className={`hud-panel px-1.5 py-0.5 rounded border text-center min-w-[56px] ${def ? 'border-[#33ff33]/50' : 'border-zinc-800'}`}>
               <div className="text-[8px] sm:text-[9px] font-mono text-zinc-300 tracking-widest whitespace-nowrap">
                 {label}{def ? ` · T${tier}` : ''}{isShield ? ` · POOL ${Math.ceil(shieldHp || 0)}/${shieldMaxFor(tier)}` : ''}
               </div>
-              <div className="text-[8px] sm:text-[10px] font-mono font-bold uppercase text-[#33ff33] leading-tight whitespace-nowrap max-w-[92px] truncate">
+              <div className={`text-[8px] sm:text-[10px] font-mono font-bold uppercase leading-tight whitespace-nowrap max-w-[92px] truncate ${def ? 'text-[#33ff33]' : 'text-zinc-400'}`}>
                 {def ? `${def.icon} ${def.name}` : '— EMPTY —'}
               </div>
               {isDecoy && (
@@ -1146,7 +1146,7 @@ export const HUD: React.FC<HUDProps> = ({
 
               {shopTab === 'bank' && (
                 <div className="flex flex-col gap-3 overflow-y-auto pr-1 max-h-[60vh] scrollbar-thin">
-                  <p className="text-[10px] sm:text-xs opacity-70 leading-snug">
+                  <p className="text-[10px] sm:text-xs text-zinc-300 leading-snug">
                     The bank is your star's <span className="text-[#33ff33] font-bold">gravity well</span> — banked scrap
                     orbits the star (watch the motes in the ring) and is safe there: it never feeds the star on
                     its own and does not count toward milestones until you withdraw it and feed it yourself.
@@ -1187,7 +1187,7 @@ export const HUD: React.FC<HUDProps> = ({
                       ⬆ WITHDRAW (FILL HOLD)
                     </button>
                   </div>
-                  <p className="text-[9px] font-mono opacity-50">Withdraw fills the hold up to capacity (including the overload allowance). Deposit is unlimited — for now.</p>
+                  <p className="text-[9px] font-mono text-zinc-400">Withdraw fills the hold up to capacity (including the overload allowance). Deposit is unlimited — for now.</p>
                 </div>
               )}
 
@@ -1212,11 +1212,11 @@ export const HUD: React.FC<HUDProps> = ({
                             <span className="text-base">{def.icon}</span>
                             <span className="text-xs sm:text-sm font-bold uppercase text-[#33ff33]">{def.name}</span>
                           </div>
-                          <span className="text-[10px] sm:text-xs font-mono opacity-70 bg-zinc-800 px-1.5 py-0.5 rounded">
+                          <span className="text-[10px] sm:text-xs font-mono text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded">
                             {owned > 0 ? `TIER ${owned}/${MAX_ITEM_TIER}` : 'NOT OWNED'}
                           </span>
                         </div>
-                        <p className="text-[9px] sm:text-[10px] opacity-60 leading-tight">{def.desc}</p>
+                        <p className="text-[9px] sm:text-[10px] text-zinc-400 leading-tight">{def.desc}</p>
                         <div className="flex gap-1.5 mt-1 pt-1.5 border-t border-zinc-800/50">
                           <button
                             onClick={() => onBuyItem(def.id)}
@@ -1257,9 +1257,9 @@ export const HUD: React.FC<HUDProps> = ({
               <div className="pitted-metal p-3 sm:p-4 rounded-lg border border-zinc-700 flex flex-col gap-3">
                 <div className="flex justify-between items-center gap-2 flex-wrap">
                   <span className="text-xs sm:text-sm font-bold uppercase text-[#33ff33]">🛸 {progType.name}{shipLine ? ` · ${shipLine.toUpperCase()} LINE · T${typeTier}` : ' · UNALIGNED'}</span>
-                  <span className="text-[9px] sm:text-[10px] font-mono opacity-70 bg-zinc-800 px-1.5 py-0.5 rounded">SIZE {hullSizeFor(hullSteps)} · HULL {hullSteps}/{progType.hullStepCap}</span>
+                  <span className="text-[9px] sm:text-[10px] font-mono text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded">SIZE {hullSizeFor(hullSteps)} · HULL {hullSteps}/{progType.hullStepCap}</span>
                 </div>
-                <p className="text-[9px] sm:text-[10px] opacity-60 leading-tight">{capSummary(progType)} — the special is built into the frame's price, never sold separately.</p>
+                <p className="text-[9px] sm:text-[10px] text-zinc-400 leading-tight">{capSummary(progType)} — the special is built into the frame's price, never sold separately.</p>
 
                 {typeTier < 4 && shipLine === null && (
                   <div className="flex flex-col gap-1.5">
@@ -1270,7 +1270,7 @@ export const HUD: React.FC<HUDProps> = ({
                       const afford = funds >= price;
                       return (
                         <button key={ln} onClick={() => onBuyType(ln)} disabled={!afford}
-                          className={`pitted-metal px-3 py-2 rounded flex items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'opacity-40 grayscale cursor-not-allowed border border-zinc-800'}`}>
+                          className={`pitted-metal px-3 py-2 rounded flex items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
                           <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">{ln} → {t2.name}</span>
                           <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(t2)}</span>
                           <span className="text-[10px] sm:text-xs font-mono font-bold text-pink-400">{price}U</span>
@@ -1286,7 +1286,7 @@ export const HUD: React.FC<HUDProps> = ({
                   const afford = funds >= price;
                   return (
                     <button onClick={() => onBuyType()} disabled={!afford}
-                      className={`pitted-metal px-3 py-2 rounded flex items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'opacity-40 grayscale cursor-not-allowed border border-zinc-800'}`}>
+                      className={`pitted-metal px-3 py-2 rounded flex items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
                       <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">⬆ CLIMB → {next.name} (T{typeTier + 1})</span>
                       <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(next)} · HULL CAP {next.hullStepCap}</span>
                       <span className="text-[10px] sm:text-xs font-mono font-bold text-pink-400">{price}U</span>
@@ -1306,7 +1306,7 @@ export const HUD: React.FC<HUDProps> = ({
                         const afford = funds >= switchCost;
                         return (
                           <button key={ln} onClick={() => onSwitchLine(ln)} disabled={!afford}
-                            className={`flex-1 min-w-[86px] px-2 py-1.5 rounded text-[9px] sm:text-[10px] font-mono font-bold border touch-manipulation active:scale-95 ${afford ? 'bg-zinc-900 text-zinc-200 border-zinc-600' : 'bg-zinc-900 text-zinc-600 border-zinc-800 opacity-50 cursor-not-allowed'}`}>
+                            className={`flex-1 min-w-[86px] px-2 py-1.5 rounded text-[9px] sm:text-[10px] font-mono font-bold border touch-manipulation active:scale-95 ${afford ? 'bg-zinc-900 text-zinc-200 border-zinc-600' : 'bg-zinc-900 text-zinc-500 border-zinc-800 cursor-not-allowed'}`}>
                             ⇄ {ln.toUpperCase()} · {switchCost === 0 ? 'FREE' : `${switchCost}U`}
                           </button>
                         );
@@ -1318,7 +1318,7 @@ export const HUD: React.FC<HUDProps> = ({
                 <div className="flex gap-2 flex-wrap">
                   {hullSteps < progType.hullStepCap ? (
                     <button onClick={onBuyHullStep} disabled={funds < hullStepPrice(hullSteps)}
-                      className={`flex-1 min-w-[150px] pitted-metal px-3 py-2 rounded text-left touch-manipulation active:scale-[0.98] ${funds >= hullStepPrice(hullSteps) ? 'border border-zinc-600' : 'opacity-40 grayscale cursor-not-allowed border border-zinc-800'}`}>
+                      className={`flex-1 min-w-[150px] pitted-metal px-3 py-2 rounded text-left touch-manipulation active:scale-[0.98] ${funds >= hullStepPrice(hullSteps) ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
                       <div className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🔩 GROW HULL — STEP {hullSteps + 1}/{progType.hullStepCap}</div>
                       <div className="text-[8px] sm:text-[9px] font-mono text-zinc-400">SIZE {hullSizeFor(hullSteps)} → {hullSizeFor(hullSteps + 1)} · +{HULL_STEP_HEALTH} MAX HULL · <span className="text-pink-400 font-bold">{hullStepPrice(hullSteps)}U</span></div>
                     </button>
@@ -1329,7 +1329,7 @@ export const HUD: React.FC<HUDProps> = ({
                     </div>
                   )}
                   <button onClick={onBuildDrone} disabled={playerDrones >= progType.dronesFielded || funds < DRONE_PRICE}
-                    className={`flex-1 min-w-[150px] pitted-metal px-3 py-2 rounded text-left touch-manipulation active:scale-[0.98] ${playerDrones < progType.dronesFielded && funds >= DRONE_PRICE ? 'border border-zinc-600' : 'opacity-40 grayscale cursor-not-allowed border border-zinc-800'}`}>
+                    className={`flex-1 min-w-[150px] pitted-metal px-3 py-2 rounded text-left touch-manipulation active:scale-[0.98] ${playerDrones < progType.dronesFielded && funds >= DRONE_PRICE ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
                     <div className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🤖 BUILD DRONE — {playerDrones}/{progType.dronesFielded} FIELDED</div>
                     <div className="text-[8px] sm:text-[9px] font-mono text-zinc-400">HARVESTER DRONE, REPLACES LOSSES · <span className="text-pink-400 font-bold">{DRONE_PRICE}U</span></div>
                   </button>
@@ -1353,7 +1353,7 @@ export const HUD: React.FC<HUDProps> = ({
                       onClick={() => onUpgrade(u.type)}
                       disabled={!canAfford}
                       className={`pitted-metal p-3 sm:p-4 flex flex-col gap-1.5 sm:gap-2 relative transition-all text-left rounded-lg touch-manipulation ${
-                        canAfford ? 'hover:bg-zinc-900 border-zinc-700 active:scale-[0.98]' : 'opacity-40 border-zinc-800 grayscale cursor-not-allowed'
+                        canAfford ? 'hover:bg-zinc-900 border-zinc-700 active:scale-[0.98]' : 'border-zinc-800 grayscale cursor-not-allowed text-zinc-500'
                       }`}
                     >
                       <div className="flex justify-between items-start">
@@ -1361,9 +1361,9 @@ export const HUD: React.FC<HUDProps> = ({
                           <span className="text-base">{u.icon}</span>
                           <span className="text-xs sm:text-sm font-bold uppercase text-[#33ff33]">{u.label}</span>
                         </div>
-                        <span className="text-[10px] sm:text-xs font-mono opacity-70 bg-zinc-800 px-1.5 py-0.5 rounded">LVL {u.lvl}/{u.cap}</span>
+                        <span className="text-[10px] sm:text-xs font-mono text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded">LVL {u.lvl}/{u.cap}</span>
                       </div>
-                      <p className="text-[9px] sm:text-[10px] opacity-60 leading-tight">{u.desc}</p>
+                      <p className="text-[9px] sm:text-[10px] text-zinc-400 leading-tight">{u.desc}</p>
                       <div className="flex justify-between items-center mt-1 pt-1.5 border-t border-zinc-800/50">
                         <span className="text-[10px] sm:text-[11px] font-mono text-pink-500 font-bold">COST: {cost}U</span>
                         <span className={`px-2.5 py-1 rounded text-[9px] sm:text-[10px] font-bold ${
@@ -1380,7 +1380,7 @@ export const HUD: React.FC<HUDProps> = ({
               )}
 
               {/* Workshop Footer */}
-              <div className="mt-4 pt-3 border-t border-zinc-800 flex justify-between items-center text-[10px] font-mono opacity-60">
+              <div className="mt-4 pt-3 border-t border-zinc-800 flex justify-between items-center text-[10px] font-mono text-zinc-400">
                 <span>[TAP OUTSIDE / X TO CLOSE]</span>
                 <span className="animate-pulse">_SCAV_OS_ACTIVE</span>
               </div>
@@ -1415,19 +1415,19 @@ export const HUD: React.FC<HUDProps> = ({
               
               <div className="space-y-2.5 font-mono text-xs">
                 <div className="flex justify-between border-b border-white/5 pb-1">
-                  <span className="opacity-40">PLATFORM_RUNTIME:</span>
+                  <span className="text-zinc-400">PLATFORM_RUNTIME:</span>
                   <span className="text-[#33ff33]">TOUCH_&_KB_ACTIVE</span>
                 </div>
                 <div className="flex justify-between border-b border-white/5 pb-1">
-                  <span className="opacity-40">ENGINE_MODEL:</span>
+                  <span className="text-zinc-400">ENGINE_MODEL:</span>
                   <span className="text-zinc-300">VITE-V5.4_CORTEX</span>
                 </div>
                 <div className="flex justify-between border-b border-white/5 pb-1">
-                  <span className="opacity-40">PHYSICS_ENGINE:</span>
+                  <span className="text-zinc-400">PHYSICS_ENGINE:</span>
                   <span className="text-zinc-300">G-CONST_PHY_MOD</span>
                 </div>
                 <div className="flex justify-between border-b border-white/5 pb-1">
-                  <span className="opacity-40">SHIP_SYSTEMS:</span>
+                  <span className="text-zinc-400">SHIP_SYSTEMS:</span>
                   <span className="text-[#33ff33]">MOD-CR90_ACTIVE</span>
                 </div>
               </div>
