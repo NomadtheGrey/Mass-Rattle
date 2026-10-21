@@ -330,7 +330,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                 >
                   <Star size={16} className="text-amber-300" />
                   <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">FEED</span>
-                  <span className="text-[8px] font-mono opacity-90">ALL {carrying}U</span>
+                  <span className="text-[8px] font-mono">ALL {carrying}U</span>
                 </button>
               )}
               {carrying > 0 && (
@@ -340,7 +340,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                 >
                   <Download size={16} className="text-pink-400" />
                   <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">BANK</span>
-                  <span className="text-[8px] font-mono opacity-90">ALL {carrying}U</span>
+                  <span className="text-[8px] font-mono">ALL {carrying}U</span>
                 </button>
               )}
               {bankedScrap > 0 && (
@@ -350,7 +350,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                 >
                   <Upload size={16} className="text-cyan-300" />
                   <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">WITHDRAW</span>
-                  <span className="text-[8px] font-mono opacity-90">BANK {bankedScrap}U</span>
+                  <span className="text-[8px] font-mono">BANK {bankedScrap}U</span>
                 </button>
               )}
               {carrying <= 0 && bankedScrap <= 0 && (
@@ -409,7 +409,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
             >
               <span className="text-[22px] leading-none" aria-hidden>{weaponDef.icon}</span>
               <span className="text-[10px] font-mono font-black uppercase tracking-wider text-red-300">{isMineLayer ? 'DROP' : 'FIRE'}</span>
-              <span className="text-[7px] font-mono opacity-90 uppercase text-center leading-tight px-0.5 text-red-200">{weaponDef.name}</span>
+              <span className="text-[7px] font-mono uppercase text-center leading-tight px-0.5 text-red-200">{weaponDef.name}</span>
             </button>
           )}
 
@@ -421,7 +421,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
             <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-orange-500 animate-ping opacity-75" />
             <Rocket size={26} className="text-orange-400 transform -rotate-45" />
             <span className="text-[11px] font-mono font-black uppercase tracking-wider text-orange-300">THRUST</span>
-            <span className="text-[8px] font-mono opacity-90">HOLD ENG</span>
+            <span className="text-[8px] font-mono">HOLD ENG</span>
           </button>
         </div>
 
