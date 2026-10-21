@@ -143,14 +143,31 @@ export const stepProjectiles = (ctx: ProjectileStepContext): Projectile[] => {
     // have ended games outright). Turret bolts (kind unset) NEVER
     // damage stars (Adam's ruling, 2026-10-20) and friendly stars
     // take no damage — for those bolts this is purely a stop.
-    // PIERCE does not carry through a star: the Rail Lance pierces
-    // ships and drones; a star is a wall. (TEAMS: "hostile star"
-    // reads hostile TEAM via areHostile, as everywhere here.)
+    // (TEAMS: "hostile star" reads hostile TEAM via areHostile,
+    // as everywhere here.)
+    // THE RAIL LANCE EXCEPTION (Adam's ruling, 2026-10-21): the
+    // lance fires THROUGH stars — exempt from termination. A
+    // hostile star takes its hit as the bolt passes (deduped per
+    // star via hitIds, as the pre-block pierce code had it); a
+    // friendly star is simply flown through. Every OTHER
+    // projectile — pierce included — stops at the surface.
     for (const seat of simSeats) {
       const s = seat.star;
       const sdx2 = s.pos.x - p.pos.x;
       const sdy2 = s.pos.y - p.pos.y;
       if (Math.sqrt(sdx2 * sdx2 + sdy2 * sdy2) >= s.size) continue;
+      if (p.kind === 'rail_lance') {
+        const hitKey = `star:${s.ownerId}`;
+        if (
+          areHostile(simSeats, s.ownerId, p.ownerId) &&
+          !(p.hitIds || []).includes(hitKey)
+        ) {
+          s.integrity -= (p.damage !== undefined ? p.damage : PHYSICS.DEFENSE.DAMAGE) * 0.002;
+          s.lastHitTime = time;
+          (p.hitIds = p.hitIds || []).push(hitKey);
+        }
+        continue;
+      }
       if (p.kind !== undefined && areHostile(simSeats, s.ownerId, p.ownerId)) {
         s.integrity -= (p.damage !== undefined ? p.damage : PHYSICS.DEFENSE.DAMAGE) * 0.002;
         s.lastHitTime = time;
