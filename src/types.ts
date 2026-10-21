@@ -28,6 +28,11 @@ export interface Ship extends GameObject {
   ownerId: string;
   /** performance.now() timestamp before which the equipped weapon cannot fire again. */
   fireReadyAt?: number;
+  /** SUBMARINE (src/sim/stealth.ts): loop-clock timestamp until
+   * which a cloaked minelayer-line ship is revealed by its own
+   * action — the periscope moment after firing or laying mines
+   * (Adam's ruling, 2026-10-21). Absent/expired = cloak as usual. */
+  cloakRevealUntil?: number;
   /** Deflector Shield: current pool and the last time it took a hit (loop clock). */
   shield?: number;
   shieldHitAt?: number;

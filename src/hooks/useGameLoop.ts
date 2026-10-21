@@ -23,6 +23,7 @@ import {
 } from '../sim/starStages';
 import { stepDrones } from '../sim/drones';
 import { stepMines, stepProjectiles } from '../sim/projectiles';
+import { isStealthShip, isVisibleTo, PERISCOPE_REVEAL_MS, STAR_SYSTEMS_RESPECT_STEALTH } from '../sim/stealth';
 import { stepCme } from '../sim/cme';
 import { computeStandings } from '../sim/standings';
 import { areHostile, areTeammates } from '../sim/teams';
@@ -1352,6 +1353,9 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
               if (dropCount > 0) {
                 s.carrying -= dropCount * cost;
                 s.fireReadyAt = time + wStats.cooldownMs;
+                // PERISCOPE (ruled, src/sim/stealth.ts): laying
+                // mines while cloaked surfaces the submarine.
+                if (isStealthShip(s)) s.cloakRevealUntil = time + PERISCOPE_REVEAL_MS;
                 for (let mi = 0; mi < dropCount; mi++) {
                   const lateral = (mi - (dropCount - 1) / 2) * 16;
                   (next.mines = next.mines || []).push({
@@ -1414,7 +1418,12 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
                 }
                 firedAny = true;
               }
-              if (firedAny) s.fireReadyAt = time + wStats.cooldownMs;
+              if (firedAny) {
+                s.fireReadyAt = time + wStats.cooldownMs;
+                // PERISCOPE (ruled, src/sim/stealth.ts): firing
+                // while cloaked surfaces the submarine.
+                if (isStealthShip(s)) s.cloakRevealUntil = time + PERISCOPE_REVEAL_MS;
+              }
             }
           }
 
@@ -2008,6 +2017,10 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
             let bd = Infinity;
             for (const os of simSeats) {
               if (!os.ship || !areHostile(simSeats, os.ownerId, s.ownerId)) continue;
+              // SUBMARINE: turrets do not engage what the star
+              // cannot see (src/sim/stealth.ts) — gated by the
+              // UNRULED star-systems switch, defaulting to respect.
+              if (STAR_SYSTEMS_RESPECT_STEALTH && !isVisibleTo(os.ship, s.pos, time)) continue;
               const dd = Math.hypot(os.ship.pos.x - s.pos.x, os.ship.pos.y - s.pos.y);
               if (dd < bd) { bd = dd; target = os.ship; }
             }

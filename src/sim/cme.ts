@@ -19,6 +19,7 @@ import { PHYSICS } from '../constants';
 import { milestonesForInfused } from '../starGrowth';
 import { cmeReductionFor } from '../loadout';
 import { areHostile } from './teams';
+import { isVisibleTo, STAR_SYSTEMS_RESPECT_STEALTH } from './stealth';
 import type { GameState, SeatSimState, Ship } from '../types';
 
 export interface CmeStepContext {
@@ -100,6 +101,10 @@ export const stepCme = (ctx: CmeStepContext): void => {
           let bd = Infinity;
           for (const os of simSeats) {
             if (!os.ship || !areHostile(simSeats, os.ownerId, s.ownerId)) continue;
+            // SUBMARINE: a star's CME does not aim at what the
+            // star cannot see (src/sim/stealth.ts) — gated by the
+            // UNRULED star-systems switch, defaulting to respect.
+            if (STAR_SYSTEMS_RESPECT_STEALTH && !isVisibleTo(os.ship, s.pos, time)) continue;
             const dd = Math.hypot(os.ship.pos.x - s.pos.x, os.ship.pos.y - s.pos.y);
             if (dd < bd) { bd = dd; t = os.ship.pos; }
           }
