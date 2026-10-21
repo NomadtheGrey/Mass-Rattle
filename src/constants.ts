@@ -46,7 +46,18 @@ export const PHYSICS = {
     DEPOSIT_RADIUS: 80,
   },
   DEFENSE: {
-    RANGE: 1200,
+    /** Turret engagement range, from the star's center — DRAFT
+     *  (Adam, 2026-10-21: "about screen's diagonal length"): a
+     *  turret engages nothing the player can't just barely see.
+     *  DERIVATION: the canvas is the full browser window and the
+     *  camera is a pure translation (GameCanvas — no zoom, 1 world
+     *  unit = 1 px), so the visible world rect IS the window.
+     *  Anchored to the standard desktop view, 1920x1080: diagonal
+     *  = sqrt(1920^2 + 1080^2) ~= 2203, rounded to 2200. Smaller
+     *  windows (phones) see less than this — the anchor is the
+     *  desktop, per the drafting brief. Sole consumer: the turret
+     *  targeting gate in useGameLoop. */
+    RANGE: 2200,
     FIRERATE_MIN: 120, // frames (dead constant — fire is a per-frame chance roll)
     BOLT_SPEED: 8,
     DAMAGE: 10,
