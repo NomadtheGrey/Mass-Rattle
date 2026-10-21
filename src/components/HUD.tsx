@@ -1,7 +1,10 @@
 import { motion } from 'motion/react';
 import React from 'react';
 import { PHYSICS } from '../constants';
-import { milestonesForInfused, progressIntoNextMilestone, nextMilestoneCost } from '../starGrowth';
+import { milestonesForInfused, progressIntoNextMilestone, nextMilestoneCost, cumulativeCostForMilestones } from '../starGrowth';
+import { stageStateForInfused } from '../sim/starStages';
+import type { StarStage } from '../net/protocol';
+import { STAGE_LABELS } from './lobby/lobbyTypes';
 import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor } from '../loadout';
 import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
 
@@ -60,6 +63,18 @@ const NeedleGauge: React.FC<NeedleGaugeProps> = ({ value, max, label, color, isF
     </div>
   );
 };
+
+/** Lifecycle stage palette (presentation): ember dwarf -> giant red ->
+ * stellar yellow -> fierce white -> dense blue neutron -> violet hole. */
+const STAGE_COLORS: Record<StarStage, string> = {
+  red_dwarf: '#f0764d',
+  red_giant: '#ff4d3a',
+  yellow: '#ffd94d',
+  white: '#eef4ff',
+  neutron: '#8fd0ff',
+  black_hole: '#b79aff',
+};
+const STAGE_ORDER: StarStage[] = ['red_dwarf', 'red_giant', 'yellow', 'white', 'neutron', 'black_hole'];
 
 interface HUDProps {
   starMass: number;
@@ -222,6 +237,17 @@ export const HUD: React.FC<HUDProps> = ({
   const growthProgress = progressIntoNextMilestone(totalScrapInfused);
   const growthCost = nextMilestoneCost(totalScrapInfused);
   const starLevel = milestonesForInfused(totalScrapInfused) + 1;
+  // STAR FIELD (Adam's pin: the star's own FED total + lifecycle stage,
+  // kept separate from the bank). Stage derives from src/sim/starStages
+  // on the PINNED bands (Red Giant M3 / Yellow M6 / White M9 / Neutron
+  // M12 / Black Hole M15 — Adam, 2026-10-21, adopted as drafted).
+  const stageState = stageStateForInfused(totalScrapInfused);
+  const stageColor = STAGE_COLORS[stageState.stage];
+  const stageBandStart = Math.floor(stageState.milestone / 3) * 3;
+  const stageFedInBand = totalScrapInfused - cumulativeCostForMilestones(stageBandStart);
+  const stageBandSize = cumulativeCostForMilestones(stageBandStart + 3) - cumulativeCostForMilestones(stageBandStart);
+  const stageIdx = STAGE_ORDER.indexOf(stageState.stage);
+  const nextStage: StarStage | null = stageIdx >= 0 && stageIdx < STAGE_ORDER.length - 1 ? STAGE_ORDER[stageIdx + 1] : null;
   const [showSysCfg, setShowSysCfg] = React.useState(false);
   // Workshop tabs: the five base ship tracks, then the Arsenal categories.
   const [shopTab, setShopTab] = React.useState<'ship' | 'bank' | ArsenalCategory>('ship');
@@ -387,7 +413,8 @@ export const HUD: React.FC<HUDProps> = ({
         {/* Top Row: Stars & Bank */}
         <div className="flex items-center justify-between text-[9px] font-mono leading-none">
           <div className="flex items-center gap-2">
-            <span className="text-orange-500 font-bold">STAR M{starLevel} · {growthProgress}/{growthCost}</span>
+            <span className="font-bold" style={{ color: stageColor }}>{STAGE_LABELS[stageState.stage]}</span>
+            <span className="text-orange-500 font-bold">M{starLevel} · {growthProgress}/{growthCost}</span>
             <span className="text-zinc-600">|</span>
             <span className="text-red-500 font-bold">ENEMY INT {Math.floor(enemyIntegrity * 100)}%</span>
           </div>
@@ -489,6 +516,29 @@ export const HUD: React.FC<HUDProps> = ({
                   className="h-full bg-gradient-to-r from-orange-800 to-orange-400 shadow-[0_0_8px_orange]"
                   animate={{ width: `${(growthProgress / growthCost) * 100}%` }}
                 />
+              </div>
+            </div>
+
+            <div className="border border-zinc-800 rounded p-2 bg-zinc-950/60">
+              <div className="flex justify-between text-[10px] mb-1">
+                <span className="text-zinc-400 tracking-wider">STAR LIFECYCLE</span>
+                <span className="font-bold" style={{ color: stageColor }}>{STAGE_LABELS[stageState.stage]}</span>
+              </div>
+              <div className="flex justify-between text-[10px] mb-1">
+                <span className="text-zinc-500">TOTAL FED</span>
+                <span className="text-zinc-200 font-bold">{totalScrapInfused}U</span>
+              </div>
+              <div className="vu-meter h-1.5 bg-zinc-900">
+                <motion.div
+                  className="h-full"
+                  style={{ backgroundColor: stageColor, boxShadow: `0 0 8px ${stageColor}` }}
+                  animate={{ width: `${stageState.progressWithinStage * 100}%` }}
+                />
+              </div>
+              <div className="text-[9px] font-mono text-zinc-500 mt-1">
+                {nextStage
+                  ? `TO ${STAGE_LABELS[nextStage]}: ${stageFedInBand}/${stageBandSize}U FED`
+                  : 'CRITICAL MASS — COLLAPSE ENDS THE MATCH'}
               </div>
             </div>
 
