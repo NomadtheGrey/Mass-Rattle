@@ -41,3 +41,28 @@ export const randomRoomName = (rng: () => number = Math.random): string => {
   const second = ROOM_NAME_SECOND[Math.floor(rng() * ROOM_NAME_SECOND.length)];
   return `${first} ${second}`;
 };
+
+/**
+ * A generated room name that does not duplicate a live room's name
+ * (Adam, 2026-10-21: no duplicate names in the lobby). Rolls until
+ * the name clears `existingLowerNames` (the live names, lowercased;
+ * comparison is case-insensitive — "fat hauler" IS "Fat Hauler" on
+ * a lobby list). With 1,845 pairings the re-roll terminates at
+ * once in practice; the paranoid fallback suffixes the room code
+ * (itself unique) until clear, so this can never spin forever.
+ */
+export const generateUniqueRoomName = (
+  existingLowerNames: ReadonlySet<string>,
+  uniqueSuffix: string,
+  rng: () => number = Math.random,
+): string => {
+  for (let i = 0; i < 64; i++) {
+    const name = randomRoomName(rng);
+    if (!existingLowerNames.has(name.toLowerCase())) return name;
+  }
+  let candidate = `${randomRoomName(rng)} ${uniqueSuffix}`;
+  while (existingLowerNames.has(candidate.toLowerCase())) {
+    candidate = `${candidate} ${uniqueSuffix}`;
+  }
+  return candidate;
+};

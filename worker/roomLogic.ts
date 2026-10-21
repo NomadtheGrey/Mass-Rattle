@@ -300,6 +300,39 @@ export type ClaimOutcome =
  * takeable — room_full is the honest refusal); a seated player's
  * refresh (case 2) is still answered.
  */
+/**
+ * Callsigns are unique WITHIN a room (Adam, 2026-10-21 — nameplates
+ * make duplicates a real confusion). The taken set is every seated
+ * occupant's callsign PLUS every grace-held callsign (a held
+ * identity is still in the room; reserving its name means a
+ * reclaim never has to rename its owner), excluding the claiming
+ * seat's own current occupant/hold. Comparison is case-insensitive
+ * ("Nova" and "nova" are the same nameplate); the player's own
+ * casing is kept. Collisions take a numeric suffix: Nova, Nova-2,
+ * Nova-3… First come keeps the plain name.
+ */
+export function disambiguateCallsign(
+  record: RoomRecord,
+  desired: string,
+  selfOwnerId: string,
+): string {
+  const taken = new Set<string>();
+  for (const s of record.seats) {
+    if (s.ownerId !== selfOwnerId) taken.add(s.occupant.callsign.toLowerCase());
+  }
+  for (const [ownerId, held] of Object.entries(record.heldIdentities)) {
+    if (ownerId !== selfOwnerId) taken.add(held.callsign.toLowerCase());
+  }
+  if (!taken.has(desired.toLowerCase())) return desired;
+  let n = 2;
+  let candidate = `${desired}-${n}`;
+  while (taken.has(candidate.toLowerCase())) {
+    n += 1;
+    candidate = `${desired}-${n}`;
+  }
+  return candidate;
+}
+
 export function claimSeat(
   record: RoomRecord,
   playerId: string,
@@ -310,7 +343,13 @@ export function claimSeat(
   }
   const existing = findSeatByPlayerId(record, playerId);
   if (existing) {
-    if (callsign.trim()) existing.occupant.callsign = callsign.trim();
+    if (callsign.trim()) {
+      existing.occupant.callsign = disambiguateCallsign(
+        record,
+        callsign.trim(),
+        existing.ownerId,
+      );
+    }
     existing.connection = 'connected';
     return { ok: true, seat: existing, isNewClaim: false, reclaimed: false };
   }
@@ -324,7 +363,11 @@ export function claimSeat(
     seat.occupant = {
       kind: 'human',
       playerId,
-      callsign: callsign.trim() || hold.held.callsign,
+      callsign: disambiguateCallsign(
+        record,
+        callsign.trim() || hold.held.callsign,
+        seat.ownerId,
+      ),
       // color/cue are the seat's, assigned by starIndex for the match.
       color,
       cue,
@@ -343,7 +386,11 @@ export function claimSeat(
   seat.occupant = {
     kind: 'human',
     playerId,
-    callsign: callsign.trim() || `PLAYER-${seat.starIndex + 1}`,
+    callsign: disambiguateCallsign(
+      record,
+      callsign.trim() || `PLAYER-${seat.starIndex + 1}`,
+      seat.ownerId,
+    ),
     // color/cue are the seat's, assigned by starIndex for the match —
     // a takeover flips kind/playerId/callsign ONLY (contract).
     color: seat.occupant.color,
