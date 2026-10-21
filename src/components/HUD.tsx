@@ -3,6 +3,7 @@ import React from 'react';
 import { PHYSICS } from '../constants';
 import { milestonesForInfused, progressIntoNextMilestone, nextMilestoneCost, cumulativeCostForMilestones } from '../starGrowth';
 import { stageStateForInfused, type StarStageState } from '../sim/starStages';
+import { BUILD_HISTORY, LATEST_BUILD } from '../buildHistory';
 import type { StarStage } from '../net/protocol';
 import { STAGE_LABELS, TEAM_LABELS, TEAM_COLORS } from './lobby/lobbyTypes';
 import type { TeamId } from '../net/protocol';
@@ -280,6 +281,10 @@ export const HUD: React.FC<HUDProps> = ({
   const nextStage = homeField.next;
   const enemyField = stageFieldFor(enemyTotalInfused);
   const [showSysCfg, setShowSysCfg] = React.useState(false);
+  // BUILD HISTORY (Adam, 2026-10-21): SYSCFG wears the latest build;
+  // pressing it opens the last-20 modal, stacked over SYSCFG in the
+  // modal rule (it closes first, back into SYSCFG).
+  const [showBuilds, setShowBuilds] = React.useState(false);
   const [showGuide, setShowGuide] = React.useState(false);
   // Workshop tabs: the five base ship tracks, then the Arsenal categories.
   const [shopTab, setShopTab] = React.useState<'ship' | 'bank' | ArsenalCategory>('ship');
@@ -303,16 +308,18 @@ export const HUD: React.FC<HUDProps> = ({
 
   // THE MODAL RULE (Adam, 2026-10-20 + 2026-10-21): every modal popup
   // exits three ways — its corner [X] button, the X key, and ESC —
-  // and one press closes the TOPMOST modal only (SYSCFG, workshop,
-  // radar, then the mechanics guide). Closing lives in ONE capture-
+  // and one press closes the TOPMOST modal only (build history over
+  // SYSCFG, then SYSCFG, workshop, radar, the mechanics guide).
+  // Closing lives in ONE capture-
   // phase listener: it fires before the game loop's own key handling,
   // and stopPropagation seals the key there, so an X pressed over a
   // modal can no longer leak through and deploy a decoy behind it,
   // and an ESC cannot fall through to anything else. The results
   // screen is deliberately NOT in this chain — it is the match end,
   // a state rather than a popup, and its exit is the restart button.
-  const anyModalOpen = showSysCfg || isShopOpen || radarActive || showGuide;
+  const anyModalOpen = showBuilds || showSysCfg || isShopOpen || radarActive || showGuide;
   const closeTopmost = React.useCallback(() => {
+    if (showBuilds) { setShowBuilds(false); return; }
     if (showSysCfg) { setShowSysCfg(false); return; }
     if (isShopOpen && onCloseShop) { onCloseShop(); return; }
     if (radarActive) {
@@ -321,7 +328,7 @@ export const HUD: React.FC<HUDProps> = ({
       return;
     }
     if (showGuide) { setShowGuide(false); }
-  }, [showSysCfg, isShopOpen, onCloseShop, radarActive, onToggleMobileRadar, showGuide]);
+  }, [showBuilds, showSysCfg, isShopOpen, onCloseShop, radarActive, onToggleMobileRadar, showGuide]);
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const isEsc = e.key === 'Escape';
@@ -1414,6 +1421,40 @@ export const HUD: React.FC<HUDProps> = ({
           SYSCFG all layer above it and close before it. */}
       {showGuide && <MechanicsGuide onClose={() => setShowGuide(false)} />}
 
+      {/* BUILD HISTORY (Adam, 2026-10-21): the last 20 production
+          builds, opened from SYSCFG's LAST BUILD door. Topmost in the
+          modal rule — [X] / X / ESC close it back into SYSCFG. */}
+      {showBuilds && (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md pointer-events-auto" onClick={() => setShowBuilds(false)}>
+          <div className="hud-panel hud-panel-deep w-full max-w-lg max-h-[88vh] overflow-y-auto p-4 sm:p-6 border-4 rounded-lg" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-2 mb-3">
+              <span className="text-xs sm:text-sm font-mono font-bold tracking-[0.25em] text-[#33ff33]">BUILD HISTORY — LAST {Math.min(20, BUILD_HISTORY.length)}</span>
+              <button
+                onClick={() => setShowBuilds(false)}
+                className="text-red-500 hover:text-red-400 text-xs font-mono font-bold px-2.5 py-1.5 bg-zinc-900 border border-red-900 rounded touch-manipulation"
+              >
+                [X]
+              </button>
+            </div>
+            <div className="flex flex-col gap-3">
+              {BUILD_HISTORY.slice(0, 20).map((b, i) => (
+                <div key={b.ref + b.date} className={i === 0 ? 'border-l-2 border-[#33ff33] pl-3' : 'border-l-2 border-zinc-800 pl-3'}>
+                  <div className="flex justify-between items-baseline gap-2">
+                    <span className="text-[9px] font-mono tracking-[0.2em] text-zinc-400">{b.date}</span>
+                    <span className="text-[9px] font-mono text-zinc-500">{b.ref}</span>
+                  </div>
+                  <div className="text-[11px] sm:text-xs font-mono font-bold text-zinc-100">{b.title}</div>
+                  <div className="text-[10px] font-mono text-zinc-400 leading-snug">{b.detail}</div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 pt-3 border-t border-zinc-800 text-[9px] font-mono text-zinc-500 leading-snug">
+              One entry per production build, newest first — the record appends at every merge.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* SYSCFG Popup (Responsive) */}
       {showSysCfg && (
         <div className="fixed inset-0 z-[130] flex items-center justify-center p-3 sm:p-4 bg-black/90 backdrop-blur-md pointer-events-auto">
@@ -1450,6 +1491,22 @@ export const HUD: React.FC<HUDProps> = ({
                   <span className="text-[#33ff33]">MOD-CR90_ACTIVE</span>
                 </div>
               </div>
+
+              {/* LAST BUILD (Adam, 2026-10-21): the newest production
+                  build rides SYSCFG; the door opens the last 20. */}
+              <button
+                type="button"
+                onClick={() => setShowBuilds(true)}
+                className="mt-5 w-full text-left pitted-metal px-3 py-2.5 rounded border border-amber-900/50 touch-manipulation active:scale-[0.99]"
+              >
+                <div className="flex justify-between items-baseline gap-2">
+                  <span className="text-[9px] font-mono tracking-[0.25em] text-amber-500">LAST BUILD · {LATEST_BUILD.date}</span>
+                  <span className="text-[9px] font-mono text-zinc-400">{LATEST_BUILD.ref} ▸</span>
+                </div>
+                <div className="text-xs font-mono font-bold text-zinc-100 mt-1">{LATEST_BUILD.title}</div>
+                <div className="text-[10px] font-mono text-zinc-400 leading-snug mt-0.5 line-clamp-2">{LATEST_BUILD.detail}</div>
+                <div className="text-[9px] font-mono text-[#33ff33] mt-1.5 tracking-widest">▸ BUILD HISTORY — LAST {Math.min(20, BUILD_HISTORY.length)}</div>
+              </button>
 
               {/* Identity Plate Overlay */}
               <div className="mt-6 pt-4 border-t-2 border-zinc-900/60 flex flex-col items-center gap-2">
