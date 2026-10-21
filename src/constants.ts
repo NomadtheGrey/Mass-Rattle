@@ -46,9 +46,11 @@ export const PHYSICS = {
     DEPOSIT_RADIUS: 80,
   },
   DEFENSE: {
-    /** Turret engagement range, from the star's center — DRAFT
-     *  (Adam, 2026-10-21: "about screen's diagonal length"): a
-     *  turret engages nothing the player can't just barely see.
+    /** Turret engagement range, from the star's center —
+     *  SETTLED as a rough, consistent figure (Adam, 2026-10-21:
+     *  "about screen's diagonal length"; on the drafted number:
+     *  "a rough estimate... consistent, should do"). A turret
+     *  engages nothing the player can't just barely see.
      *  DERIVATION: the canvas is the full browser window and the
      *  camera is a pure translation (GameCanvas — no zoom, 1 world
      *  unit = 1 px), so the visible world rect IS the window.
