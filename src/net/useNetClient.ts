@@ -293,6 +293,11 @@ export function useNetClient(): NetSession {
           setClientState({ connection: 'idle', lastError: null });
           if (code === 'version_mismatch') {
             setNotice('VERSION MISMATCH — REFRESH THE GAME AND TRY AGAIN');
+          } else if (code === 'code_unavailable') {
+            // Not a refusal of anything the player did: the server
+            // could not mint a room code (503). Rare enough to be a
+            // curiosity, honest enough to name.
+            setNotice('THE SERVER COULD NOT MINT A ROOM CODE — TRY AGAIN IN A MOMENT');
           } else {
             setNotice(`THE SERVER REFUSED THAT ROOM${detail ? ` — ${detail.toUpperCase()}` : ''} (ERROR ${res.status}) — TRY AGAIN`);
           }
