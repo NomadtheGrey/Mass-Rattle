@@ -39,6 +39,47 @@ interface LobbyScreenProps {
   callbacks: LobbyCallbacks;
 }
 
+/**
+ * Win conditions (Adam, 2026-10-21) — pinned facts, worded to read
+ * true in BOTH a free-for-all lobby and a team lobby: in a default
+ * lobby every seat is its own team, so "opposing teams" is every
+ * other star; on a shared team you win or fall together.
+ */
+const WinConditions: React.FC = () => (
+  <div className="hud-panel p-3 rounded border-2 border-amber-500/60 bg-amber-950/10">
+    <div className="text-[10px] font-mono font-bold tracking-[0.25em] text-amber-300 mb-2">🏆 HOW A MATCH IS WON</div>
+    <div className="space-y-2 text-[11px] font-mono leading-snug text-zinc-300">
+      <p>
+        <span className="text-amber-300 font-bold">1 · CRITICAL MASS</span> — feed a star all the way to
+        <span className="text-zinc-50 font-bold"> BLACK HOLE</span>: 4,125 scrap fed
+        <span className="text-zinc-500"> (Red Giant 375 → Yellow 975 → White 1,800 → Neutron 2,850 → Black Hole 4,125)</span>.
+        The match ends the moment it happens, and that star's team are recorded as its
+        <span className="text-amber-300 font-bold"> CARETAKERS</span>.
+      </p>
+      <p>
+        <span className="text-amber-300 font-bold">2 · LAST TEAM STANDING</span> — destroy every opposing
+        team's stars. Playing solo, that's every other star; on a team, you win or fall together.
+      </p>
+    </div>
+  </div>
+);
+
+/** First-timer basics (Adam, 2026-10-21) — the left margin on wide
+ * screens; on phones the same full text rides under the win
+ * conditions instead of being shrunk away. */
+const HowToBlock: React.FC = () => (
+  <div className="hud-panel p-3 rounded border-2 border-zinc-800">
+    <div className="text-[10px] font-mono font-bold tracking-[0.25em] text-zinc-400 mb-2">FIELD NOTES</div>
+    <ul className="space-y-2 text-[11px] font-mono leading-snug text-zinc-400">
+      <li>⛏ <span className="text-zinc-200">Harvest scrap</span> and carry it home — feeding grows your star.</li>
+      <li>🤝 <span className="text-zinc-200">On a team, anyone can feed any team star.</span> Build one together.</li>
+      <li>🔫 <span className="text-zinc-200">Only ship weapons hurt a star.</span> Turrets just defend — they never damage one.</li>
+      <li>🛡 <span className="text-zinc-200">Guard your star while it grows.</span> A fat star is a target.</li>
+      <li>💀 <span className="text-zinc-200">Dying costs a cut of your bank</span> plus a buy-back. Don't trade your ship cheaply.</li>
+    </ul>
+  </div>
+);
+
 const SeatCard: React.FC<{ seat: Seat; mine: boolean; reclaimed?: boolean }> = ({ seat, mine, reclaimed }) => {
   const { occupant } = seat;
   const glyph = CUE_GLYPHS[occupant.cue] || '●';
@@ -109,7 +150,13 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
     const mySeat = room.seats.find(seat => seat.occupant.playerId !== null && seat.occupant.playerId === myPlayerId) ?? null;
     return (
       <div className="fixed inset-0 z-[100] overflow-y-auto bg-zinc-950 text-[#33ff33] flex justify-center p-3 sm:p-6">
-        <div className="w-full max-w-md flex flex-col gap-3">
+        <div className="w-full max-w-md md:max-w-3xl flex gap-4 items-start">
+        {/* Left margin: field notes (desktop); phones get the same
+            block inline below — nothing shrunk away. */}
+        <aside className="hidden md:block w-56 shrink-0 sticky top-0">
+          <HowToBlock />
+        </aside>
+        <div className="flex-1 min-w-0 max-w-md flex flex-col gap-3">
           <div className="text-center">
             <div className="text-[9px] font-mono tracking-[0.3em] text-zinc-500">ROOM CODE — SHARE IT TO INVITE</div>
             <div className="text-4xl font-black font-mono tracking-[0.35em] text-zinc-50 my-1">{room.code}</div>
@@ -124,6 +171,11 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               <span className="text-[11px] font-mono font-bold text-amber-300">{notice}</span>
             </div>
           )}
+
+          <WinConditions />
+          <div className="md:hidden">
+            <HowToBlock />
+          </div>
 
           <div className="flex flex-col gap-2">
             {room.seats.map(seat => (
@@ -200,6 +252,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             [ LEAVE ROOM ]
           </button>
         </div>
+        </div>
       </div>
     );
   }
@@ -211,6 +264,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
         <div className="text-center mt-2">
           <h1 className="text-3xl font-black tracking-tighter italic text-zinc-50">MASS RATTLE</h1>
           <div className="text-[9px] font-mono tracking-[0.3em] text-zinc-500 mt-1">MULTIPLAYER LOBBY</div>
+          <div className="text-[10px] font-mono text-zinc-400 mt-2">Win by feeding a star to <span className="text-amber-300 font-bold">BLACK HOLE</span> — or be the <span className="text-amber-300 font-bold">LAST TEAM STANDING</span>.</div>
         </div>
 
         {errorBanner}
