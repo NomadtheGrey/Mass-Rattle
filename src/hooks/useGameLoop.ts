@@ -31,7 +31,7 @@ import { applyDeathLoss, botRepurchaseDue, completeRespawn, respawnDue, tryRepur
 import { appendEventRecords, EventFeedEntry } from '../sim/eventFeed';
 import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, turretAngleAt, targetInTurretArc, applyDeliveryHeal } from '../starDefense';
 import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, thornDamageFor, aegisAbsorbFor } from '../loadout';
-import { ShipLine, TypeTier, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, EXTRA_MOUNT_DAMAGE, AUTO_GUN, autoGunCapFor, effectiveAutoGuns, turretMountPriceFor } from '../shipProgression';
+import { ShipLine, TypeTier, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, DEFENSE_DRONE_PRICE, EXTRA_MOUNT_DAMAGE, AUTO_GUN, autoGunCapFor, effectiveAutoGuns, turretMountPriceFor } from '../shipProgression';
 
 /**
  * SHIP PROGRESSION (Phase 3, src/shipProgression.ts — DRAFT numbers):
@@ -556,7 +556,9 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   const buildDrone = useCallback(() => {
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // drones are built at home
-      const fielded = prev.drones.filter(d => d.owner === 'player').length;
+      // Harvesters only (Arsenal slice 3): defense-mode drones are
+      // a separate complement and never eat workforce slots.
+      const fielded = prev.drones.filter(d => d.owner === 'player' && d.mode !== 'defense').length;
       if (fielded >= typeFor(prev.ship.line, prev.ship.typeTier).dronesFielded) return prev;
       const payment = walletPay(prev.ship.carrying, prev.bankedScrap, DRONE_PRICE, inTeamWell(prev.seats, prev.ship));
       if (!payment) return prev;
@@ -569,7 +571,9 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         angle: 0,
         targetId: null,
         carrying: 0,
-        capacity: PHYSICS.DRONES.CAPACITY,
+        // Drone quality (Arsenal slice 3): carry capacity is
+        // stamped at build from the builder's current type.
+        capacity: PHYSICS.DRONES.CAPACITY + typeFor(prev.ship.line, prev.ship.typeTier).droneCarryBonus,
         owner: 'player' as const,
         ownerId: prev.ship.ownerId,
         state: 'searching' as const,
@@ -600,6 +604,41 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
    * game over; the enemy seat never flew) and tryRepurchase
    * refuses them.
    */
+  /**
+   * Build ONE defense drone (Arsenal slice 3, 2026-10-21 — Adam's
+   * hauler pair): a drone in defense MODE (see sim/drones.ts) that
+   * guards the ship/star and never harvests. Capped by the current
+   * type's defenseDrones (the hauler's pair completes at T3; other
+   * lines field none in this slice). DEFENSE_DRONE_PRICE (DRAFT).
+   * A lost guard is rebuilt here, like a lost harvester.
+   */
+  const buildDefenseDrone = useCallback(() => {
+    setState(prev => {
+      if (!inTeamWell(prev.seats, prev.ship)) return prev; // drones are built at home
+      const fielded = prev.drones.filter(d => d.owner === 'player' && d.mode === 'defense').length;
+      if (fielded >= typeFor(prev.ship.line, prev.ship.typeTier).defenseDrones) return prev;
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, DEFENSE_DRONE_PRICE, inTeamWell(prev.seats, prev.ship));
+      if (!payment) return prev;
+
+      const ship = { ...prev.ship, carrying: payment.carrying };
+      const drone = {
+        id: 'player-drone-' + Math.random().toString(36).substr(2, 9),
+        pos: { x: prev.ship.pos.x + 40, y: prev.ship.pos.y + 40 },
+        vel: { x: 0, y: 0 },
+        angle: 0,
+        targetId: null,
+        carrying: 0,
+        capacity: 0, // guards carry nothing; the mode branch never harvests
+        owner: 'player' as const,
+        ownerId: prev.ship.ownerId,
+        state: 'searching' as const,
+        mode: 'defense' as const,
+        health: 100,
+      };
+      return { ...prev, ship, bankedScrap: payment.banked, drones: [...prev.drones, drone], glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
+    });
+  }, []);
+
   const repurchaseShip = useCallback((ownerId: string) => {
     const session = netRef.current;
     if (session?.room && !session.isHost) return;
@@ -2184,6 +2223,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     buyTurretMount,
     switchLine,
     buildDrone,
+    buildDefenseDrone,
     repurchaseShip,
     feedCargo,
     depositBank, 

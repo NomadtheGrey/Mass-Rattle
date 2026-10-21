@@ -225,6 +225,12 @@ export interface Harvester {
    * that owns this entity for the whole match, whoever controls it. */
   ownerId: string;
   state: 'searching' | 'collecting' | 'returning';
+  /** Defense mode (Arsenal slice 3, 2026-10-21): a drone with
+   *  mode 'defense' never harvests — it stations on its owner's
+   *  ship (or home star) and engages hostiles in range (see
+   *  sim/drones.ts + DEFENSE_DRONE in shipProgression.ts). Absent
+   *  = an ordinary harvester; every pre-slice-3 drone is one. */
+  mode?: 'defense';
   /** Ion Blaster effect: frames remaining where this drone is rebooting (no movement). */
   stunFrames?: number;
   /** Kill attribution (Phase 2, P2-2b): the ownerId of the seat whose
