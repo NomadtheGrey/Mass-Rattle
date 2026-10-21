@@ -30,11 +30,33 @@ interface RepurchaseOverlayProps {
   onRepurchase: () => void;
   onLeaveMatch: () => void;
   onDismiss: () => void;
+  /** DEATH TAX (Adam, 2026-10-21): when the sim's death-tax state
+   * lands, a PAID buy-back sets the seat's redeploy deadline
+   * (performance.now-based ms) instead of respawning instantly —
+   * the price is scrap, the tax is time. The FREE-floor path never
+   * sets it (instant, no timer on the broke). Until the sim carries
+   * the field this prop is simply absent and the panel behaves
+   * exactly as before: the display is built dark, lit by the data. */
+  redeployEndsAt?: number | null;
 }
 
 export const RepurchaseOverlay: React.FC<RepurchaseOverlayProps> = ({
   deaths, bankedScrap, price, onRepurchase, onLeaveMatch, onDismiss,
+  redeployEndsAt = null,
 }) => {
+  // The countdown ticks on its own clock while the paid wait runs,
+  // independent of how often the app happens to re-render.
+  const [, setTick] = React.useState(0);
+  React.useEffect(() => {
+    if (!redeployEndsAt) return;
+    const id = window.setInterval(() => setTick(t => t + 1), 200);
+    return () => window.clearInterval(id);
+  }, [redeployEndsAt]);
+  const redeploySecs = redeployEndsAt
+    ? Math.max(0, Math.ceil((redeployEndsAt - performance.now()) / 1000))
+    : 0;
+  const redeployClock = `${Math.floor(redeploySecs / 60)}:${String(redeploySecs % 60).padStart(2, '0')}`;
+  const insurancePaid = redeployEndsAt !== null && redeploySecs > 0;
   // The modal rule's keyboard half, owned here (HUD's stack does not
   // know this surface): ESC / X dismiss, capture-phase + swallowed so
   // neither key reaches the game behind.
@@ -87,12 +109,23 @@ export const RepurchaseOverlay: React.FC<RepurchaseOverlayProps> = ({
             The price is a cut of what's in your bank — it can never be more than you have, and at zero bank it's free.
           </p>
         )}
-        <button
-          onClick={onRepurchase}
-          className="pitted-metal w-full mt-4 py-3 rounded font-bold text-sm tracking-widest bg-[#33ff33] text-black shadow-[0_0_16px_rgba(51,255,51,0.4)] active:scale-[0.98] touch-manipulation"
-        >
-          ↻ REPURCHASE SHIP{free ? ' — FREE' : ` — ${price}U`}
-        </button>
+        {insurancePaid ? (
+          <div className="w-full mt-4 py-3 rounded font-bold text-sm tracking-widest bg-[#33ff33]/15 border border-[#33ff33]/60 text-[#33ff33] font-mono">
+            INSURANCE PAID — REDEPLOY IN {redeployClock}
+          </div>
+        ) : (
+          <button
+            onClick={onRepurchase}
+            className="pitted-metal w-full py-3 rounded font-bold text-sm tracking-widest bg-[#33ff33] text-black shadow-[0_0_16px_rgba(51,255,51,0.4)] active:scale-[0.98] touch-manipulation"
+          >
+            ↻ REPURCHASE SHIP{free ? ' — FREE' : ` — ${price}U`}
+          </button>
+        )}
+        {free && !insurancePaid && (
+          <p className="text-[9px] font-mono text-zinc-600 mt-2 leading-snug">
+            Paid buy-backs also wait out a short redeploy timer — the death tax. The free floor never does.
+          </p>
+        )}
         <button
           onClick={onLeaveMatch}
           className="w-full mt-2 py-2.5 rounded font-bold text-xs tracking-widest bg-zinc-900 text-red-400 border border-red-900 hover:border-red-500 hover:text-red-300 active:scale-[0.98] touch-manipulation"

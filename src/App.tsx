@@ -79,6 +79,14 @@ export default function App() {
   // quoted price is the sim's own function; the host validates.
   const localOwnerId = net.mySeat?.ownerId ?? state.ship.ownerId;
   const localSeat = state.seats.find(seat => seat.ownerId === localOwnerId);
+  // DEATH TAX display feed (Adam, 2026-10-21): the seat's redeploy
+  // deadline, once BackGround's sim carries it (SeatSimState gains
+  // redeployEndsAt with the death-tax state). Read defensively until
+  // then — absent means the paid path still respawns instantly and
+  // every surface below behaves exactly as it did before the tax.
+  const localRedeployEndsAt = localSeat
+    ? ((localSeat as unknown as { redeployEndsAt?: number }).redeployEndsAt ?? null)
+    : null;
   const localSeatDead = !!(
     net.room && net.room.phase === 'live' && !net.matchEnded &&
     localSeat && localSeat.ship === null && localSeat.deaths > 0
@@ -126,6 +134,7 @@ export default function App() {
           onRepurchase={() => repurchaseShip(localSeat.ownerId)}
           onLeaveMatch={() => { net.leaveRoom(); setLobbyOpen(false); }}
           onDismiss={() => setRepurchaseDismissed(true)}
+          redeployEndsAt={localRedeployEndsAt}
         />
       )}
       {localSeatDead && localSeat && repurchaseDismissed && (
@@ -134,7 +143,9 @@ export default function App() {
           onClick={() => setRepurchaseDismissed(false)}
           className="fixed bottom-[150px] sm:bottom-[122px] left-1/2 -translate-x-1/2 z-[90] px-4 py-2.5 rounded-full bg-zinc-950/85 border-2 border-red-500 text-red-400 font-mono text-[11px] font-bold tracking-widest shadow-[0_0_16px_rgba(239,68,68,0.4)] animate-pulse active:scale-95 touch-manipulation"
         >
-          ☠ YOU ARE DEAD — REPURCHASE {repurchasePriceFor(localSeat.bankedScrap, localSeat.deaths) === 0 ? 'FREE' : `${repurchasePriceFor(localSeat.bankedScrap, localSeat.deaths)}U`}
+          {localRedeployEndsAt && localRedeployEndsAt > performance.now()
+            ? `☠ INSURANCE PAID — REDEPLOY IN ${Math.floor(Math.max(0, Math.ceil((localRedeployEndsAt - performance.now()) / 1000)) / 60)}:${String(Math.max(0, Math.ceil((localRedeployEndsAt - performance.now()) / 1000)) % 60).padStart(2, '0')}`
+            : `☠ YOU ARE DEAD — REPURCHASE ${repurchasePriceFor(localSeat.bankedScrap, localSeat.deaths) === 0 ? 'FREE' : `${repurchasePriceFor(localSeat.bankedScrap, localSeat.deaths)}U`}`}
         </button>
       )}
       {lobbyOpen && (
