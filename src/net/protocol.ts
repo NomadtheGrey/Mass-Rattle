@@ -289,6 +289,18 @@ export type ClientMessage =
   | { type: 'setTeam'; teamId: TeamId }
   /** Host-only: free the target's seat (they get error 'kicked'). */
   | { type: 'kick'; targetPlayerId: string }
+  /** Voluntary FORFEIT (Adam, 2026-10-21, grace-vs-forfeit ruling):
+   *  the sender fully releases THEIR OWN seat — no grace hold, no
+   *  reclaim; the seat reverts to bot/default and the sender's
+   *  socket is closed by the server (clean close, not an error: a
+   *  forfeit is a choice, not a punishment, and unlike a kick it
+   *  carries NO ban — the player may rejoin later as a fresh claim).
+   *  The other leave mode, STEP AWAY, has no message at all: it is
+   *  the plain socket close, which has always meant grace (bot
+   *  plays on, seat reclaimable) — now deliberately choosable, not
+   *  only a disconnect accident. A dropped connection likewise
+   *  defaults to grace. */
+  | { type: 'forfeit' }
   /** Guest input intent — opaque JSON in P2-1, typed by P2-3. The DO
    *  relays it to the host connection only. */
   | { type: 'input'; payload: unknown }

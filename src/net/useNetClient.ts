@@ -90,7 +90,15 @@ export interface NetSession {
   guestInputsRef: React.MutableRefObject<Map<string, NetInputPayload>>;
   createRoom: (name: string, starCount: 2 | 3 | 4, isPrivate: boolean, callsign: string) => void;
   joinRoom: (code: string, callsign: string) => void;
+  /** STEP AWAY (Adam, 2026-10-21): closing the socket parks the seat
+   *  in reconnect grace — a bot plays on and the seat stays
+   *  reclaimable all match. This is leaveRoom; grace is what a close
+   *  has always meant server-side, now deliberately choosable. */
   leaveRoom: () => void;
+  /** FORFEIT (Adam, 2026-10-21): sends the forfeit message (full
+   *  release — no grace, no reclaim, no ban) and runs the same local
+   *  teardown as leaveRoom. The rage-quit door. */
+  forfeitRoom: () => void;
   startMatch: () => void;
   kickPlayer: (targetPlayerId: string) => void;
   /** Teams (frozen contract, 2026-10-21): lobby phase, own seat only;
@@ -337,6 +345,14 @@ export function useNetClient(): NetSession {
     setClientState({ connection: 'idle', lastError: null });
   }, []);
 
+  const forfeitRoom = React.useCallback(() => {
+    // The message rides ahead of the close in the same task — the
+    // server releases the seat on receipt and closes its side too,
+    // so the release never depends on which close lands first.
+    send({ type: 'forfeit' });
+    leaveRoom();
+  }, [send, leaveRoom]);
+
   const startMatch = React.useCallback(() => send({ type: 'start' }), [send]);
   const setTeam = React.useCallback((teamId: TeamId) => {
     send({ type: 'setTeam', teamId });
@@ -368,7 +384,7 @@ export function useNetClient(): NetSession {
     migration, standings, matchEnded, stageByStar,
     reclaimedOwnerId, notice,
     snapshotRef, snapshotVersion, guestInputsRef,
-    createRoom, joinRoom, leaveRoom, startMatch, kickPlayer, setTeam,
+    createRoom, joinRoom, leaveRoom, forfeitRoom, startMatch, kickPlayer, setTeam,
     sendInput, sendSnapshot, sendHostMessage,
   };
 }

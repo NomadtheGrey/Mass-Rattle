@@ -39,6 +39,7 @@ import {
   findSeatByPlayerId,
   isClientVersionSupported,
   isHost,
+  forfeitSeat,
   kickPlayer,
   reconcileHosting,
   recordHostHeartbeat,
@@ -211,6 +212,33 @@ export class RoomDO {
           // last one, the room closes (conservative predicate — a
           // connected kicking host keeps it false in practice).
           if (shouldCloseRoom(this.room)) await this.closeRoom();
+        }
+        break;
+      }
+      case 'forfeit': {
+        // FORFEIT (Adam, 2026-10-21): the sender releases their own
+        // seat for good — no grace hold, no reclaim, no ban (roomLogic
+        // composes the release + hosting verdict). The sender's
+        // socket closes cleanly (a choice, not an error), and its
+        // close event then finds no seat to park in grace.
+        const result = forfeitSeat(this.room, playerId, Date.now());
+        if (result) {
+          await this.persistRoom();
+          for (const target of this.socketsOf(playerId)) {
+            target.close(1000, 'forfeit');
+          }
+          this.broadcast({ type: 'seatReleased', seat: result.seat });
+          if (result.outcome.action === 'promote') {
+            // applyMigrationOutcome does its own roomState + index sync.
+            await this.applyMigrationOutcome(result.outcome, 'host_disconnected');
+            return;
+          }
+          if (result.outcome.action === 'close' || shouldCloseRoom(this.room)) {
+            await this.closeRoom();
+            return;
+          }
+          this.broadcastRoomState();
+          await this.notifyIndex();
         }
         break;
       }

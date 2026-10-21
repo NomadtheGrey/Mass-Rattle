@@ -26,8 +26,10 @@
  *   to bot and parks the seat in reconnect grace, remembering the
  *   human's identity (heldIdentities) for reclaim. Grace lasts the
  *   whole match (design pin #6: reclaimable all match) — no timer.
- *   A full release (releaseSeat) happens only on kick, which also
- *   bans the playerId from the room.
+ *   A full release (releaseSeat) happens on kick (which also bans
+ *   the playerId from the room) or on a voluntary FORFEIT
+ *   (forfeitSeat — no ban; the rage-quit door beside step-away
+ *   grace, Adam, 2026-10-21).
  * - A reclaimer does NOT retake hosting from a promoted host: reclaim
  *   restores the seat; hosting moves only via vacancy or promotion.
  */
@@ -436,9 +438,9 @@ export function disconnectSeat(
 
 /**
  * Full release: the seat forgets the human entirely — occupant flips
- * to bot, any grace hold is erased, joinedOrder clears. This is the
- * kick path (and the only release path in P2-3a: the wire has no
- * voluntary-leave message, so a drop is always grace, never release).
+ * to bot, any grace hold is erased, joinedOrder clears. The callers
+ * are the kick path (kickPlayer) and the voluntary forfeit
+ * (forfeitSeat); a plain drop is always grace, never release.
  * Resolves the target as a live occupant OR via a grace hold.
  * Returns the freed seat, or null if the player held nothing.
  */
@@ -468,6 +470,39 @@ export function releaseSeat(
   seat.isHost = false;
   ensureHost(record);
   return seat;
+}
+
+/**
+ * Voluntary FORFEIT (Adam, 2026-10-21): the player releases their
+ * OWN seat for good — the rage-quit door beside step-away grace.
+ * Same release as a kick but self-imposed and WITHOUT the ban: the
+ * player may rejoin later as a fresh claim. Composes releaseSeat
+ * with the hosting verdict the DO applies, with one correction to
+ * releaseSeat's election: when the freed seat was the host,
+ * releaseSeat's ensureHost immediately flags a successor, and that
+ * successor would then read as "healthy" on the DEPARTED host's
+ * heartbeat baseline — stalling real promotion until the timeout.
+ * So a host forfeit VACATES the flag and clears the baseline first:
+ * reconciliation then runs exactly as it does for a departed host
+ * (immediate promotion of the next connected human in a live match,
+ * plain election in the lobby, room close when nobody remains).
+ * Returns the freed seat + the hosting outcome, or null when the
+ * player held no seat.
+ */
+export function forfeitSeat(
+  record: RoomRecord,
+  playerId: string,
+  now: number,
+): { seat: Seat; outcome: MigrationOutcome } | null {
+  const wasHost = isHost(record, playerId);
+  const seat = releaseSeat(record, playerId);
+  if (!seat) return null;
+  if (wasHost) {
+    for (const s of record.seats) s.isHost = false;
+    record.hostLastHeartbeatAt = null;
+  }
+  const outcome = reconcileHosting(record, now);
+  return { seat, outcome };
 }
 
 /** Host-only kick: fully releases the target's seat (occupant or
