@@ -45,6 +45,17 @@ export interface ShipTypeDef {
   name: string;
   /** Hull steps this type allows (size = 15 + 2 x steps grown). */
   hullStepCap: number;
+  /**
+   * TURN FACTOR — the line's base turning character (RULED,
+   * Adam, 2026-10-21: turn speed is a per-line base property,
+   * rooted in what each line IS — not a size law, not a carrier
+   * exception). Anchors are his: fighters turn fastest; carriers
+   * turn poorly; haulers about like a carrier. Cruiser and
+   * minelayer placements, and every value here, are DRAFT for
+   * his pin pass. The physics step scales the base rotation
+   * speed by this factor; handling upgrades still add on top.
+   */
+  turnFactor: number;
   trackCaps: TrackCaps;
   /**
    * Parallel mounts firing the equipped weapon (first mount 100%
@@ -75,6 +86,7 @@ export interface ShipLineDef {
 // T1 numbers are line-neutral — nothing differs between lines at T1.
 const SKIFF: ShipTypeDef = {
   name: 'SKIFF',
+  turnFactor: 1.0,
   hullStepCap: 1,
   trackCaps: { thrust: 3, handling: 3, vac: 2, fuel: 2, cargo: 2 },
   hardPoints: 1,
@@ -92,12 +104,14 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
       SKIFF,
       {
         name: 'STINGER',
+        turnFactor: 1.25,
         hullStepCap: 3,
         trackCaps: { thrust: 5, handling: 5, vac: 4, fuel: 4, cargo: 4 },
         hardPoints: 2, autoGuns: 0, minesPerDrop: 1, dronesFielded: 1, cargoBonus: 0, vacBonus: 0,
       },
       {
         name: 'LANCER',
+        turnFactor: 1.22,
         hullStepCap: 5,
         // PEAK: thrust + handling (+1 over baseline at T3).
         trackCaps: { thrust: 9, handling: 9, vac: 6, fuel: 7, cargo: 6 },
@@ -105,6 +119,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
       },
       {
         name: 'WARFANG',
+        turnFactor: 1.2,
         hullStepCap: 8,
         // PEAK: thrust + handling (+2 over baseline at T4).
         trackCaps: { thrust: 14, handling: 14, vac: 10, fuel: 10, cargo: 10 },
@@ -113,6 +128,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
       {
         // T5 CROWN — WARMONGER (Adam, adopted 2026-10-21).
         name: 'WARMONGER',
+        turnFactor: 1.15,
         hullStepCap: 11,
         // PEAK: thrust + handling (+3 over the T5 baseline).
         trackCaps: { thrust: 19, handling: 19, vac: 13, fuel: 13, cargo: 13 },
@@ -125,20 +141,23 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
     types: [
       SKIFF,
       {
-        name: 'MOLE', // The saboteur ladder (Adam, adopted 2026-10-21): MOLE / SKULKER / SABOTEUR / NAUTILUS — SOWER retired.
+        name: 'MOLE',
+        turnFactor: 1.05, // The saboteur ladder (Adam, adopted 2026-10-21): MOLE / SKULKER / SABOTEUR / NAUTILUS — SOWER retired.
         hullStepCap: 3,
         trackCaps: { thrust: 5, handling: 5, vac: 4, fuel: 4, cargo: 4 },
         hardPoints: 1, autoGuns: 0, minesPerDrop: 2, dronesFielded: 1, cargoBonus: 0, vacBonus: 0,
       },
       {
-        name: 'SKULKER', // Saboteur ladder: TRAPPER retired (SKULKER is Adam's substitution for the proposed SLEEPER).
+        name: 'SKULKER',
+        turnFactor: 1.03, // Saboteur ladder: TRAPPER retired (SKULKER is Adam's substitution for the proposed SLEEPER).
         hullStepCap: 5,
         // PEAK: cargo (+1 over baseline at T3).
         trackCaps: { thrust: 8, handling: 8, vac: 6, fuel: 7, cargo: 7 },
         hardPoints: 2, autoGuns: 0, minesPerDrop: 3, dronesFielded: 2, cargoBonus: 2, vacBonus: 10,
       },
       {
-        name: 'SABOTEUR', // Saboteur ladder: WIDOW retired.
+        name: 'SABOTEUR',
+        turnFactor: 1.0, // Saboteur ladder: WIDOW retired.
         hullStepCap: 8,
         // PEAK: cargo (+2 over baseline at T4).
         trackCaps: { thrust: 12, handling: 12, vac: 10, fuel: 10, cargo: 12 },
@@ -150,6 +169,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         // name (MOLE / SKULKER / SABOTEUR / NAUTILUS). The STATS
         // are drafted.
         name: 'NAUTILUS',
+        turnFactor: 0.98,
         hullStepCap: 11,
         // PEAK: cargo (+3 over the T5 baseline).
         trackCaps: { thrust: 16, handling: 16, vac: 13, fuel: 13, cargo: 16 },
@@ -163,12 +183,14 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
       SKIFF,
       {
         name: 'MULE',
+        turnFactor: 0.72,
         hullStepCap: 3,
         trackCaps: { thrust: 5, handling: 5, vac: 4, fuel: 4, cargo: 4 },
         hardPoints: 1, autoGuns: 0, minesPerDrop: 1, dronesFielded: 1, cargoBonus: 4, vacBonus: 20,
       },
       {
-        name: 'MAMMOTH', // Renamed from PACKHORSE (Adam, adopted 2026-10-21).
+        name: 'MAMMOTH',
+        turnFactor: 0.7, // Renamed from PACKHORSE (Adam, adopted 2026-10-21).
         hullStepCap: 5,
         // PEAK: vac + cargo (+1 over baseline at T3).
         trackCaps: { thrust: 8, handling: 8, vac: 7, fuel: 7, cargo: 7 },
@@ -176,6 +198,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
       },
       {
         name: 'LEVIATHAN',
+        turnFactor: 0.68,
         hullStepCap: 9, // Hauler T4 peaks hull second only to Cruiser.
         // PEAK: vac + cargo (+2 over baseline at T4).
         trackCaps: { thrust: 12, handling: 12, vac: 12, fuel: 10, cargo: 12 },
@@ -187,6 +210,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         // the Titan who carries the world — the hauler's whole job,
         // crowned. BEHEMOTH was the runner-up.
         name: 'ATLAS',
+        turnFactor: 0.65,
         hullStepCap: 12,
         // PEAK: vac + cargo (+3 over the T5 baseline).
         trackCaps: { thrust: 16, handling: 16, vac: 16, fuel: 13, cargo: 16 },
@@ -200,12 +224,14 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
       SKIFF,
       {
         name: 'SHEPHERD',
+        turnFactor: 0.72,
         hullStepCap: 3,
         trackCaps: { thrust: 5, handling: 5, vac: 4, fuel: 4, cargo: 4 },
         hardPoints: 1, autoGuns: 0, minesPerDrop: 1, dronesFielded: 2, cargoBonus: 2, vacBonus: 10,
       },
       {
         name: 'WARDEN',
+        turnFactor: 0.7,
         hullStepCap: 5,
         // PEAK: fuel (+1 over baseline at T3).
         trackCaps: { thrust: 8, handling: 8, vac: 6, fuel: 8, cargo: 6 },
@@ -213,6 +239,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
       },
       {
         name: 'CARRIER',
+        turnFactor: 0.68,
         hullStepCap: 8,
         // PEAK: fuel (+2 over baseline at T4).
         trackCaps: { thrust: 12, handling: 12, vac: 10, fuel: 12, cargo: 10 },
@@ -221,6 +248,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
       {
         // T5 CROWN — MOTHERSHIP (Adam, adopted 2026-10-21).
         name: 'MOTHERSHIP',
+        turnFactor: 0.65,
         hullStepCap: 11,
         // PEAK: fuel (+3 over the T5 baseline).
         trackCaps: { thrust: 16, handling: 16, vac: 13, fuel: 16, cargo: 13 },
@@ -234,6 +262,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
       SKIFF,
       {
         name: 'CRUISER',
+        turnFactor: 0.9,
         hullStepCap: 3,
         // Cruiser exception: handling -1 from T2 on (the biggest hulls
         // turn worst). No peak tracks — its peak is size/health.
@@ -246,6 +275,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         // STATS stayed in their slots, so this slot keeps the old
         // T3 (Battlestar) numbers under the Vanguard name.
         name: 'VANGUARD',
+        turnFactor: 0.87,
         hullStepCap: 6,
         // Handling -1; fuel +1 (T3/T4).
         trackCaps: { thrust: 8, handling: 7, vac: 6, fuel: 8, cargo: 6 },
@@ -255,6 +285,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         // T4 BATTLESTAR — the old T4 (Dreadnought) numbers under
         // the Battlestar name (see the Vanguard note above).
         name: 'BATTLESTAR',
+        turnFactor: 0.84,
         hullStepCap: 10, // Max size 35.
         // Handling -1; fuel +1 (T3/T4).
         trackCaps: { thrust: 12, handling: 11, vac: 10, fuel: 11, cargo: 10 },
@@ -265,6 +296,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         // belongs to the cruiser line; the biggest hull in the
         // game, past the Battlestar's 35: max size 41).
         name: 'DREADNOUGHT',
+        turnFactor: 0.8,
         hullStepCap: 13,
         // Handling -1; fuel +1.
         trackCaps: { thrust: 16, handling: 15, vac: 13, fuel: 14, cargo: 13 },

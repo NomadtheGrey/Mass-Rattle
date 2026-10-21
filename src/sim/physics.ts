@@ -13,6 +13,7 @@
  */
 
 import { PHYSICS } from '../constants';
+import { typeFor } from '../shipProgression';
 import { SAIL_RANGE, sailThrustFor, thornDamageFor } from '../loadout';
 import { effectiveRadiusForStar } from './starStages';
 import { areHostile } from './teams';
@@ -120,7 +121,12 @@ export const stepShipPhysics = (ctx: ShipPhysicsContext): ShipPhysicsResult => {
   const { ship, simSeats, star, enemyStar, keys, touchInputs, stick, stickDist, speedMult, thrustFactor, gravFactor, hyId, hyTier } = ctx;
   // 2. Physics (Mass Scaling)
   const currentMass = PHYSICS.SHIP_MASS + (ship.carrying * PHYSICS.MASS_PER_CARGO);
-  const currentRotSpeed = (PHYSICS.ROTATION_SPEED + ship.upgrades.handling * 0.005) / (1 + ship.carrying * 0.05);
+  // TURN FACTOR (Adam, 2026-10-21): the type's base turning
+  // character scales the base rotation speed; handling upgrades
+  // still add their flat bonus on top, and the cargo-mass divisor
+  // is untouched. See ShipTypeDef.turnFactor in shipProgression.
+  const turnFactor = typeFor(ship.line, ship.typeTier).turnFactor;
+  const currentRotSpeed = (PHYSICS.ROTATION_SPEED * turnFactor + ship.upgrades.handling * 0.005) / (1 + ship.carrying * 0.05);
 
   if (keys.has('ArrowLeft') || keys.has('KeyA') || touchInputs.rotateLeft) {
     ship.angle -= currentRotSpeed;
