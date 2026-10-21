@@ -278,14 +278,33 @@ export function useNetClient(): NetSession {
       body: JSON.stringify(body),
     })
       .then(async (res) => {
-        if (!res.ok) throw new Error(`create failed: ${res.status}`);
+        if (!res.ok) {
+          // ERROR TAXONOMY (Adam's blank-name defect, 2026-10-21): the
+          // server ANSWERED and refused — say so honestly, with its
+          // reason. The connection wording below is reserved for when
+          // no answer ever arrived. A refusal is not a connection.
+          let code = '';
+          let detail = '';
+          try {
+            const e = (await res.json()) as { error?: string; detail?: string };
+            code = typeof e.error === 'string' ? e.error : '';
+            detail = typeof e.detail === 'string' ? e.detail : '';
+          } catch { /* an unparseable refusal is still a refusal */ }
+          setClientState({ connection: 'idle', lastError: null });
+          if (code === 'version_mismatch') {
+            setNotice('VERSION MISMATCH — REFRESH THE GAME AND TRY AGAIN');
+          } else {
+            setNotice(`THE SERVER REFUSED THAT ROOM${detail ? ` — ${detail.toUpperCase()}` : ''} (ERROR ${res.status}) — TRY AGAIN`);
+          }
+          return;
+        }
         const data = (await res.json()) as CreateRoomResponse;
         // Creating != seated: hello through the socket like everyone.
         joinRoom(data.code, callsign);
       })
       .catch(() => {
         setClientState({ connection: 'idle', lastError: null });
-        setNotice('COULD NOT CREATE THE ROOM — CHECK YOUR CONNECTION AND TRY AGAIN');
+        setNotice('COULD NOT REACH THE SERVER — CHECK YOUR CONNECTION AND TRY AGAIN');
       });
   }, [joinRoom]);
 
