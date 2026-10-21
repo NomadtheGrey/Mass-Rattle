@@ -56,6 +56,34 @@ async function indexHasRoom(
   return res.status === 200;
 }
 
+/**
+ * Default room names (Adam's ruling, 2026-10-21): when a player
+ * leaves the room name blank, the game assigns one — two words
+ * chosen at random, galactic in feel and cheerfully nonsensical
+ * (Star Killer, Ship Basher, Fat Hauler…). Names are decoration;
+ * the room code stays the identity, so no uniqueness is needed.
+ */
+const ROOM_NAME_FIRST = [
+  'Star', 'Ship', 'Fat', 'Void', 'Nova', 'Iron', 'Solar', 'Cosmic',
+  'Rogue', 'Plasma', 'Nebula', 'Rusty', 'Lunar', 'Comet', 'Warp',
+  'Astro', 'Quantum', 'Diesel', 'Thunder', 'Velvet', 'Soggy',
+  'Angry', 'Silent', 'Drunken', 'Turbo', 'Mega',
+];
+const ROOM_NAME_SECOND = [
+  'Killer', 'Basher', 'Hauler', 'Drifter', 'Mauler', 'Eater',
+  'Runner', 'Wraith', 'Gobbler', 'Smasher', 'Cruiser', 'Wanderer',
+  'Chomper', 'Brawler', 'Sneaker', 'Howler', 'Muncher', 'Prowler',
+  'Grinder', 'Dasher', 'Lurker', 'Bouncer',
+];
+
+function generateRoomName(): string {
+  const first =
+    ROOM_NAME_FIRST[Math.floor(Math.random() * ROOM_NAME_FIRST.length)];
+  const second =
+    ROOM_NAME_SECOND[Math.floor(Math.random() * ROOM_NAME_SECOND.length)];
+  return `${first} ${second}`;
+}
+
 async function roomExists(env: Env, code: string): Promise<boolean> {
   const res = await roomStub(env, code).fetch(
     new Request('https://room.internal/meta'),
@@ -99,8 +127,9 @@ export default {
         }
         const name =
           typeof body.name === 'string' ? body.name.trim() : '';
-        // The name is OPTIONAL (the lobby labels it so): a blank or
-        // missing name is defaulted below once the code exists.
+        // The name is OPTIONAL (the lobby labels it so, and Adam's
+        // ruling 2026-10-21 keeps it that way): a blank or missing
+        // name gets a random two-word galactic name generated below.
         // Only the length cap is enforced here.
         if (name.length > 40) {
           return Response.json({ error: 'bad_request' }, { status: 400 });
@@ -129,7 +158,7 @@ export default {
 
         const seed = Math.floor(Math.random() * 2 ** 31);
         const init: RoomInitBody = {
-          name: name === '' ? `ROOM ${code}` : name,
+          name: name === '' ? generateRoomName() : name,
           starCount: body.starCount,
           private: body.private ?? false,
           code,
