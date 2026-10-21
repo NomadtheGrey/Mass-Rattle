@@ -36,6 +36,11 @@ export type NetActionIntent =
   | { kind: 'equipItem'; itemId: string }
   | { kind: 'buyType'; line?: string }
   | { kind: 'buyHull' }
+  /** Arsenal slice 2 (UI lane, on BackGround's flag): parity with
+   * buyHull — the kind exists so the surface's purchase has its
+   * wire name; guest emission rides the per-seat economy follow-on
+   * with every other economy kind. */
+  | { kind: 'buyTurretMount' }
   | { kind: 'switchLine'; line: string }
   | { kind: 'buildDrone' }
   /** P2-5 death economy: BARE — the host derives the seat from the

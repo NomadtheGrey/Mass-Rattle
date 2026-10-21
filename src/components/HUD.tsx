@@ -10,14 +10,16 @@ import { STAGE_LABELS, TEAM_LABELS, TEAM_COLORS } from './lobby/lobbyTypes';
 import type { TeamId } from '../net/protocol';
 import { MechanicsGuide } from './MechanicsGuide';
 import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor } from '../loadout';
-import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
+import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, autoGunCapFor, turretMountPriceFor, effectiveAutoGuns, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
 
 // One-line summary of what a type's frame DOES, read off its capability
 // fields — the workshop sells the special in the type's own numbers.
 const capSummary = (d: ShipTypeDef): string => {
   const parts: string[] = [];
   if (d.hardPoints > 1) parts.push(`${d.hardPoints} HARD POINTS`);
-  if (d.autoGuns > 0) parts.push(`${d.autoGuns} AUTO-GUN${d.autoGuns > 1 ? 'S' : ''}`);
+  // autoGuns is a mount CAP since Arsenal slice 2 (2026-10-21):
+  // the frame carries that many bought turret mounts, never free guns.
+  if (d.autoGuns > 0) parts.push(`${d.autoGuns} TURRET MOUNT${d.autoGuns > 1 ? 'S' : ''}`);
   if (d.minesPerDrop > 1) parts.push(`${d.minesPerDrop} MINES / DROP`);
   if (d.dronesFielded > 1) parts.push(`FIELDS ${d.dronesFielded} DRONES`);
   if (d.cargoBonus > 0) parts.push(`+${d.cargoBonus} HOLD`);
@@ -153,10 +155,12 @@ interface HUDProps {
   shipLine: ShipLine | null;
   typeTier: TypeTier;
   hullSteps: number;
+  turretMounts: number;
   lineSwitchesUsed: number;
   playerDrones: number;
   onBuyType: (line?: ShipLine) => void;
   onBuyHullStep: () => void;
+  onBuyTurretMount: () => void;
   onSwitchLine: (line: ShipLine) => void;
   onBuildDrone: () => void;
 }
@@ -207,10 +211,12 @@ export const HUD: React.FC<HUDProps> = ({
   shipLine,
   typeTier,
   hullSteps,
+  turretMounts,
   lineSwitchesUsed,
   playerDrones,
   onBuyType,
   onBuyHullStep,
+  onBuyTurretMount,
   onSwitchLine,
   onBuildDrone
 }) => {
@@ -1297,7 +1303,7 @@ export const HUD: React.FC<HUDProps> = ({
                   <span className="text-xs sm:text-sm font-bold uppercase text-[#33ff33]">🛸 SHIP FRAME — {progType.name}{shipLine ? ` · ${shipLine.toUpperCase()} LINE · T${typeTier}` : ' · UNALIGNED'} {frameOpen ? '▾' : '▸ CHOOSE'}</span>
                   <span className="text-[9px] sm:text-[10px] font-mono text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded">SIZE {hullSizeFor(hullSteps)} · HULL {hullSteps}/{progType.hullStepCap}</span>
                 </button>
-                <p className="text-[9px] sm:text-[10px] text-zinc-400 leading-tight">{capSummary(progType)} — the special is built into the frame's price, never sold separately.</p>
+                <p className="text-[9px] sm:text-[10px] text-zinc-400 leading-tight">{capSummary(progType)} — the frame's caps are built into its price; turret mounts are fitted separately, below.</p>
                 {frameOpen && (<>
 
                 {typeTier < 5 && shipLine === null && (
@@ -1373,6 +1379,48 @@ export const HUD: React.FC<HUDProps> = ({
                     <div className="text-[8px] sm:text-[9px] font-mono text-zinc-400">HARVESTER DRONE, REPLACES LOSSES · <span className="text-pink-400 font-bold">{DRONE_PRICE}U</span></div>
                   </button>
                 </div>
+
+                {/* TURRET MOUNTS (Arsenal slice 2, 2026-10-21): the
+                    frame's autoGuns field is a CAP — mounts are bought
+                    one at a time to fill it, and only min(cap, owned)
+                    fire (effectiveAutoGuns — the loop and the canvas
+                    barrel tells read the same number). Owned mounts
+                    ride across line switches; on a shallower frame the
+                    excess shelves (amber pips) until a deeper hull
+                    carries it again. Mounts die with the ship. */}
+                {(() => {
+                  const mountCap = autoGunCapFor(shipLine, typeTier);
+                  const firing = effectiveAutoGuns({ line: shipLine, typeTier, turretMounts });
+                  const nextPrice = turretMountPriceFor(turretMounts);
+                  const atCap = turretMounts >= mountCap;
+                  const afford = funds >= nextPrice;
+                  const pips = Math.max(mountCap, turretMounts);
+                  return (
+                    <div className="pitted-metal px-3 py-2 rounded border border-zinc-700 flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🔫 TURRET MOUNTS — {firing}/{mountCap} FIRING</span>
+                        <span className="flex gap-1" aria-hidden="true">
+                          {Array.from({ length: pips }, (_, i) => (
+                            <span key={i} className={`w-2.5 h-2.5 rounded-sm ${i < firing ? 'bg-[#33ff33]' : i < turretMounts ? 'bg-amber-500' : 'bg-zinc-700'}`} />
+                          ))}
+                        </span>
+                      </div>
+                      <p className="text-[8px] sm:text-[9px] font-mono text-zinc-400 leading-snug">
+                        SHIPBOARD AUTO-TURRETS ON BOUGHT MOUNTS — THEY FIRE ON HOSTILES IN RANGE, NO HANDS NEEDED. THE FRAME SETS THE CAP; EACH MOUNT IS FITTED AT THE DOCK AND DIES WITH THE SHIP.
+                        {turretMounts > mountCap && <span className="text-amber-400"> {turretMounts - mountCap} MOUNT{turretMounts - mountCap > 1 ? 'S' : ''} SHELVED ON THIS FRAME — THEY RIDE ACROSS AND WAKE ON A DEEPER HULL.</span>}
+                      </p>
+                      {atCap ? (
+                        <div className="text-[10px] sm:text-xs font-mono text-amber-400">MOUNTS FULL FOR {progType.name} — A DEEPER FRAME CARRIES MORE</div>
+                      ) : (
+                        <button onClick={() => afford ? onBuyTurretMount() : flashShopNotice(`NOT ENOUGH SCRAP — TURRET MOUNT ${turretMounts + 1} COSTS ${nextPrice}U · YOU HAVE ${funds}U`)}
+                          className={`px-3 py-2 rounded text-left touch-manipulation active:scale-[0.98] border bg-zinc-900 ${afford ? 'border-zinc-600' : 'grayscale cursor-not-allowed border-zinc-800 text-zinc-500'}`}>
+                          <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🔫 FIT MOUNT {turretMounts + 1} OF {mountCap}</span>
+                          <span className="float-right text-[10px] sm:text-xs font-mono font-bold text-pink-400">{nextPrice}U</span>
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
                 </>)}
               </div>
 

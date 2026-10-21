@@ -70,6 +70,7 @@ export default function App() {
     // grows the interface and these four props in one move).
     buyType,
     buyHullStep,
+    buyTurretMount,
     switchLine,
     buildDrone,
     repurchaseShip,
@@ -246,6 +247,8 @@ export default function App() {
         playerDrones={state.drones.filter(d => d.owner === 'player').length}
         onBuyType={buyType}
         onBuyHullStep={buyHullStep}
+        onBuyTurretMount={buyTurretMount}
+        turretMounts={state.ship.turretMounts}
         onSwitchLine={switchLine}
         onBuildDrone={buildDrone}
       />
