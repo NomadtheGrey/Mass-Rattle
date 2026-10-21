@@ -550,7 +550,7 @@ export const HUD: React.FC<HUDProps> = ({
       {/* MOBILE RADAR MODAL / POPOVER */}
       {radarActive && (
         <div className="md:hidden fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm pointer-events-auto">
-          <div className="hud-panel p-4 border-4 rounded-xl flex flex-col items-center gap-3 bg-zinc-950/75 shadow-2xl">
+          <div className="hud-panel hud-panel-deep p-4 border-4 rounded-xl flex flex-col items-center gap-3 bg-zinc-950/75 shadow-2xl">
             <div className="flex justify-between items-center w-full border-b border-zinc-800 pb-2">
               <span className="text-xs font-mono font-bold text-orange-400 uppercase tracking-widest">TACTICAL RADAR</span>
               <button 
@@ -564,7 +564,7 @@ export const HUD: React.FC<HUDProps> = ({
               </button>
             </div>
             {renderRadarView("w-64 h-64")}
-            <div className="text-[9px] font-mono text-zinc-400 text-center">
+            <div className="text-[9px] font-mono text-zinc-300 text-center">
               Orange: Home Core | Red: Enemy Core | Pink: Scrap Fields
             </div>
           </div>
@@ -576,13 +576,13 @@ export const HUD: React.FC<HUDProps> = ({
         <div className="hud-panel p-4 border-4">
           <div className="absolute top-0 right-0 p-1 text-[10px] text-[#2d2d30]">MOD-CR90</div>
           <h2 className="mb-4 pb-1 font-bold">
-            <span className="embossed-label text-orange-500/80">Astronomic Data</span>
+            <span className="embossed-label text-orange-400">Astronomic Data</span>
           </h2>
           <div className="space-y-6">
             <div>
               <div className="flex justify-between text-[10px] mb-1">
                 <span>HOME STAR GROWTH</span>
-                <span className="text-[#ea580c]">{growthProgress}/{growthCost} · {totalScrapInfused} INFUSED</span>
+                <span className="text-orange-400">{growthProgress}/{growthCost} · {totalScrapInfused} INFUSED</span>
               </div>
               <div className="vu-meter h-2 bg-orange-950/20">
                 <motion.div 
@@ -595,16 +595,16 @@ export const HUD: React.FC<HUDProps> = ({
             <div className="border border-zinc-800 rounded p-2 bg-zinc-950/60">
               {myTeamId && (
                 <div className="flex justify-between text-[10px] mb-1">
-                  <span className="text-zinc-500">TEAM</span>
+                  <span className="text-zinc-300">TEAM</span>
                   <span className="font-bold" style={{ color: TEAM_COLORS[myTeamId] }}>{TEAM_LABELS[myTeamId]}</span>
                 </div>
               )}
               <div className="flex justify-between text-[10px] mb-1">
-                <span className="text-zinc-400 tracking-wider">STAR LIFECYCLE</span>
+                <span className="text-zinc-200 tracking-wider">STAR LIFECYCLE</span>
                 <span className="font-bold" style={{ color: stageColor }}>{STAGE_LABELS[stageState.stage]}</span>
               </div>
               <div className="flex justify-between text-[10px] mb-1">
-                <span className="text-zinc-500">TOTAL FED</span>
+                <span className="text-zinc-300">TOTAL FED</span>
                 <span className="text-zinc-200 font-bold">{totalScrapInfused}U</span>
               </div>
               <div className="vu-meter h-1.5 bg-zinc-900">
@@ -614,7 +614,7 @@ export const HUD: React.FC<HUDProps> = ({
                   animate={{ width: `${stageState.progressWithinStage * 100}%` }}
                 />
               </div>
-              <div className="text-[9px] font-mono text-zinc-500 mt-1">
+              <div className="text-[9px] font-mono text-zinc-300 mt-1">
                 {nextStage
                   ? `TO ${STAGE_LABELS[nextStage]}: ${stageFedInBand}/${stageBandSize}U FED`
                   : 'CRITICAL MASS — COLLAPSE ENDS THE MATCH'}
@@ -623,8 +623,8 @@ export const HUD: React.FC<HUDProps> = ({
 
             <div>
               <div className="flex justify-between text-[10px] mb-1">
-                <span className="text-red-500">ENEMY STAR INTEGRITY</span>
-                <span className="text-red-500">{Math.floor(enemyIntegrity * 100)}%</span>
+                <span className="text-red-400">ENEMY STAR INTEGRITY</span>
+                <span className="text-red-400">{Math.floor(enemyIntegrity * 100)}%</span>
               </div>
               <div className="vu-meter h-2 bg-red-950/20">
                 <motion.div 
@@ -637,16 +637,16 @@ export const HUD: React.FC<HUDProps> = ({
             <div className="border border-red-950 rounded p-2 bg-zinc-950/60">
               {enemyTeamId && (
                 <div className="flex justify-between text-[10px] mb-1">
-                  <span className="text-zinc-500">TEAM</span>
+                  <span className="text-zinc-300">TEAM</span>
                   <span className="font-bold" style={{ color: TEAM_COLORS[enemyTeamId] }}>{TEAM_LABELS[enemyTeamId]}</span>
                 </div>
               )}
               <div className="flex justify-between text-[10px] mb-1">
-                <span className="text-zinc-400 tracking-wider">ENEMY LIFECYCLE</span>
+                <span className="text-zinc-200 tracking-wider">ENEMY LIFECYCLE</span>
                 <span className="font-bold" style={{ color: enemyField.color }}>{STAGE_LABELS[enemyField.state.stage]}</span>
               </div>
               <div className="flex justify-between text-[10px] mb-1">
-                <span className="text-zinc-500">TOTAL FED</span>
+                <span className="text-zinc-300">TOTAL FED</span>
                 <span className="text-zinc-200 font-bold">{enemyTotalInfused}U</span>
               </div>
               <div className="vu-meter h-1.5 bg-zinc-900">
@@ -656,7 +656,7 @@ export const HUD: React.FC<HUDProps> = ({
                   animate={{ width: `${enemyField.state.progressWithinStage * 100}%` }}
                 />
               </div>
-              <div className="text-[9px] font-mono text-zinc-500 mt-1">
+              <div className="text-[9px] font-mono text-zinc-300 mt-1">
                 {enemyField.next
                   ? `TO ${STAGE_LABELS[enemyField.next]}: ${enemyField.fedInBand}/${enemyField.bandSize}U FED`
                   : 'CRITICAL MASS — COLLAPSE ENDS THE MATCH'}
@@ -664,7 +664,7 @@ export const HUD: React.FC<HUDProps> = ({
             </div>
 
             <div className="flex flex-col gap-2 items-center">
-              <div className="text-[10px] uppercase opacity-50 self-start">Local Nav Map [Tactical]</div>
+              <div className="text-[10px] uppercase text-zinc-300 self-start">Local Nav Map [Tactical]</div>
               {renderRadarView()}
             </div>
           </div>
@@ -674,10 +674,10 @@ export const HUD: React.FC<HUDProps> = ({
           <h2 className="mb-4 pb-1 font-bold">
             <span className="embossed-label text-zinc-400">Comms / Logs</span>
           </h2>
-            <div className="text-[11px] leading-relaxed space-y-2 opacity-80 font-mono">
+            <div className="text-[11px] leading-relaxed space-y-2 font-mono">
               <div className="mb-4">
                 <div className="flex justify-between text-[9px] mb-1">
-                  <span className={shipHealth < 30 ? 'text-red-500 animate-pulse' : 'text-zinc-400'}>HULL_INTEGRITY</span>
+                  <span className={shipHealth < 30 ? 'text-red-500 animate-pulse' : 'text-zinc-200'}>HULL_INTEGRITY</span>
                   <span>{Math.floor(shipHealth)}%</span>
                 </div>
                 <div className="vu-meter h-3 bg-zinc-900 border border-zinc-800">
@@ -687,19 +687,19 @@ export const HUD: React.FC<HUDProps> = ({
                   />
                 </div>
               </div>
-              {velocity > 4 && <p className="text-red-500">[WARN] SPEED EXCEEDS BUFFER</p>}
-              {carrying > (PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS) && <p className="text-yellow-500">[WARN] CARGO OVERLOAD</p>}
-              {carrying > 0 && <p className="text-pink-500 font-bold">[INFO] SCRAP LOAD: {carrying}U</p>}
+              {velocity > 4 && <p className="text-red-400">[WARN] SPEED EXCEEDS BUFFER</p>}
+              {carrying > (PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS) && <p className="text-yellow-400">[WARN] CARGO OVERLOAD</p>}
+              {carrying > 0 && <p className="text-pink-400 font-bold">[INFO] SCRAP LOAD: {carrying}U</p>}
               <p className="text-cyan-400 font-bold bg-cyan-950/40 px-1 border-l-2 border-cyan-500">[FED] {teamScrap}U DELIVERED</p>
-              {fuel < 20 && <p className="text-red-600 animate-pulse font-bold">[ERR] FUEL DEPLETED</p>}
-              {glitch && <p className="text-yellow-600">[DATA] SENSORS RECALIBRATING...</p>}
+              {fuel < 20 && <p className="text-red-500 animate-pulse font-bold">[ERR] FUEL DEPLETED</p>}
+              {glitch && <p className="text-yellow-500">[DATA] SENSORS RECALIBRATING...</p>}
               <div className="border-t border-zinc-800/70 pt-1.5 mt-1 space-y-0.5 text-[10px]">
-                <div className="flex justify-between"><span className="opacity-50">PINGS</span><span>{pingMs}ms</span></div>
-                <div className="flex justify-between"><span className="opacity-50">FPS</span><span>{fpsRef.current.fps || '—'}</span></div>
-                <div className="flex justify-between"><span className="opacity-50">RANGE · HOME</span><span className="text-orange-400">{rangeHome}U</span></div>
-                <div className="flex justify-between"><span className="opacity-50">RANGE · ENEMY</span><span className="text-red-400">{rangeEnemy}U</span></div>
-                <div className="flex justify-between"><span className="opacity-50">FIELD SCRAP</span><span className="text-pink-400">{scrapList.length}</span></div>
-                <div className="flex justify-between"><span className="opacity-50">MISSION T+</span><span>{missionClock}</span></div>
+                <div className="flex justify-between"><span className="text-zinc-400">PINGS</span><span>{pingMs}ms</span></div>
+                <div className="flex justify-between"><span className="text-zinc-400">FPS</span><span>{fpsRef.current.fps || '—'}</span></div>
+                <div className="flex justify-between"><span className="text-zinc-400">RANGE · HOME</span><span className="text-orange-400">{rangeHome}U</span></div>
+                <div className="flex justify-between"><span className="text-zinc-400">RANGE · ENEMY</span><span className="text-red-400">{rangeEnemy}U</span></div>
+                <div className="flex justify-between"><span className="text-zinc-400">FIELD SCRAP</span><span className="text-pink-400">{scrapList.length}</span></div>
+                <div className="flex justify-between"><span className="text-zinc-400">MISSION T+</span><span>{missionClock}</span></div>
               </div>
               <p className="animate-pulse">_</p>
             </div>
@@ -722,11 +722,11 @@ export const HUD: React.FC<HUDProps> = ({
               App.tsx and never learned FIRE [F] or DECOY [X]. */}
           <div className="absolute bottom-0 left-0 pointer-events-auto">
             <div className="hud-panel border-2 bg-zinc-950/55 shadow-2xl px-3 py-2 min-w-[176px]">
-              <div className="text-[8px] font-mono font-bold tracking-[0.25em] text-zinc-500 mb-1.5">SHIP CONTROLS</div>
+              <div className="text-[8px] font-mono font-bold tracking-[0.25em] text-zinc-400 mb-1.5">SHIP CONTROLS</div>
               <div className="flex flex-col gap-1">
                 {controlRows.map(row => (
-                  <div key={row.label} className={`flex justify-between gap-3 text-[9px] font-mono ${row.dim ? 'opacity-40' : ''}`}>
-                    <span className={`${row.bold ? 'text-zinc-100 font-bold' : 'text-zinc-400'} tracking-wider`}>{row.label}</span>
+                  <div key={row.label} className={`flex justify-between gap-3 text-[9px] font-mono ${row.dim ? 'opacity-75' : ''}`}>
+                    <span className={`${row.bold ? 'text-zinc-100 font-bold' : 'text-zinc-300'} tracking-wider`}>{row.label}</span>
                     <span className={`text-[#33ff33] font-bold whitespace-nowrap ${row.bold ? 'text-[10px]' : ''}`}>{row.keys}</span>
                   </div>
                 ))}
@@ -758,8 +758,8 @@ export const HUD: React.FC<HUDProps> = ({
               </button>
             </div>
             <div className="hud-panel w-20 p-2 border-2 bg-zinc-950/55 flex flex-col items-center justify-center gap-1">
-              <div className="text-[7px] text-zinc-600 uppercase whitespace-nowrap">S/N: 88-X9-R</div>
-              <div className="text-[8px] opacity-30">v2.4.0</div>
+              <div className="text-[7px] text-zinc-400 uppercase whitespace-nowrap">S/N: 88-X9-R</div>
+              <div className="text-[8px] text-zinc-400">v2.4.0</div>
             </div>
           </div>
         </div>
@@ -795,7 +795,7 @@ export const HUD: React.FC<HUDProps> = ({
                 </div>
                 <div>
                   <div className="flex justify-between mb-0.5">
-                    <span className="opacity-60 text-pink-400">CARGO LOAD</span>
+                    <span className="text-pink-300">CARGO LOAD</span>
                     <span>{carrying}U</span>
                   </div>
                   <div className="vu-meter h-2 bg-pink-900/20">
@@ -858,11 +858,11 @@ export const HUD: React.FC<HUDProps> = ({
                     onClick={() => onUpgrade(u.type)}
                     disabled={funds < cost}
                     className={`pitted-metal w-16 min-w-[64px] flex flex-col items-center py-2 relative group transition-all ${
-                      funds >= cost ? 'text-[#33ff33] opacity-100' : 'text-zinc-600 opacity-50 grayscale cursor-not-allowed'
+                      funds >= cost ? 'text-[#33ff33] opacity-100' : 'text-zinc-500 opacity-65 grayscale cursor-not-allowed'
                     }`}
                   >
-                    <span className="text-[9px] font-bold uppercase tracking-tighter">[{u.key}] {u.label.substring(0,4)}</span>
-                    <span className="text-[8px] opacity-60">Lvl {u.lvl}/{u.cap}</span>
+                    <span className="text-[10px] font-bold uppercase tracking-tighter">[{u.key}] {u.label.substring(0,4)}</span>
+                    <span className="text-[8px] opacity-85">Lvl {u.lvl}/{u.cap}</span>
                     <div className="absolute -top-8 left-1/2 -translate-x-1/2 transition-all opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] bg-black border border-zinc-800 p-1 font-mono z-50">
                       REQ: {cost} SCRAP ({bankInWell ? 'HOLD+BANK' : 'HOLD — BANK COUNTS IN THE WELL'})
                     </div>
@@ -876,7 +876,7 @@ export const HUD: React.FC<HUDProps> = ({
           
           <div className="w-48 flex flex-col justify-between shrink-0">
             <div className="flex justify-between items-center mb-1">
-              <div className="embossed-label text-pink-400/80 text-[9px] whitespace-nowrap">Cargo Manifest</div>
+              <div className="embossed-label text-pink-300 text-[9px] whitespace-nowrap">Cargo Manifest</div>
               <div className="text-[10px] font-mono font-bold text-pink-400 ml-1">
                 {(() => {
                   const reg = PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS;
@@ -1056,8 +1056,8 @@ export const HUD: React.FC<HUDProps> = ({
           { icon: '📦', name: 'HOLD', lvl: upgrades.cargo, cap: caps.cargo, stat: `${PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS}U` },
         ].map(t => (
           <div key={t.name} className="hud-panel px-1.5 py-0.5 rounded border border-zinc-800 text-center min-w-[56px]">
-            <div className="text-[7px] sm:text-[8px] font-mono text-zinc-500 tracking-widest whitespace-nowrap">{t.icon} {t.name} · L{t.lvl}/{t.cap}</div>
-            <div className="text-[8px] sm:text-[10px] font-mono font-bold text-zinc-200 leading-tight whitespace-nowrap">{t.stat}</div>
+            <div className="text-[8px] sm:text-[9px] font-mono text-zinc-300 tracking-widest whitespace-nowrap">{t.icon} {t.name} · L{t.lvl}/{t.cap}</div>
+            <div className="text-[9px] sm:text-[11px] font-mono font-bold text-zinc-50 leading-tight whitespace-nowrap">{t.stat}</div>
           </div>
         ))}
         <div className="w-px bg-zinc-800 mx-0.5" />
@@ -1071,8 +1071,8 @@ export const HUD: React.FC<HUDProps> = ({
           const isShield = slot === 'defense' && def?.id === 'deflector_shield';
           const isDecoy = slot === 'defense' && def?.id === 'decoy_beacon';
           return (
-            <div key={slot} className={`hud-panel px-1.5 py-0.5 rounded border text-center min-w-[56px] ${def ? 'border-[#33ff33]/50' : 'border-zinc-800 opacity-50'}`}>
-              <div className="text-[7px] sm:text-[8px] font-mono text-zinc-500 tracking-widest whitespace-nowrap">
+            <div key={slot} className={`hud-panel px-1.5 py-0.5 rounded border text-center min-w-[56px] ${def ? 'border-[#33ff33]/50' : 'border-zinc-800 opacity-75'}`}>
+              <div className="text-[8px] sm:text-[9px] font-mono text-zinc-300 tracking-widest whitespace-nowrap">
                 {label}{def ? ` · T${tier}` : ''}{isShield ? ` · POOL ${Math.ceil(shieldHp || 0)}/${shieldMaxFor(tier)}` : ''}
               </div>
               <div className="text-[8px] sm:text-[10px] font-mono font-bold uppercase text-[#33ff33] leading-tight whitespace-nowrap max-w-[92px] truncate">
@@ -1093,7 +1093,7 @@ export const HUD: React.FC<HUDProps> = ({
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="w-full max-w-xl max-h-[90vh] flex flex-col hud-panel p-4 sm:p-6 md:p-8 border-4 relative overflow-hidden bg-zinc-950/80 shadow-[0_0_50px_rgba(51,255,51,0.15)] rounded-lg"
+            className="w-full max-w-xl max-h-[90vh] flex flex-col hud-panel hud-panel-deep p-4 sm:p-6 md:p-8 border-4 relative overflow-hidden bg-zinc-950/80 shadow-[0_0_50px_rgba(51,255,51,0.15)] rounded-lg"
           >
             <div className="absolute inset-0 bg-gradient-to-br from-[#33ff33]/5 to-transparent pointer-events-none" />
             

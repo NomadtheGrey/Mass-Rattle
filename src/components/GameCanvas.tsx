@@ -88,7 +88,13 @@ const drawCmeBlob = (c: CanvasRenderingContext2D, sprite: HTMLCanvasElement, x: 
 // (Armor Plating's rim, Scrap Aegis plates, Thorn Hull spikes) read the
 // SAME outline, so they follow whatever frame the ship flies.
 type Pt = [number, number];
-const SKIFF_OUTLINE: Pt[] = [[1, 0], [-1, -0.7], [-0.6, 0], [-1, 0.7]];
+const SKIFF_OUTLINE: Pt[] = [[1.25, 0], [-0.55, -0.92], [-0.95, -0.28], [-0.35, 0], [-0.95, 0.28], [-0.55, 0.92]];
+// SKIFF LEGIBILITY (Adam live-test, 2026-10-21): the stock kite's
+// tail notch was 0.4 deep on paper and invisible at gameplay size —
+// the frame read as the plain prototype triangle. The reshape above
+// is the SAME kite with its character made legible: a longer nose,
+// swept wings, and a true swallow-tail notch. Every line's T1 wears
+// it (they all start as Skiffs); the other 15 frames are untouched.
 const HULL_OUTLINES: Record<string, Pt[]> = {
   'fighter:2': [[1.25, 0], [-0.9, -0.5], [-0.55, 0], [-0.9, 0.5]],
   'fighter:3': [[1.3, 0], [0.1, -0.28], [-0.7, -1.0], [-0.45, -0.3], [-0.6, 0], [-0.45, 0.3], [-0.7, 1.0], [0.1, 0.28]],

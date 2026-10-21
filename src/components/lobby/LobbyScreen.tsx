@@ -341,7 +341,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               <p className="text-[9px] font-mono text-zinc-500 mt-2 leading-snug">
                 Teammates can't hurt you — and the team builds together: feed or bank at any team star.
               </p>
-              <p className="text-[9px] font-mono text-zinc-600 mt-1 leading-snug">
+              <p className="text-[9px] font-mono text-zinc-400 mt-1 leading-snug">
                 Counts are real players only — bots never count, and a seat held through a reconnect counts.
                 Unbalanced teams are legal. At the start, bots hold their seat colors unless every human
                 stacks one team — then the bots form the opposition.
@@ -374,7 +374,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             </div>
           )}
 
-          <p className="text-[9px] font-mono text-zinc-600 leading-snug px-1">
+          <p className="text-[9px] font-mono text-zinc-400 leading-snug px-1">
             STEP AWAY keeps your seat — a bot flies it and you can reclaim it any time this match. FORFEIT releases it for good.
           </p>
           <div className="flex gap-2">
@@ -443,7 +443,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               autoComplete="off"
               className="hud-panel rounded px-3 py-2.5 bg-zinc-900 border border-amber-700 font-mono text-sm text-zinc-50 placeholder:text-zinc-600 outline-none focus:border-amber-400"
             />
-            <span className="text-[9px] font-mono text-zinc-600 leading-snug">With its password, the name is yours plain. Without it — or with a wrong one — you fly as Nomad-2. No fuss either way.</span>
+            <span className="text-[9px] font-mono text-zinc-400 leading-snug">With its password, the name is yours plain. Without it — or with a wrong one — you fly as Nomad-2. No fuss either way.</span>
           </label>
         )}
 
@@ -467,7 +467,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               🎲
             </button>
           </div>
-          <p className="text-[9px] font-mono text-zinc-600 leading-snug">Blank is fine — leave it empty and the server picks a galactic name for you.</p>
+          <p className="text-[9px] font-mono text-zinc-400 leading-snug">Blank is fine — leave it empty and the server picks a galactic name for you.</p>
           <div>
             <div className="text-[9px] font-mono tracking-[0.25em] text-zinc-500 mb-1.5">STARS IN THE ARENA</div>
             <div className="flex gap-1.5">

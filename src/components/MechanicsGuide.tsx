@@ -34,7 +34,7 @@ export const MechanicsGuide: React.FC<{ onClose: () => void }> = ({ onClose }) =
   >
     <div
       onClick={(e: React.MouseEvent) => e.stopPropagation()}
-      className="hud-panel w-full max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6 border-4 bg-zinc-950/80 rounded-lg shadow-[0_0_50px_rgba(51,255,51,0.15)]"
+      className="hud-panel hud-panel-deep w-full max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6 border-4 bg-zinc-950/80 rounded-lg shadow-[0_0_50px_rgba(51,255,51,0.15)]"
     >
       <div className="flex items-start justify-between mb-4">
         <div>
