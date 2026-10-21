@@ -265,6 +265,25 @@ export interface SeatSimState {
    * repurchase. Bot seats auto-repurchase off this stamp. Absent
    * while the seat has a ship. */
   shipLostAt?: number;
+  /** DEATH TAX (Adam, 2026-10-21): loop-clock timestamp when a PAID
+   * repurchase's ship arrives. Set at payment by tryRepurchase when
+   * the price was > 0 — the seat stays shipless until the frame
+   * clock reaches it, then the loop spawns the frame. Absent while
+   * no paid buy-back is pending; the FREE floor (price 0) never
+   * sets it — broke players spawn at once. */
+  respawnAt?: number;
+  /** The full death-tax wait stamped at payment (ms), alongside
+   * respawnAt: the overlay's countdown total. Guests read the pair
+   * off snapshots (their own clock is not the host's loop clock, so
+   * the total + first-sight is their countdown basis). */
+  respawnWaitMs?: number;
+  /** Total time this seat has SURVIVED this match (ms, loop clock),
+   * accrued per frame while it has a ship and is not eliminated;
+   * never reset by death — survival is banked across lives. Read
+   * only by the death tax: each full SURVIVAL_MS_PER_TAX_STEP of it
+   * forgives one death-step of the respawn wait's growth (Adam,
+   * 2026-10-21: the tax decays through honest play). */
+  survivalMs?: number;
   /** A seat is eliminated when its STAR dies (Adam's ruling: ship
    * death is not elimination). */
   eliminated: boolean;

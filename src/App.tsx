@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { GameCanvas } from './components/GameCanvas';
+import { TEAM_COLORS } from './net/protocol';
 import { HUD } from './components/HUD';
 import { ResultsOverlay } from './components/ResultsOverlay';
 import { MobileControls } from './components/MobileControls';
@@ -41,6 +42,19 @@ export default function App() {
   // game; when a room's phase leaves 'lobby' the game screen takes
   // over, and the session also rides NetSessionContext to the shell.
   const net = useNetClient();
+  // NAMEPLATE bridge (Adam, 2026-10-21): in a net room, every seat's
+  // issued callsign + team color, keyed by the seat-scoped ownerId
+  // the sim stamps on its ships. The canvas joins on that id — the
+  // sim's seat state carries no callsign, by contract. Solo: no room,
+  // no labels, no plates.
+  const seatLabels = useMemo(() => {
+    if (!net.room) return undefined;
+    const map: Record<string, { callsign: string; color: string }> = {};
+    for (const s of net.room.seats) {
+      map[s.ownerId] = { callsign: s.occupant.callsign, color: TEAM_COLORS[s.teamId] };
+    }
+    return map;
+  }, [net.room]);
 
   const {
     state,
@@ -79,10 +93,23 @@ export default function App() {
   // quoted price is the sim's own function; the host validates.
   const localOwnerId = net.mySeat?.ownerId ?? state.ship.ownerId;
   const localSeat = state.seats.find(seat => seat.ownerId === localOwnerId);
+  // DEATH TAX display feed (Adam, 2026-10-21): the seat's redeploy
+  // deadline (BackGround's death-tax sim, seat.respawnAt — landed
+  // 33570ec; the wait is respawnWaitMsFor in sim/deathEconomy.ts).
+  const localRespawnAt = localSeat
+    ? ((localSeat as unknown as { respawnAt?: number }).respawnAt ?? null)
+    : null;
   const localSeatDead = !!(
     net.room && net.room.phase === 'live' && !net.matchEnded &&
     localSeat && localSeat.ship === null && localSeat.deaths > 0
   );
+  // Repurchase dismissal (Adam, 2026-10-21): the dead player may
+  // dismiss the buy-back panel to watch the field; a persistent pill
+  // (below) is the way back for as long as the seat is dead, and a
+  // NEW death reopens the panel outright.
+  const [repurchaseDismissed, setRepurchaseDismissed] = useState(false);
+  const localDeaths = localSeat?.deaths ?? 0;
+  useEffect(() => { setRepurchaseDismissed(false); }, [localDeaths]);
   const urlRoomCode = React.useMemo(
     () => new URLSearchParams(window.location.search).get('room') || '',
     []
@@ -106,18 +133,33 @@ export default function App() {
       {!lobbyOpen && (
         <button
           onClick={() => setLobbyOpen(true)}
-          className="fixed top-2 left-1/2 -translate-x-1/2 z-[95] px-3 py-1.5 rounded-full bg-zinc-900/90 border border-[#33ff33]/60 text-[#33ff33] text-[10px] font-mono font-bold tracking-widest shadow-[0_0_10px_rgba(51,255,51,0.25)] active:scale-95 touch-manipulation"
+          className="fixed top-2 left-1/2 -translate-x-1/2 z-[95] px-3 py-1.5 rounded-full bg-zinc-900/70 border border-[#33ff33]/60 text-[#33ff33] text-[10px] font-mono font-bold tracking-widest shadow-[0_0_10px_rgba(51,255,51,0.25)] active:scale-95 touch-manipulation"
         >
           {net.room ? `🌐 ROOM ${net.room.code} — LOBBY` : '🌐 MULTIPLAYER'}
         </button>
       )}
-      {localSeatDead && localSeat && (
+      {localSeatDead && localSeat && !repurchaseDismissed && (
         <RepurchaseOverlay
           deaths={localSeat.deaths}
           bankedScrap={localSeat.bankedScrap}
           price={repurchasePriceFor(localSeat.bankedScrap, localSeat.deaths)}
           onRepurchase={() => repurchaseShip(localSeat.ownerId)}
+          onLeaveMatch={() => { net.leaveRoom(); setLobbyOpen(false); }}
+          onForfeitMatch={() => { net.forfeitRoom(); setLobbyOpen(false); }}
+          onDismiss={() => setRepurchaseDismissed(true)}
+          respawnAt={localRespawnAt}
         />
+      )}
+      {localSeatDead && localSeat && repurchaseDismissed && (
+        <button
+          type="button"
+          onClick={() => setRepurchaseDismissed(false)}
+          className="fixed bottom-[150px] sm:bottom-[122px] left-1/2 -translate-x-1/2 z-[90] px-4 py-2.5 rounded-full bg-zinc-950/85 border-2 border-red-500 text-red-400 font-mono text-[11px] font-bold tracking-widest shadow-[0_0_16px_rgba(239,68,68,0.4)] animate-pulse active:scale-95 touch-manipulation"
+        >
+          {localRespawnAt && localRespawnAt > performance.now()
+            ? `☠ INSURANCE PAID — REDEPLOY IN ${Math.floor(Math.max(0, Math.ceil((localRespawnAt - performance.now()) / 1000)) / 60)}:${String(Math.max(0, Math.ceil((localRespawnAt - performance.now()) / 1000)) % 60).padStart(2, '0')}`
+            : `☠ YOU ARE DEAD — REPURCHASE ${repurchasePriceFor(localSeat.bankedScrap, localSeat.deaths) === 0 ? 'FREE' : `${repurchasePriceFor(localSeat.bankedScrap, localSeat.deaths)}U`}`}
+        </button>
       )}
       {lobbyOpen && (
         <LobbyScreen
@@ -140,6 +182,8 @@ export default function App() {
             onStart: net.startMatch,
             onSetTeam: net.setTeam,
             onLeave: () => { net.leaveRoom(); setLobbyOpen(false); },
+            onForfeit: () => { net.forfeitRoom(); setLobbyOpen(false); },
+            onClose: () => setLobbyOpen(false),
           }}
         />
       )}
@@ -165,6 +209,8 @@ export default function App() {
         maxShipHealth={state.ship.maxHealth}
         enemyIntegrity={state.enemyStar.integrity}
         enemyTotalInfused={state.enemyStar.totalScrapInfused}
+        myTeamId={net.room ? (net.mySeat?.teamId ?? null) : null}
+        enemyTeamId={net.room ? (state.seats.find(seat => seat.ownerId === state.enemyStar.ownerId)?.teamId ?? null) : null}
         isShopOpen={state.isShopOpen}
         shipPos={state.ship.pos}
         starPos={state.star.pos}
@@ -232,7 +278,7 @@ export default function App() {
         <div className="absolute inset-0 z-0">
           <div className="w-full h-full relative bg-[#050505]">
             <div className="absolute inset-0 grid-bg opacity-20 pointer-events-none" />
-            <GameCanvas state={state} width={dimensions.width} height={dimensions.height} />
+            <GameCanvas state={state} width={dimensions.width} height={dimensions.height} seatLabels={seatLabels} />
           </div>
         </div>
 

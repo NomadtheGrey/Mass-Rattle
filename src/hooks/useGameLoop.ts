@@ -26,7 +26,7 @@ import { stepMines, stepProjectiles } from '../sim/projectiles';
 import { stepCme } from '../sim/cme';
 import { computeStandings } from '../sim/standings';
 import { areHostile, areTeammates } from '../sim/teams';
-import { applyDeathLoss, botRepurchaseDue, tryRepurchase } from '../sim/deathEconomy';
+import { applyDeathLoss, botRepurchaseDue, completeRespawn, respawnDue, tryRepurchase } from '../sim/deathEconomy';
 import { appendEventRecords, EventFeedEntry } from '../sim/eventFeed';
 import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, applyDeliveryHeal } from '../starDefense';
 import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, thornDamageFor, aegisAbsorbFor } from '../loadout';
@@ -575,7 +575,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       const idx = prev.seats.findIndex(s => s.ownerId === ownerId);
       if (idx < 0) return prev;
       const seat: SeatSimState = { ...prev.seats[idx] };
-      const bought = tryRepurchase(seat);
+      const bought = tryRepurchase(seat, performance.now());
       if (!bought) return prev;
       const seats = prev.seats.map((s, i) => (i === idx ? seat : s));
       const eventFeed = appendEventRecords(prev.eventFeed, [
@@ -598,7 +598,11 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           ...prev,
           seats,
           eventFeed,
-          ship: bought.ship,
+          // A PAID buy-back serves its death-tax wait first: the
+          // seat record carries the pending arrival and the top
+          // level keeps the wreck stand-in until the frame lands.
+          // The free floor's ship arrives in bought.ship at once.
+          ship: bought.ship ?? prev.ship,
           bankedScrap: seat.bankedScrap,
         };
       }
@@ -902,7 +906,18 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
 
   useEffect(() => {
     let frameId: number;
+    let prevFrameTime: number | null = null;
     const loop = (time: number) => {
+      // Frame delta for the survival ledger (death-tax decay).
+      // Clamped: a hidden tab or a long hitch must not bank
+      // survival the player never lived. Guests return early
+      // below — their seats' ledgers accrue on the HOST and ride
+      // the snapshots, like every other seat fact.
+      const frameDtMs =
+        prevFrameTime === null
+          ? 0
+          : Math.min(250, Math.max(0, time - prevFrameTime));
+      prevFrameTime = time;
       // NET MODE GATES (P2-3b). Solo (no room): both gates are inert
       // and the frame below runs exactly as shipped.
       const frameSession = netRef.current;
@@ -1847,9 +1862,26 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         // repurchaseShip callback, below). Runs before the bot
         // drivers so a bought-back ship flies this same frame.
         if (!prev.matchEnd) {
+          // SURVIVAL LEDGER (death-tax decay, Adam, 2026-10-21):
+          // time alive banks on the seat and never resets — each
+          // full minute forgives one death-step of the respawn
+          // wait's growth (deathEconomy). Dead, waiting, and
+          // eliminated seats accrue nothing: the ship is the proof
+          // of life.
+          for (const seat of simSeats) {
+            if (seat.ship && !seat.eliminated) {
+              seat.survivalMs = (seat.survivalMs ?? 0) + frameDtMs;
+            }
+          }
+          // DEATH-TAX ARRIVALS (Adam, 2026-10-21): a paid buy-back's
+          // frame lands when its respawn wait elapses. Payment was
+          // recorded at purchase; arrival itself is silent.
+          for (const seat of simSeats) {
+            if (respawnDue(seat, time)) completeRespawn(seat);
+          }
           for (const seat of simSeats) {
             if (!botRepurchaseDue(seat, time)) continue;
-            const bought = tryRepurchase(seat);
+            const bought = tryRepurchase(seat, time);
             if (bought) {
               feedEntries.push({
                 type: 'repurchase',

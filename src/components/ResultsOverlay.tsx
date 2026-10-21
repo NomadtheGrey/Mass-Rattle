@@ -28,7 +28,7 @@ export const ResultsOverlay: React.FC<ResultsOverlayProps> = ({
         <motion.div
           initial={{ scale: 0.8, opacity: 0, y: 20 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}
-          className={`w-full max-w-md p-8 border-4 relative overflow-hidden bg-zinc-950 shadow-[0_0_100px_rgba(0,0,0,0.5)] ${
+          className={`w-full max-w-md p-8 border-4 relative overflow-hidden bg-zinc-950/85 shadow-[0_0_100px_rgba(0,0,0,0.5)] ${
             isVictory ? 'border-[#33ff33] shadow-[#33ff33]/20' : 'border-red-600 shadow-red-600/20'
           }`}
         >

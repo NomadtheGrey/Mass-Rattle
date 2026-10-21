@@ -153,7 +153,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
               triggerHaptic(10);
               onToggleRadar();
             }}
-            className="pitted-metal px-2.5 py-1.5 flex items-center gap-1.5 text-[#33ff33] text-[10px] font-mono border border-zinc-700 bg-zinc-900/90 active:scale-95 transition-transform shadow-md rounded"
+            className="pitted-metal px-2.5 py-1.5 flex items-center gap-1.5 text-[#33ff33] text-[10px] font-mono border border-zinc-700 bg-zinc-900/70 active:scale-95 transition-transform shadow-md rounded"
             title="Toggle Tactical Radar"
           >
             <Navigation size={12} className="text-orange-400" />
@@ -165,7 +165,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
               triggerHaptic(10);
               onToggleGauges();
             }}
-            className="pitted-metal px-2.5 py-1.5 flex items-center gap-1.5 text-[#33ff33] text-[10px] font-mono border border-zinc-700 bg-zinc-900/90 active:scale-95 transition-transform shadow-md rounded"
+            className="pitted-metal px-2.5 py-1.5 flex items-center gap-1.5 text-[#33ff33] text-[10px] font-mono border border-zinc-700 bg-zinc-900/70 active:scale-95 transition-transform shadow-md rounded"
             title="Toggle Analog/Digital Gauges"
           >
             <Gauge size={12} className="text-cyan-400" />
@@ -177,7 +177,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
               triggerHaptic(10);
               setShowHelp(prev => !prev);
             }}
-            className={`pitted-metal px-2.5 py-1.5 flex items-center gap-1.5 text-[10px] font-mono border bg-zinc-900/90 active:scale-95 transition-transform shadow-md rounded ${showHelp ? 'text-white border-[#33ff33]' : 'text-[#33ff33] border-zinc-700'}`}
+            className={`pitted-metal px-2.5 py-1.5 flex items-center gap-1.5 text-[10px] font-mono border bg-zinc-900/70 active:scale-95 transition-transform shadow-md rounded ${showHelp ? 'text-white border-[#33ff33]' : 'text-[#33ff33] border-zinc-700'}`}
             title="Touch controls legend"
           >
             <Info size={12} className="text-amber-400" />
@@ -202,7 +202,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
           the tiles as they actually behave now (contextual included):
           if a tile is not on screen, it is not usable right now. */}
       {showHelp && (
-        <div className="mx-1 mb-2 pitted-metal border border-zinc-700 bg-zinc-950/95 rounded p-3 pointer-events-auto shadow-2xl">
+        <div className="mx-1 mb-2 pitted-metal border border-zinc-700 bg-zinc-950/85 rounded p-3 pointer-events-auto shadow-2xl">
           <div className="text-[8px] font-mono font-bold tracking-[0.25em] text-zinc-500 mb-1.5">TOUCH CONTROLS</div>
           <div className="flex flex-col gap-1">
             {[
@@ -241,7 +241,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                 onPointerUp={handlePointerUp}
                 onPointerCancel={handlePointerUp}
                 className={`w-28 h-28 rounded-full border-2 border-zinc-700/80 bg-zinc-950/80 backdrop-blur-md relative flex items-center justify-center shadow-[0_0_20px_rgba(0,0,0,0.8)] touch-none select-none transition-colors ${
-                  stickActive ? 'border-[#33ff33]/80 bg-zinc-900/90 shadow-[0_0_25px_rgba(51,255,51,0.2)]' : ''
+                  stickActive ? 'border-[#33ff33]/80 bg-zinc-900/70 shadow-[0_0_25px_rgba(51,255,51,0.2)]' : ''
                 }`}
               >
                 {/* Crosshairs */}

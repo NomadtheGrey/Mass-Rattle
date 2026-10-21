@@ -4,6 +4,7 @@ import {
   CUE_GLYPHS, ERROR_LABELS, SEAT_CONNECTION_LABELS,
   TeamId, TEAM_ORDER, TEAM_COLORS, TEAM_LABELS, seatTeam,
 } from './lobbyTypes';
+import { generateUniqueRoomName } from '../../net/roomNames';
 
 /**
  * Lobby front end (UI lane, Phase 2) — built against the frozen wire
@@ -21,7 +22,13 @@ export interface LobbyCallbacks {
   onCreate: (name: string, starCount: 2 | 3 | 4, isPrivate: boolean, callsign: string) => void;
   onJoin: (code: string, callsign: string) => void;
   onStart: () => void;
+  /** STEP AWAY: plain leave — the seat parks in grace, a bot flies
+   *  it, reclaimable all match. */
   onLeave: () => void;
+  /** FORFEIT: the seat is released for good (no hold, no reclaim). */
+  onForfeit: () => void;
+  /** Close the modal WITHOUT leaving (entry view: nothing to leave). */
+  onClose: () => void;
   onSetTeam: (teamId: TeamId) => void;
 }
 
@@ -135,8 +142,87 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   const [isPrivate, setIsPrivate] = React.useState(false);
   const [joinCode, setJoinCode] = React.useState(initialCode.toUpperCase().slice(0, 6));
 
+  // DICE POLITENESS (Adam, 2026-10-21: no duplicate names in the
+  // lobby): the entry screen keeps a best-effort set of the names
+  // live rooms already wear (one GET on mount, refreshed when stale)
+  // and the dice rolls against it with the server's OWN uniqueness
+  // generator — a rolled name won't knowingly duplicate a listed
+  // room. Politeness, not the guarantee: private rooms aren't
+  // listed and rooms born after the fetch aren't in the set; the
+  // server's create-time enforcement (name_taken) is the law.
+  const [liveNames, setLiveNames] = React.useState<ReadonlySet<string>>(new Set());
+  const liveNamesFetchedAt = React.useRef(0);
+  const refreshLiveNames = React.useCallback(() => {
+    liveNamesFetchedAt.current = Date.now();
+    fetch('/api/rooms')
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = (await res.json()) as { rooms?: { name?: string }[] };
+        setLiveNames(new Set(
+          (data.rooms || [])
+            .map(r => (typeof r.name === 'string' ? r.name.toLowerCase() : ''))
+            .filter(Boolean),
+        ));
+      })
+      .catch(() => { /* politeness degrades silently; the server enforces */ });
+  }, []);
+  React.useEffect(() => { refreshLiveNames(); }, [refreshLiveNames]);
+  const rollName = React.useCallback(() => {
+    if (Date.now() - liveNamesFetchedAt.current > 20000) refreshLiveNames();
+    const suffix = Math.random().toString(36).slice(2, 5).toUpperCase();
+    setRoomName(generateUniqueRoomName(liveNames, suffix));
+  }, [liveNames, refreshLiveNames]);
+
   const busy = clientState.connection === 'connecting';
   const callsignOk = callsign.trim().length > 0;
+
+  // THE EXIT (Adam, 2026-10-21: 'We don't have a way to exit the
+  // multiplayer screen'). Closing is honest about where you are: in
+  // the entry view it just closes the modal; SEATED in a room, the
+  // same gesture LEAVES the room (the existing onLeave path) — so the
+  // room view's button says LEAVE, not a bare X that would strand
+  // nobody but tell nobody either. ESC and the X key close too. The
+  // listener is CAPTURE-phase with stopPropagation: the lobby is a
+  // pre-game context, and neither key may fall through to the in-game
+  // handlers behind it (ESC would open the FIELD MANUAL; X is the
+  // decoy key). The X key yields while typing in a field — callsigns
+  // contain Xs.
+  const seated = room !== null;
+  const handleClose = React.useCallback(() => {
+    if (seated) callbacks.onLeave();
+    else callbacks.onClose();
+  }, [seated, callbacks]);
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        handleClose();
+        return;
+      }
+      if ((e.key === 'x' || e.key === 'X') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const t = e.target as HTMLElement | null;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [handleClose]);
+  const closeButton = (
+    <button
+      type="button"
+      onClick={handleClose}
+      title={seated ? 'Leave the room and close' : 'Close'}
+      aria-label={seated ? 'Leave the room and close' : 'Close multiplayer'}
+      className="fixed top-3 right-3 z-[110] min-w-11 h-11 px-2 rounded bg-zinc-900/85 border border-zinc-600 text-zinc-200 font-mono font-bold text-sm flex items-center justify-center gap-1.5 touch-manipulation active:scale-95 hover:border-red-400 hover:text-white shadow-lg"
+    >
+      <span aria-hidden="true">✕</span>
+      {seated && <span className="text-[9px] tracking-widest text-zinc-400">STEP AWAY</span>}
+    </button>
+  );
 
   const errorBanner = clientState.lastError && (
     <div className="hud-panel px-3 py-2 rounded border-2 border-red-500 bg-red-950/40 text-center">
@@ -149,7 +235,8 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
     const iAmHost = myPlayerId !== null && room.hostPlayerId === myPlayerId;
     const mySeat = room.seats.find(seat => seat.occupant.playerId !== null && seat.occupant.playerId === myPlayerId) ?? null;
     return (
-      <div className="fixed inset-0 z-[100] overflow-y-auto bg-zinc-950 text-[#33ff33] flex justify-center p-3 sm:p-6">
+      <div className="fixed inset-0 z-[100] overflow-y-auto bg-zinc-950/90 text-[#33ff33] flex justify-center p-3 sm:p-6">
+      {closeButton}
         <div className="w-full max-w-md md:max-w-3xl flex gap-4 items-start">
         {/* Left margin: field notes (desktop); phones get the same
             block inline below — nothing shrunk away. */}
@@ -245,12 +332,23 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             </div>
           )}
 
-          <button
-            onClick={callbacks.onLeave}
-            className="w-full py-2 text-[11px] font-mono text-zinc-500 hover:text-red-400 tracking-widest touch-manipulation"
-          >
-            [ LEAVE ROOM ]
-          </button>
+          <p className="text-[9px] font-mono text-zinc-600 leading-snug px-1">
+            STEP AWAY keeps your seat — a bot flies it and you can reclaim it any time this match. FORFEIT releases it for good.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={callbacks.onLeave}
+              className="flex-1 py-2 text-[11px] font-mono text-zinc-400 hover:text-zinc-100 border border-zinc-800 rounded tracking-widest touch-manipulation"
+            >
+              [ STEP AWAY ]
+            </button>
+            <button
+              onClick={callbacks.onForfeit}
+              className="flex-1 py-2 text-[11px] font-mono text-zinc-500 hover:text-red-400 border border-zinc-800 rounded tracking-widest touch-manipulation"
+            >
+              [ FORFEIT ]
+            </button>
+          </div>
         </div>
         </div>
       </div>
@@ -259,7 +357,8 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
 
   /* ------------------------------ ENTRY VIEW ----------------------------- */
   return (
-    <div className="fixed inset-0 z-[100] overflow-y-auto bg-zinc-950 text-[#33ff33] flex justify-center p-3 sm:p-6">
+    <div className="fixed inset-0 z-[100] overflow-y-auto bg-zinc-950/90 text-[#33ff33] flex justify-center p-3 sm:p-6">
+      {closeButton}
       <div className="w-full max-w-md flex flex-col gap-4">
         <div className="text-center mt-2">
           <h1 className="text-3xl font-black tracking-tighter italic text-zinc-50">MASS RATTLE</h1>
@@ -292,13 +391,24 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
 
         <div className="hud-panel p-3 sm:p-4 rounded border-2 border-zinc-800 flex flex-col gap-3">
           <div className="text-[10px] font-mono font-bold tracking-[0.25em] text-zinc-400">CREATE A ROOM</div>
-          <input
-            value={roomName}
-            onChange={e => setRoomName(e.target.value)}
-            maxLength={24}
-            placeholder="ROOM NAME (OPTIONAL)"
-            className="rounded px-3 py-2 bg-zinc-900 border border-zinc-700 font-mono text-sm text-zinc-50 placeholder:text-zinc-600 outline-none focus:border-[#33ff33]"
-          />
+          <div className="flex gap-1.5">
+            <input
+              value={roomName}
+              onChange={e => setRoomName(e.target.value)}
+              maxLength={24}
+              placeholder="ROOM NAME (OPTIONAL)"
+              className="flex-1 min-w-0 rounded px-3 py-2 bg-zinc-900 border border-zinc-700 font-mono text-sm text-zinc-50 placeholder:text-zinc-600 outline-none focus:border-[#33ff33]"
+            />
+            <button
+              type="button"
+              onClick={rollName}
+              title="Roll a random name"
+              aria-label="Roll a random room name"
+              className="w-11 shrink-0 rounded bg-zinc-900 border border-zinc-700 text-lg touch-manipulation active:scale-95 hover:border-[#33ff33]"
+            >
+              🎲
+            </button>
+          </div>
           <div>
             <div className="text-[9px] font-mono tracking-[0.25em] text-zinc-500 mb-1.5">STARS IN THE ARENA</div>
             <div className="flex gap-1.5">

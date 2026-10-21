@@ -193,7 +193,7 @@ export const consumeRepurchaseIntent = (
   at: number,
 ): GuestRepurchase | null => {
   if (!hasRepurchaseIntent(payload)) return null;
-  const bought = tryRepurchase(seat);
+  const bought = tryRepurchase(seat, at);
   if (!bought) return null;
   return {
     cost: bought.cost,

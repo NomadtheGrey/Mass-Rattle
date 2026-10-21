@@ -4,7 +4,8 @@ import { PHYSICS } from '../constants';
 import { milestonesForInfused, progressIntoNextMilestone, nextMilestoneCost, cumulativeCostForMilestones } from '../starGrowth';
 import { stageStateForInfused, type StarStageState } from '../sim/starStages';
 import type { StarStage } from '../net/protocol';
-import { STAGE_LABELS } from './lobby/lobbyTypes';
+import { STAGE_LABELS, TEAM_LABELS, TEAM_COLORS } from './lobby/lobbyTypes';
+import type { TeamId } from '../net/protocol';
 import { MechanicsGuide } from './MechanicsGuide';
 import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor } from '../loadout';
 import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
@@ -108,6 +109,12 @@ interface HUDProps {
   shipHealth: number;
   maxShipHealth: number;
   enemyIntegrity: number;
+  /** The viewer's own team + the tracked enemy's team (Adam, 2026-10-21:
+   * 'we'll need the team name on screen someplace also'). App passes
+   * null outside a net room — solo has no teams worth naming, and the
+   * fields simply don't render. */
+  myTeamId?: TeamId | null;
+  enemyTeamId?: TeamId | null;
   enemyTotalInfused?: number;
   isShopOpen: boolean;
   useAnalogGauges: boolean;
@@ -164,6 +171,8 @@ export const HUD: React.FC<HUDProps> = ({
   shipHealth,
   maxShipHealth,
   enemyIntegrity,
+  myTeamId = null,
+  enemyTeamId = null,
   enemyTotalInfused = 0,
   isShopOpen,
   useAnalogGauges,
@@ -278,27 +287,52 @@ export const HUD: React.FC<HUDProps> = ({
 
   const radarActive = isMobileRadarOpen || localRadarOpen;
 
-  // ESC stack (Adam, 2026-10-20 + 2026-10-21): Escape closes the
-  // topmost open dialog first — SYSCFG, workshop, radar, then the
-  // mechanics guide — and with NOTHING open, Escape OPENS the guide.
-  // The results screen is deliberately NOT in this chain — it is the
-  // match end, and its exit is the restart button, not a dismissal.
+  // THE MODAL RULE (Adam, 2026-10-20 + 2026-10-21): every modal popup
+  // exits three ways — its corner [X] button, the X key, and ESC —
+  // and one press closes the TOPMOST modal only (SYSCFG, workshop,
+  // radar, then the mechanics guide). Closing lives in ONE capture-
+  // phase listener: it fires before the game loop's own key handling,
+  // and stopPropagation seals the key there, so an X pressed over a
+  // modal can no longer leak through and deploy a decoy behind it,
+  // and an ESC cannot fall through to anything else. The results
+  // screen is deliberately NOT in this chain — it is the match end,
+  // a state rather than a popup, and its exit is the restart button.
+  const anyModalOpen = showSysCfg || isShopOpen || radarActive || showGuide;
+  const closeTopmost = React.useCallback(() => {
+    if (showSysCfg) { setShowSysCfg(false); return; }
+    if (isShopOpen && onCloseShop) { onCloseShop(); return; }
+    if (radarActive) {
+      if (onToggleMobileRadar) onToggleMobileRadar();
+      setLocalRadarOpen(false);
+      return;
+    }
+    if (showGuide) { setShowGuide(false); }
+  }, [showSysCfg, isShopOpen, onCloseShop, radarActive, onToggleMobileRadar, showGuide]);
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if (showSysCfg) { setShowSysCfg(false); return; }
-      if (isShopOpen && onCloseShop) { onCloseShop(); return; }
-      if (radarActive) {
-        if (onToggleMobileRadar) onToggleMobileRadar();
-        setLocalRadarOpen(false);
-        return;
-      }
-      if (showGuide) { setShowGuide(false); return; }
+      const isEsc = e.key === 'Escape';
+      const isX = (e.key === 'x' || e.key === 'X') && !e.metaKey && !e.ctrlKey && !e.altKey;
+      if (!anyModalOpen || (!isEsc && !isX)) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      closeTopmost();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [anyModalOpen, closeTopmost]);
+  // ESC with NOTHING open opens the guide — the guide's door, kept
+  // from the original stack. (Closes never reach this listener: the
+  // capture handler above has already consumed them.)
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || anyModalOpen) return;
       setShowGuide(true);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [showSysCfg, isShopOpen, onCloseShop, radarActive, onToggleMobileRadar, showGuide]);
+  }, [anyModalOpen]);
 
   // CONTROLS CARD rows (desktop, bottom-left of the play area): the whole
   // key set in one readable place. Contextual like the rest of the HUD —
@@ -436,11 +470,14 @@ export const HUD: React.FC<HUDProps> = ({
     <div className={`fixed inset-0 pointer-events-none z-50 flex flex-col md:flex-row p-2 sm:p-4 md:p-6 gap-2 md:gap-4 ${glitch ? 'animate-pulse' : ''} text-[#33ff33]`}>
       
       {/* MOBILE TOP STATUS RIBBON (Cellphones: iPhone & Android) */}
-      <header className="flex md:hidden w-full flex-col gap-1 pointer-events-auto bg-zinc-950/85 backdrop-blur-md p-2 rounded border-2 border-zinc-800 shadow-xl select-none">
+      <header className="flex md:hidden w-full flex-col gap-1 pointer-events-auto bg-zinc-950/60 backdrop-blur-md p-2 rounded border-2 border-zinc-800 shadow-xl select-none">
         {/* Top Row: Stars & Bank */}
         <div className="flex items-center justify-between text-[9px] font-mono leading-none">
           <div className="flex items-center gap-2">
             <span className="font-bold" style={{ color: stageColor }}>{STAGE_LABELS[stageState.stage]}</span>
+            {myTeamId && (
+              <span className="font-bold" style={{ color: TEAM_COLORS[myTeamId] }}>TEAM {TEAM_LABELS[myTeamId]}</span>
+            )}
             <span className="text-orange-500 font-bold">M{starLevel} · {growthProgress}/{growthCost}</span>
             <span className="text-zinc-600">|</span>
             <span className="text-red-500 font-bold">ENEMY INT {Math.floor(enemyIntegrity * 100)}%</span>
@@ -510,7 +547,7 @@ export const HUD: React.FC<HUDProps> = ({
       {/* MOBILE RADAR MODAL / POPOVER */}
       {radarActive && (
         <div className="md:hidden fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm pointer-events-auto">
-          <div className="hud-panel p-4 border-4 rounded-xl flex flex-col items-center gap-3 bg-zinc-950 shadow-2xl">
+          <div className="hud-panel p-4 border-4 rounded-xl flex flex-col items-center gap-3 bg-zinc-950/75 shadow-2xl">
             <div className="flex justify-between items-center w-full border-b border-zinc-800 pb-2">
               <span className="text-xs font-mono font-bold text-orange-400 uppercase tracking-widest">TACTICAL RADAR</span>
               <button 
@@ -518,7 +555,7 @@ export const HUD: React.FC<HUDProps> = ({
                   if (onToggleMobileRadar) onToggleMobileRadar();
                   setLocalRadarOpen(false);
                 }}
-                className="text-red-500 hover:text-white text-xs font-mono px-2 py-0.5 bg-zinc-900 border border-red-900 rounded"
+                className="text-red-500 hover:text-white text-xs font-mono px-2.5 py-1.5 bg-zinc-900 border border-red-900 rounded touch-manipulation"
               >
                 [X] CLOSE
               </button>
@@ -553,6 +590,12 @@ export const HUD: React.FC<HUDProps> = ({
             </div>
 
             <div className="border border-zinc-800 rounded p-2 bg-zinc-950/60">
+              {myTeamId && (
+                <div className="flex justify-between text-[10px] mb-1">
+                  <span className="text-zinc-500">TEAM</span>
+                  <span className="font-bold" style={{ color: TEAM_COLORS[myTeamId] }}>{TEAM_LABELS[myTeamId]}</span>
+                </div>
+              )}
               <div className="flex justify-between text-[10px] mb-1">
                 <span className="text-zinc-400 tracking-wider">STAR LIFECYCLE</span>
                 <span className="font-bold" style={{ color: stageColor }}>{STAGE_LABELS[stageState.stage]}</span>
@@ -589,6 +632,12 @@ export const HUD: React.FC<HUDProps> = ({
             </div>
             
             <div className="border border-red-950 rounded p-2 bg-zinc-950/60">
+              {enemyTeamId && (
+                <div className="flex justify-between text-[10px] mb-1">
+                  <span className="text-zinc-500">TEAM</span>
+                  <span className="font-bold" style={{ color: TEAM_COLORS[enemyTeamId] }}>{TEAM_LABELS[enemyTeamId]}</span>
+                </div>
+              )}
               <div className="flex justify-between text-[10px] mb-1">
                 <span className="text-zinc-400 tracking-wider">ENEMY LIFECYCLE</span>
                 <span className="font-bold" style={{ color: enemyField.color }}>{STAGE_LABELS[enemyField.state.stage]}</span>
@@ -669,7 +718,7 @@ export const HUD: React.FC<HUDProps> = ({
               Replaces the stale 20%-opacity help footer that lived in
               App.tsx and never learned FIRE [F] or DECOY [X]. */}
           <div className="absolute bottom-0 left-0 pointer-events-auto">
-            <div className="hud-panel border-2 bg-zinc-950/90 shadow-2xl px-3 py-2 min-w-[176px]">
+            <div className="hud-panel border-2 bg-zinc-950/55 shadow-2xl px-3 py-2 min-w-[176px]">
               <div className="text-[8px] font-mono font-bold tracking-[0.25em] text-zinc-500 mb-1.5">SHIP CONTROLS</div>
               <div className="flex flex-col gap-1">
                 {controlRows.map(row => (
@@ -684,7 +733,7 @@ export const HUD: React.FC<HUDProps> = ({
 
           {/* Utility Cluster */}
           <div className="absolute bottom-0 right-0 w-24 flex flex-col gap-2 items-end">
-            <div className="hud-panel w-16 p-2 flex flex-col items-center gap-4 border-2 bg-zinc-950/90 shadow-2xl pointer-events-auto">
+            <div className="hud-panel w-16 p-2 flex flex-col items-center gap-4 border-2 bg-zinc-950/55 shadow-2xl pointer-events-auto">
               {/* Fuel state — a READOUT, not a button (audit, 2026-10-20):
                   reads the real fuel prop. Its old neighbours — inert
                   JETTISON / FIRE / VAC squares dressed as buttons and
@@ -705,7 +754,7 @@ export const HUD: React.FC<HUDProps> = ({
                 GUIDE
               </button>
             </div>
-            <div className="hud-panel w-20 p-2 border-2 bg-zinc-950/90 flex flex-col items-center justify-center gap-1">
+            <div className="hud-panel w-20 p-2 border-2 bg-zinc-950/55 flex flex-col items-center justify-center gap-1">
               <div className="text-[7px] text-zinc-600 uppercase whitespace-nowrap">S/N: 88-X9-R</div>
               <div className="text-[8px] opacity-30">v2.4.0</div>
             </div>
@@ -936,12 +985,15 @@ export const HUD: React.FC<HUDProps> = ({
           FEED it to the star, BANK it, or open the WORKSHOP. The row
           appears the moment the ship enters the star's influence and is
           gone when it leaves — no permanent clutter, no buried menus.
+          PLACEMENT (Adam, 2026-10-21): in the play area just above the
+          ship (the camera keeps the ship near screen-center), clear of
+          the hull and its flight line — not over the bottom UI.
           pointer-events-auto on the container is LOAD-BEARING: the HUD
           root is pointer-events-none, so without it the pills render and
           glow but clicks pass through to the canvas (Adam's bug report,
           2026-10-20). The DECOY pill below needs the same class. */}
       {bankInWell && !isShopOpen && (
-        <div className="fixed bottom-[104px] sm:bottom-[76px] left-1/2 -translate-x-1/2 z-[56] flex gap-2 pointer-events-auto">
+        <div className="fixed top-[38%] left-1/2 -translate-x-1/2 z-[56] flex gap-2 pointer-events-auto">
           <button
             onClick={onFeedCargo}
             disabled={carrying <= 0}
@@ -969,7 +1021,7 @@ export const HUD: React.FC<HUDProps> = ({
           lives outside the well-gated dock pills. Shows only while the
           Decoy Beacon is the equipped defense and none is live. */}
       {loadout.defense === 'decoy_beacon' && !decoyActive && (
-        <div className={`fixed left-1/2 -translate-x-1/2 z-[56] pointer-events-auto ${bankInWell && !isShopOpen ? 'bottom-[146px] sm:bottom-[118px]' : 'bottom-[104px] sm:bottom-[76px]'}`}>
+        <div className="fixed bottom-[104px] sm:bottom-[76px] left-1/2 -translate-x-1/2 z-[56] pointer-events-auto">
           <button
             onClick={onDeployDecoy}
             className="hud-panel px-3 py-1.5 rounded border border-pink-500 font-mono text-[10px] sm:text-[11px] font-bold tracking-wider text-pink-400 shadow-[0_0_10px_rgba(219,39,119,0.35)]"
@@ -979,7 +1031,12 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
       )}
 
-      {/* STATUS STRIP — slim indicators, bottom-center (Adam, 2026-10-20).
+      {/* STATUS STRIP — slim indicators, TOP band (Adam, 2026-10-21:
+          moved up from bottom-center, where it sat over the SHIP
+          ENHANCEMENTS gauges). The top offset clears the MULTIPLAYER
+          chip on desktop and the full mobile ribbon on phones; the
+          CME warning banner layers above it while it flashes. (Origin:
+          Adam, 2026-10-20.)
           The five ship tracks at a glance: level + the live stat the level
           buys, computed from the same formulas the sim uses. Then the
           equipped trio as compact chips. Indicators only — buying lives in
@@ -987,7 +1044,7 @@ export const HUD: React.FC<HUDProps> = ({
           is evicted (the bank lives in the dock row + the BANK tab). When
           ship classes land with per-class caps, each track cell gains
           its /MAX — no denominator is printed until a real cap exists. */}
-      <div className="fixed bottom-24 sm:bottom-5 left-1/2 -translate-x-1/2 z-[55] flex flex-wrap justify-center items-stretch gap-1 max-w-[97vw] pointer-events-none">
+      <div className="fixed top-[148px] md:top-12 left-1/2 -translate-x-1/2 z-[55] flex flex-wrap justify-center items-stretch gap-1 max-w-[97vw] pointer-events-none">
         {[
           { icon: '🚀', name: 'THRUST', lvl: upgrades.thrust, cap: caps.thrust, stat: `SPD ${(PHYSICS.MAX_VELOCITY + upgrades.thrust * 0.5).toFixed(1)}` },
           { icon: '🕹️', name: 'TURN', lvl: upgrades.handling, cap: caps.handling, stat: `${Math.round((PHYSICS.ROTATION_SPEED + upgrades.handling * 0.005) * 60 * 180 / Math.PI)}°/S` },
@@ -1033,7 +1090,7 @@ export const HUD: React.FC<HUDProps> = ({
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="w-full max-w-xl max-h-[90vh] flex flex-col hud-panel p-4 sm:p-6 md:p-8 border-4 relative overflow-hidden bg-zinc-950/95 shadow-[0_0_50px_rgba(51,255,51,0.15)] rounded-lg"
+            className="w-full max-w-xl max-h-[90vh] flex flex-col hud-panel p-4 sm:p-6 md:p-8 border-4 relative overflow-hidden bg-zinc-950/80 shadow-[0_0_50px_rgba(51,255,51,0.15)] rounded-lg"
           >
             <div className="absolute inset-0 bg-gradient-to-br from-[#33ff33]/5 to-transparent pointer-events-none" />
             
@@ -1052,7 +1109,7 @@ export const HUD: React.FC<HUDProps> = ({
                   {onCloseShop && (
                     <button
                       onClick={onCloseShop}
-                      className="pitted-metal px-2.5 py-1 text-red-500 hover:text-white border border-red-900 text-xs font-mono font-bold rounded active:scale-95"
+                      className="pitted-metal px-2.5 py-1.5 text-red-500 hover:text-white border border-red-900 text-xs font-mono font-bold rounded active:scale-95 touch-manipulation"
                     >
                       [X]
                     </button>
@@ -1347,7 +1404,7 @@ export const HUD: React.FC<HUDProps> = ({
                 </div>
                 <button 
                   onClick={() => setShowSysCfg(false)}
-                  className="text-red-500 hover:text-red-400 text-xs font-mono font-bold px-2 py-1 bg-zinc-900 border border-red-900 rounded"
+                  className="text-red-500 hover:text-red-400 text-xs font-mono font-bold px-2.5 py-1.5 bg-zinc-900 border border-red-900 rounded touch-manipulation"
                 >
                   [X] ABORT
                 </button>

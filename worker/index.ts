@@ -23,6 +23,7 @@
  */
 
 import { generateRoomCode, isClientVersionSupported } from './roomLogic';
+import { generateUniqueRoomName } from '../src/net/roomNames';
 import { INDEX_NAME } from './room';
 import type { RoomInitBody } from './room';
 import type {
@@ -54,6 +55,26 @@ async function indexHasRoom(
     new Request(`https://index.internal/metas/${code}`),
   );
   return res.status === 200;
+}
+
+/**
+ * The names of all rooms the index currently tracks (lowercased) —
+ * the uniqueness scope for Adam's no-duplicate-names rule
+ * (2026-10-21): the live lobby. Best-effort by design: if the
+ * index read fails, creates proceed with an empty set rather than
+ * refusing rooms over a nicety (the same availability posture as
+ * the rest of the index's best-effort freshness).
+ */
+async function liveRoomNames(env: Env): Promise<Set<string>> {
+  try {
+    const res = await indexStub(env).fetch(
+      new Request('https://index.internal/metas'),
+    );
+    const data = (await res.json()) as { metas: RoomMeta[] };
+    return new Set(data.metas.map((m) => m.name.toLowerCase()));
+  } catch {
+    return new Set();
+  }
 }
 
 async function roomExists(env: Env, code: string): Promise<boolean> {
@@ -99,11 +120,25 @@ export default {
         }
         const name =
           typeof body.name === 'string' ? body.name.trim() : '';
-        if (!name || name.length > 40) {
+        // The name is OPTIONAL (the lobby labels it so, and Adam's
+        // ruling 2026-10-21 keeps it that way): a blank or missing
+        // name gets a random two-word galactic name generated below.
+        // Only the length cap is enforced here.
+        if (name.length > 40) {
           return Response.json({ error: 'bad_request' }, { status: 400 });
         }
         if (![2, 3, 4].includes(body.starCount)) {
           return Response.json({ error: 'bad_request' }, { status: 400 });
+        }
+
+        // NAME UNIQUENESS (Adam, 2026-10-21): no duplicate names
+        // among live rooms. A player-TYPED name that collides is
+        // refused honestly — the player can pick another or roll
+        // the dice. A blank name is generated below, re-rolled
+        // against this same set until it clears.
+        const liveNames = await liveRoomNames(env);
+        if (name !== '' && liveNames.has(name.toLowerCase())) {
+          return Response.json({ error: 'name_taken' }, { status: 400 });
         }
 
         // Unique code: check the index, backstopped by the RoomDO
@@ -126,7 +161,8 @@ export default {
 
         const seed = Math.floor(Math.random() * 2 ** 31);
         const init: RoomInitBody = {
-          name,
+          name:
+            name === '' ? generateUniqueRoomName(liveNames, code) : name,
           starCount: body.starCount,
           private: body.private ?? false,
           code,

@@ -90,7 +90,15 @@ export interface NetSession {
   guestInputsRef: React.MutableRefObject<Map<string, NetInputPayload>>;
   createRoom: (name: string, starCount: 2 | 3 | 4, isPrivate: boolean, callsign: string) => void;
   joinRoom: (code: string, callsign: string) => void;
+  /** STEP AWAY (Adam, 2026-10-21): closing the socket parks the seat
+   *  in reconnect grace — a bot plays on and the seat stays
+   *  reclaimable all match. This is leaveRoom; grace is what a close
+   *  has always meant server-side, now deliberately choosable. */
   leaveRoom: () => void;
+  /** FORFEIT (Adam, 2026-10-21): sends the forfeit message (full
+   *  release — no grace, no reclaim, no ban) and runs the same local
+   *  teardown as leaveRoom. The rage-quit door. */
+  forfeitRoom: () => void;
   startMatch: () => void;
   kickPlayer: (targetPlayerId: string) => void;
   /** Teams (frozen contract, 2026-10-21): lobby phase, own seat only;
@@ -278,14 +286,45 @@ export function useNetClient(): NetSession {
       body: JSON.stringify(body),
     })
       .then(async (res) => {
-        if (!res.ok) throw new Error(`create failed: ${res.status}`);
+        if (!res.ok) {
+          // ERROR TAXONOMY (Adam's blank-name defect, 2026-10-21): the
+          // server ANSWERED and refused — say so honestly, with its
+          // reason. The connection wording below is reserved for when
+          // no answer ever arrived. A refusal is not a connection.
+          // The shape is PINNED (BackGround, 2026-10-21): {error: code}
+          // is the whole body — no human detail field exists, and if
+          // one ever ships it arrives as an announced contract change.
+          // The copy keys off the code alone; nothing speculative.
+          let code = '';
+          try {
+            const e = (await res.json()) as { error?: string };
+            code = typeof e.error === 'string' ? e.error : '';
+          } catch { /* an unparseable refusal is still a refusal */ }
+          setClientState({ connection: 'idle', lastError: null });
+          if (code === 'version_mismatch') {
+            setNotice('VERSION MISMATCH — REFRESH THE GAME AND TRY AGAIN');
+          } else if (code === 'name_taken') {
+            // Name uniqueness (Adam, 2026-10-21): live room names are
+            // unique — a typed collision is a refusal with a remedy,
+            // not a mystery. The dice sits right beside the field.
+            setNotice('THAT ROOM NAME IS TAKEN — PICK ANOTHER, OR ROLL THE DICE');
+          } else if (code === 'code_unavailable') {
+            // Not a refusal of anything the player did: the server
+            // could not mint a room code (503). Rare enough to be a
+            // curiosity, honest enough to name.
+            setNotice('THE SERVER COULD NOT MINT A ROOM CODE — TRY AGAIN IN A MOMENT');
+          } else {
+            setNotice(`THE SERVER REFUSED THAT ROOM (ERROR ${res.status}) — TRY AGAIN`);
+          }
+          return;
+        }
         const data = (await res.json()) as CreateRoomResponse;
         // Creating != seated: hello through the socket like everyone.
         joinRoom(data.code, callsign);
       })
       .catch(() => {
         setClientState({ connection: 'idle', lastError: null });
-        setNotice('COULD NOT CREATE THE ROOM — CHECK YOUR CONNECTION AND TRY AGAIN');
+        setNotice('COULD NOT REACH THE SERVER — CHECK YOUR CONNECTION AND TRY AGAIN');
       });
   }, [joinRoom]);
 
@@ -305,6 +344,14 @@ export function useNetClient(): NetSession {
     guestInputsRef.current.clear();
     setClientState({ connection: 'idle', lastError: null });
   }, []);
+
+  const forfeitRoom = React.useCallback(() => {
+    // The message rides ahead of the close in the same task — the
+    // server releases the seat on receipt and closes its side too,
+    // so the release never depends on which close lands first.
+    send({ type: 'forfeit' });
+    leaveRoom();
+  }, [send, leaveRoom]);
 
   const startMatch = React.useCallback(() => send({ type: 'start' }), [send]);
   const setTeam = React.useCallback((teamId: TeamId) => {
@@ -337,7 +384,7 @@ export function useNetClient(): NetSession {
     migration, standings, matchEnded, stageByStar,
     reclaimedOwnerId, notice,
     snapshotRef, snapshotVersion, guestInputsRef,
-    createRoom, joinRoom, leaveRoom, startMatch, kickPlayer, setTeam,
+    createRoom, joinRoom, leaveRoom, forfeitRoom, startMatch, kickPlayer, setTeam,
     sendInput, sendSnapshot, sendHostMessage,
   };
 }

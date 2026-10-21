@@ -34,7 +34,7 @@ export const MechanicsGuide: React.FC<{ onClose: () => void }> = ({ onClose }) =
   >
     <div
       onClick={(e: React.MouseEvent) => e.stopPropagation()}
-      className="hud-panel w-full max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6 border-4 bg-zinc-950/95 rounded-lg shadow-[0_0_50px_rgba(51,255,51,0.15)]"
+      className="hud-panel w-full max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6 border-4 bg-zinc-950/80 rounded-lg shadow-[0_0_50px_rgba(51,255,51,0.15)]"
     >
       <div className="flex items-start justify-between mb-4">
         <div>
@@ -43,7 +43,7 @@ export const MechanicsGuide: React.FC<{ onClose: () => void }> = ({ onClose }) =
         </div>
         <button
           onClick={onClose}
-          className="px-2 py-1 rounded border border-zinc-700 text-zinc-300 hover:text-white hover:border-red-500 font-mono text-xs touch-manipulation"
+          className="px-2.5 py-1.5 rounded border border-zinc-700 text-zinc-300 hover:text-white hover:border-red-500 font-mono text-xs touch-manipulation"
           aria-label="Close guide"
         >
           [X]
@@ -84,6 +84,7 @@ export const MechanicsGuide: React.FC<{ onClose: () => void }> = ({ onClose }) =
         <Section title="💀 DEATH & BUY-BACK" tag="MULTIPLAYER">
           <p>Losing your ship costs <span className="text-zinc-100 font-bold">25% of your bank</span>. Buying back a fresh starter frame costs <span className="text-zinc-100 font-bold">20% of what remains</span>, discounted further with each death — and it's <span className="text-zinc-100">free at an empty bank</span>. Your star, your team, and the rest of your bank carry on.</p>
           <p>A <span className="text-zinc-100 font-bold">star's</span> death is different: that seat is <span className="text-zinc-100">eliminated</span>. There is no buy-back from that.</p>
+          <p>A <span className="text-zinc-100 font-bold">paid</span> buy-back also costs <span className="text-zinc-100">time</span> — the death tax: the new frame arrives after a respawn wait (5s, +1s per death, never more than 30s). The free floor never waits.</p>
           <p className="text-zinc-500">Solo: losing your ship ends the run outright — the buy-back is a match rule.</p>
         </Section>
 
