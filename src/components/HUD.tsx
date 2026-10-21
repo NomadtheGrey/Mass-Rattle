@@ -4,7 +4,8 @@ import { PHYSICS } from '../constants';
 import { milestonesForInfused, progressIntoNextMilestone, nextMilestoneCost, cumulativeCostForMilestones } from '../starGrowth';
 import { stageStateForInfused, type StarStageState } from '../sim/starStages';
 import type { StarStage } from '../net/protocol';
-import { STAGE_LABELS } from './lobby/lobbyTypes';
+import { STAGE_LABELS, TEAM_LABELS, TEAM_COLORS } from './lobby/lobbyTypes';
+import type { TeamId } from '../net/protocol';
 import { MechanicsGuide } from './MechanicsGuide';
 import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor } from '../loadout';
 import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
@@ -108,6 +109,12 @@ interface HUDProps {
   shipHealth: number;
   maxShipHealth: number;
   enemyIntegrity: number;
+  /** The viewer's own team + the tracked enemy's team (Adam, 2026-10-21:
+   * 'we'll need the team name on screen someplace also'). App passes
+   * null outside a net room — solo has no teams worth naming, and the
+   * fields simply don't render. */
+  myTeamId?: TeamId | null;
+  enemyTeamId?: TeamId | null;
   enemyTotalInfused?: number;
   isShopOpen: boolean;
   useAnalogGauges: boolean;
@@ -164,6 +171,8 @@ export const HUD: React.FC<HUDProps> = ({
   shipHealth,
   maxShipHealth,
   enemyIntegrity,
+  myTeamId = null,
+  enemyTeamId = null,
   enemyTotalInfused = 0,
   isShopOpen,
   useAnalogGauges,
@@ -441,6 +450,9 @@ export const HUD: React.FC<HUDProps> = ({
         <div className="flex items-center justify-between text-[9px] font-mono leading-none">
           <div className="flex items-center gap-2">
             <span className="font-bold" style={{ color: stageColor }}>{STAGE_LABELS[stageState.stage]}</span>
+            {myTeamId && (
+              <span className="font-bold" style={{ color: TEAM_COLORS[myTeamId] }}>TEAM {TEAM_LABELS[myTeamId]}</span>
+            )}
             <span className="text-orange-500 font-bold">M{starLevel} · {growthProgress}/{growthCost}</span>
             <span className="text-zinc-600">|</span>
             <span className="text-red-500 font-bold">ENEMY INT {Math.floor(enemyIntegrity * 100)}%</span>
@@ -553,6 +565,12 @@ export const HUD: React.FC<HUDProps> = ({
             </div>
 
             <div className="border border-zinc-800 rounded p-2 bg-zinc-950/60">
+              {myTeamId && (
+                <div className="flex justify-between text-[10px] mb-1">
+                  <span className="text-zinc-500">TEAM</span>
+                  <span className="font-bold" style={{ color: TEAM_COLORS[myTeamId] }}>{TEAM_LABELS[myTeamId]}</span>
+                </div>
+              )}
               <div className="flex justify-between text-[10px] mb-1">
                 <span className="text-zinc-400 tracking-wider">STAR LIFECYCLE</span>
                 <span className="font-bold" style={{ color: stageColor }}>{STAGE_LABELS[stageState.stage]}</span>
@@ -589,6 +607,12 @@ export const HUD: React.FC<HUDProps> = ({
             </div>
             
             <div className="border border-red-950 rounded p-2 bg-zinc-950/60">
+              {enemyTeamId && (
+                <div className="flex justify-between text-[10px] mb-1">
+                  <span className="text-zinc-500">TEAM</span>
+                  <span className="font-bold" style={{ color: TEAM_COLORS[enemyTeamId] }}>{TEAM_LABELS[enemyTeamId]}</span>
+                </div>
+              )}
               <div className="flex justify-between text-[10px] mb-1">
                 <span className="text-zinc-400 tracking-wider">ENEMY LIFECYCLE</span>
                 <span className="font-bold" style={{ color: enemyField.color }}>{STAGE_LABELS[enemyField.state.stage]}</span>

@@ -165,6 +165,8 @@ export default function App() {
         maxShipHealth={state.ship.maxHealth}
         enemyIntegrity={state.enemyStar.integrity}
         enemyTotalInfused={state.enemyStar.totalScrapInfused}
+        myTeamId={net.room ? (net.mySeat?.teamId ?? null) : null}
+        enemyTeamId={net.room ? (state.seats.find(seat => seat.ownerId === state.enemyStar.ownerId)?.teamId ?? null) : null}
         isShopOpen={state.isShopOpen}
         shipPos={state.ship.pos}
         starPos={state.star.pos}
