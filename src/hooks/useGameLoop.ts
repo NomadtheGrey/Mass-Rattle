@@ -4,7 +4,7 @@ import { PHYSICS, COLORS } from '../constants';
 import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER } from '../loadout';
 import { inBankWell } from '../bank';
 import { infuseStar, milestonesForInfused } from '../starGrowth';
-import { ownerIdForSeat } from '../sim/ownership';
+import { ownerIdForSeat, starIdForSeat } from '../sim/ownership';
 import { createMatchLayout, DEFAULT_MATCH_SEED } from '../sim/matchInit';
 import { advanceSeatTracking, createSeatSimState, createStarterShip } from '../sim/seatState';
 import { stepBotShip } from '../sim/botDriver';
@@ -25,6 +25,7 @@ import { stepDrones } from '../sim/drones';
 import { stepMines, stepProjectiles } from '../sim/projectiles';
 import { stepCme } from '../sim/cme';
 import { computeStandings } from '../sim/standings';
+import { applyDeathLoss, botRepurchaseDue, tryRepurchase } from '../sim/deathEconomy';
 import { appendEventRecords, EventFeedEntry } from '../sim/eventFeed';
 import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, applyDeliveryHeal } from '../starDefense';
 import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, thornDamageFor, aegisAbsorbFor } from '../loadout';
@@ -508,6 +509,63 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     });
   }, []);
 
+  /**
+   * REPURCHASE (Phase 2, P2-5, death economy): buy a dead seat a
+   * fresh starter frame from its bank (src/sim/deathEconomy.ts —
+   * the price is 20% of the seat's current bank, stepped down 15%
+   * per prior death, and free at a zero bank). The UI lane's
+   * repurchase screen wires to this exact callback:
+   * repurchaseShip(ownerId).
+   *
+   * HOST / SOLO ONLY in v1: a guest's state is a projection of the
+   * host's snapshots, so a guest calling this would mutate a
+   * projection the next snapshot overwrites — guest invocation
+   * needs a wire intent the current NetActionIntent set does not
+   * have (a repurchase kind; flagged follow-on), so on a guest
+   * client this is a no-op. In single-player it is likewise inert:
+   * SP seats are never death-economy shipless (the local death is
+   * game over; the enemy seat never flew) and tryRepurchase
+   * refuses them.
+   */
+  const repurchaseShip = useCallback((ownerId: string) => {
+    const session = netRef.current;
+    if (session?.room && !session.isHost) return;
+    setState(prev => {
+      if (prev.matchEnd) return prev;
+      const idx = prev.seats.findIndex(s => s.ownerId === ownerId);
+      if (idx < 0) return prev;
+      const seat: SeatSimState = { ...prev.seats[idx] };
+      const bought = tryRepurchase(seat);
+      if (!bought) return prev;
+      const seats = prev.seats.map((s, i) => (i === idx ? seat : s));
+      const eventFeed = appendEventRecords(prev.eventFeed, [
+        {
+          type: 'repurchase',
+          ownerId: seat.ownerId,
+          starId: starIdForSeat(seat.starIndex),
+          cost: bought.cost,
+          deaths: seat.deaths,
+          at: performance.now(),
+        },
+      ]);
+      // The local seat's view IS the top level: its new frame and
+      // its post-payment bank land there too (the seat record and
+      // the top level hold the same objects, per the projection
+      // law) so the next frame's rebuild picks the ship up as the
+      // local seat's own.
+      if (ownerId === prev.ship.ownerId) {
+        return {
+          ...prev,
+          seats,
+          eventFeed,
+          ship: bought.ship,
+          bankedScrap: seat.bankedScrap,
+        };
+      }
+      return { ...prev, seats, eventFeed };
+    });
+  }, []);
+
   const toggleGauges = useCallback(() => {
     setState(prev => ({ ...prev, useAnalogGauges: !prev.useAnalogGauges }));
   }, []);
@@ -882,10 +940,30 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
               ];
         const localIdx = prevSeats.findIndex(ps => ps.ownerId === localOwnerId);
         const enemyIdx = prevSeats.findIndex(ps => ps.ownerId !== localOwnerId);
+        // HOSTED MATCH — the state-provenance discriminator: this
+        // frame simulates a match this client HOSTS — a room session
+        // is present, this client is its host, and the match in
+        // state was initialized from that room (mpRoomRef). In
+        // single-player every clause is false (no room; SP never
+        // sets mpRoomRef), and a guest never reaches this updater
+        // for a room it doesn't host. The death economy (P2-5)
+        // gates on this: where it is false, ship death keeps its
+        // shipped meaning.
+        const hosting =
+          !!frameSession && !!frameRoom && frameSession.isHost &&
+          mpRoomRef.current === frameRoom.code;
+        // The local seat began this frame shipless in a hosted
+        // match: its ship died in an earlier frame and the death
+        // economy holds the seat until repurchase. The top-level
+        // ship is then only the wreck stand-in (see the death
+        // sweep); the seat record carries the truth, and the
+        // rebuild below keeps it null.
+        const localSeatDead =
+          hosting && localIdx >= 0 && prevSeats[localIdx].ship === null;
         const simSeats: SeatSimState[] = prevSeats.map((ps, i) => {
           const seat: SeatSimState = { ...ps };
           if (i === localIdx) {
-            seat.ship = ship;
+            seat.ship = localSeatDead ? null : ship;
             seat.star = star;
             seat.bankedScrap = prev.bankedScrap;
           } else if (i === enemyIdx) {
@@ -902,10 +980,8 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         // HOST CONTROLLER SYNC (P2-3b): while hosting, seat
         // controllers follow the room — a guest who takes over a bot
         // seat (or drops, leaving it to the bot) flips the seat's
-        // driver on the next frame.
-        const hosting =
-          !!frameSession && !!frameRoom && frameSession.isHost &&
-          mpRoomRef.current === frameRoom.code;
+        // driver on the next frame. (`hosting` is computed above,
+        // beside the seat rebuild.)
         if (hosting && frameRoom) {
           for (const seat of simSeats) {
             const roomSeat = frameRoom.seats.find(rs => rs.ownerId === seat.ownerId);
@@ -1268,20 +1344,26 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         // The LOCAL seat's ship runs the routine with the shipped
         // arguments (see the routine's banner) — masked to the idle
         // input + empty device refs while the cinematic lockout runs.
-        const localFrame = runHumanShipFrame({
-          s: ship,
-          input: cinematicLocked
-            ? idleShipInput()
-            : localShipInput(keys.current, touchInputs.current),
-          physKeys: cinematicLocked ? NO_KEYS : keys.current,
-          physTouch: cinematicLocked ? NO_TOUCH : touchInputs.current,
-          ownStar: star,
-          hostileStar: enemyStar,
-          scrapIn: next.scrap,
-          cullDistant: true,
-          enforceDefense: false,
-          ejectAt: next.lastEjectTime,
-        });
+        // DEATH ECONOMY (P2-5): a shipless local seat runs NO
+        // routine — the wreck stand-in does not thrust, fire, burn,
+        // or collect. The substituted result is the routine's shape
+        // with the frame's scrap untouched and no VAC.
+        const localFrame = localSeatDead
+          ? { scrap: next.scrap, isVacActive: false, ejectAt: next.lastEjectTime }
+          : runHumanShipFrame({
+              s: ship,
+              input: cinematicLocked
+                ? idleShipInput()
+                : localShipInput(keys.current, touchInputs.current),
+              physKeys: cinematicLocked ? NO_KEYS : keys.current,
+              physTouch: cinematicLocked ? NO_TOUCH : touchInputs.current,
+              ownStar: star,
+              hostileStar: enemyStar,
+              scrapIn: next.scrap,
+              cullDistant: true,
+              enforceDefense: false,
+              ejectAt: next.lastEjectTime,
+            });
         const isVacActive = localFrame.isVacActive;
         next.lastEjectTime = localFrame.ejectAt;
         let newScrap = localFrame.scrap;
@@ -1456,7 +1538,12 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         if (enemyStar.integrity <= 0 && !next.isVictory) {
           next.isVictory = true;
         }
-        if (ship.health <= 0 && !next.isGameOver) {
+        // DEATH ECONOMY (P2-5): in a hosted match the local ship's
+        // death is NOT game over — the death sweep below runs the
+        // bank-loss cascade and the seat plays on shipless until
+        // repurchase. The shipped isGameOver stands wherever no
+        // match is hosted (single-player, lobby backdrop).
+        if (ship.health <= 0 && !next.isGameOver && !hosting) {
           next.isGameOver = true;
         }
         if (next.isVictory || next.isGameOver) {
@@ -1493,7 +1580,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         // nearest hostile bolt OR drone inside PD_RANGE gets zapped, one
         // target per cooldown. Bolts are destroyed; drones take damage
         // (and the death sweep below turns kills into dropped scrap).
-        if (defId === 'pd_zap' && time >= (ship.pdReadyAt || 0)) {
+        if (!localSeatDead && defId === 'pd_zap' && time >= (ship.pdReadyAt || 0)) {
           let zapTarget: any = null;
           let hitProj: any = null;
           let hitDrone: any = null;
@@ -1530,7 +1617,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         // bolts pass drones by leaving kind unset; these set it, so
         // they connect with drones too — that's their job).
         const autoGunCount = typeFor(ship.line, ship.typeTier).autoGuns;
-        if (autoGunCount > 0) {
+        if (!localSeatDead && autoGunCount > 0) {
           let gunTarget: Vector2D | null = null;
           let gunBestD = AUTO_GUN.range;
           next.drones.forEach(d => {
@@ -1578,7 +1665,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         // projectile checks use for drones) — get bitten continuously,
         // thorn damage per second for as long as they stay in reach.
         // Kills are swept up by the drone-death pass below, drops and all.
-        if (hyId === 'thorn_hull') {
+        if (!localSeatDead && hyId === 'thorn_hull') {
           const thornPerFrame = thornDamageFor(hyTier) / 60;
           next.drones.forEach(d => {
             if (d.ownerId === ship.ownerId) return;
@@ -1629,17 +1716,22 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           return false;
         });
 
-        // BOT SHIP DEATHS (Phase 2, P2-2b): a bot seat's ship reduced
-        // to 0 leaves the seat shipless — the kill is credited, the
-        // seat plays on with its star and drones, and what happens
-        // next for that seat (repurchase) is the death economy's
-        // business (P2-5), not this slice's. Ship death is NOT
-        // elimination. Inert in SP: the enemy seat flies no ship and
-        // the local ship is never touched here (its death remains the
-        // shipped isGameOver path).
+        // SHIP DEATHS + DEATH ECONOMY (Phase 2, P2-2b + P2-5): a
+        // seat's ship reduced to 0 leaves the seat shipless — the
+        // kill is credited, the seat plays on with its star and
+        // drones, and the death economy (src/sim/deathEconomy.ts)
+        // takes its bank-loss cut and counts the death. Ship death
+        // is NOT elimination. The local seat joins the sweep ONLY
+        // in a hosted match: in single-player its death remains
+        // the shipped isGameOver above, and the sweep stays inert
+        // there for every seat (the SP enemy seat flies no ship).
+        // A shipless seat fails the bs check, so the cascade lands
+        // exactly once per death.
         for (const seat of simSeats) {
           const bs = seat.ship;
-          if (!bs || seat.ownerId === localOwnerId || bs.health > 0) continue;
+          if (!bs || bs.health > 0) continue;
+          const isLocalSeat = seat.ownerId === localOwnerId;
+          if (isLocalSeat && !hosting) continue;
           const killerOwnerId =
             bs.lastHitByOwnerId && bs.lastHitByOwnerId !== seat.ownerId
               ? bs.lastHitByOwnerId
@@ -1655,7 +1747,45 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
             victimKind: 'ship',
             at: time,
           });
+          const cascade = applyDeathLoss(seat.bankedScrap, seat.deaths ?? 0);
+          seat.bankedScrap = cascade.bankAfter;
+          seat.deaths = cascade.deathsAfter;
+          seat.shipLostAt = time;
           seat.ship = null;
+          if (isLocalSeat) {
+            // The local seat's bank IS the top-level wallet (the
+            // rebuild mirror runs the other way), so the cascade
+            // writes through to it — and the wreck the top level
+            // keeps as a render stand-in loses its hold with the
+            // hull (the cascade taxes the bank; the hold is cargo
+            // in a destroyed ship) and does not thrust.
+            next.bankedScrap = seat.bankedScrap;
+            ship.carrying = 0;
+            ship.thrust = false;
+          }
+        }
+
+        // BOT AUTO-REPURCHASE (P2-5): a bot-driven seat buys its
+        // frame back on the delay timer (deathEconomy), so a match
+        // never stalls on a seat nobody is driving. Human seats
+        // repurchase only through the player's own action (the
+        // repurchaseShip callback, below). Runs before the bot
+        // drivers so a bought-back ship flies this same frame.
+        if (!prev.matchEnd) {
+          for (const seat of simSeats) {
+            if (!botRepurchaseDue(seat, time)) continue;
+            const bought = tryRepurchase(seat);
+            if (bought) {
+              feedEntries.push({
+                type: 'repurchase',
+                ownerId: seat.ownerId,
+                starId: starIdForSeat(seat.starIndex),
+                cost: bought.cost,
+                deaths: seat.deaths,
+                at: time,
+              });
+            }
+          }
         }
 
         // BOT SHIP DRIVERS (Phase 2, P2-2b): every bot seat that HAS a
@@ -1838,6 +1968,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     buyHullStep,
     switchLine,
     buildDrone,
+    repurchaseShip,
     feedCargo,
     depositBank, 
     withdrawBank, 

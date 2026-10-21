@@ -249,6 +249,17 @@ export interface SeatSimState {
   fedTotal: number;
   /** Ships + drones this seat's weapons/waves/mines have destroyed. */
   kills: number;
+  /** Lifetime SHIP deaths this match (Phase 2, P2-5 death economy).
+   * Star deaths are eliminations, not counted here. Drives the
+   * repurchase price's value step-down and distinguishes a seat
+   * that is shipless because its ship died (deaths > 0) from one
+   * that never flew (SP's enemy seat: ship null, deaths 0). */
+  deaths: number;
+  /** Loop-clock timestamp (the frame's rAF clock) when the seat's
+   * current shiplessness began; set by the death sweep, cleared on
+   * repurchase. Bot seats auto-repurchase off this stamp. Absent
+   * while the seat has a ship. */
+  shipLostAt?: number;
   /** A seat is eliminated when its STAR dies (Adam's ruling: ship
    * death is not elimination). */
   eliminated: boolean;

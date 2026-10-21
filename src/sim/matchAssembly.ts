@@ -58,6 +58,32 @@ const spawnOffsetTowardCenter = (pos: { x: number; y: number }) => ({
   y: pos.y - Math.sign(pos.y) * 100,
 });
 
+/**
+ * Where a seat's SHIP spawns at its star: the convention above (100
+ * per axis toward the arena center), with a clearance guarantee —
+ * a star GROWS as it is fed (×1.15 per milestone), so late in a
+ * match the raw convention point can land inside the star's disc;
+ * the spawn is then pushed out along the same toward-center
+ * direction until it clears the star's radius + the starter hull
+ * (size 15, createStarterShip) + a margin. At assembly every star
+ * is size 40, the clearance never binds, and the position is
+ * exactly the convention point — assembly output is unchanged.
+ * The death economy's repurchase (src/sim/deathEconomy.ts) spawns
+ * through this same function, so a bought-back ship appears where
+ * a match-start ship would, never inside its own star.
+ */
+export const shipSpawnPosition = (star: Star): { x: number; y: number } => {
+  const raw = spawnOffsetTowardCenter(star.pos);
+  const clearance = star.size + 15 + 10;
+  const dx = raw.x - star.pos.x;
+  const dy = raw.y - star.pos.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist >= clearance) return raw;
+  if (dist === 0) return { x: star.pos.x + clearance, y: star.pos.y };
+  const scale = clearance / dist;
+  return { x: star.pos.x + dx * scale, y: star.pos.y + dy * scale };
+};
+
 const createSeatStar = (
   ownerId: string,
   starIndex: number,
@@ -102,7 +128,7 @@ export const createMatch = (config: CreateMatchConfig): GameState => {
       starIndex,
       layoutStar.pos,
     );
-    const ship = createStarterShip(seatConfig.ownerId, spawnOffsetTowardCenter(star.pos), {
+    const ship = createStarterShip(seatConfig.ownerId, shipSpawnPosition(star), {
       withStarterWeapon: true,
     });
     return createSeatSimState(star, starIndex, seatConfig.controller, ship);
