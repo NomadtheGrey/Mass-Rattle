@@ -77,8 +77,18 @@ export const PHYSICS = {
    * reaching the old enemy-only rate (0.005) at M10.
    */
   STAR_DEFENSE: {
-    INNER_RING_PAD: 15,
-    OUTER_RING_PAD: 90,
+    /** Ring STANDOFF from the star's SURFACE (orbit radius = size +
+     *  pad), not from its center (Adam's ruling, 2026-10-21, live
+     *  test — "turrets inside the star?"): the old inner pad (15)
+     *  parked hubs inside the corona glow, whose spikes reach
+     *  ~0.4 x size past the surface. These pads clear the spike
+     *  zone at birth sizes; the standoff stays constant as the
+     *  star grows (the radius still scales — it is size + pad),
+     *  with hub legibility on grown stars carried by the renderer's
+     *  draw order. DRAFT for Adam's pin pass (dev's conversation
+     *  start, 2026-10-21): inner 45 / outer 110. */
+    INNER_RING_PAD: 45,
+    OUTER_RING_PAD: 110,
     TURRET_BASE_FIRE_CHANCE: 0.01,
     TURRET_FIRE_CHANCE_PER_TIER: 0.002,
     TURRET_DAMAGE_PER_TIER: 2,
