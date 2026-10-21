@@ -339,7 +339,10 @@ export const HUD: React.FC<HUDProps> = ({
   // FIRE wears the equipped weapon, the DECOY row exists only while a
   // beacon is equipped, SHOP carries its well rule with it.
   const controlsWeapon = getLoadoutItem(loadout.weapon);
-  const controlRows: { label: string; keys: string; dim?: boolean }[] = [
+  const controlRows: { label: string; keys: string; dim?: boolean; bold?: boolean }[] = [
+    // Adam's pin (2026-10-21): the ESC row rides ON TOP, in bold --
+    // the manual is the first thing a lost pilot should find.
+    { label: 'FIELD MANUAL', keys: 'ESC', bold: true },
     { label: 'THRUST', keys: 'W · ↑' },
     { label: 'STEER', keys: 'A D · ← →' },
     { label: 'VAC · HOLD', keys: 'Q E R' },
@@ -348,11 +351,10 @@ export const HUD: React.FC<HUDProps> = ({
       : { label: 'FIRE · HOLD', keys: 'F — NO WEAPON', dim: true },
     { label: 'EJECT PULSE', keys: 'SPACE' },
     ...(loadout.defense === 'decoy_beacon'
-      ? [{ label: 'DEPLOY DECOY', keys: 'X' } as { label: string; keys: string; dim?: boolean }]
+      ? [{ label: 'DEPLOY DECOY', keys: 'X' } as { label: string; keys: string; dim?: boolean; bold?: boolean }]
       : []),
     { label: 'SHOP', keys: 'TAB · U — AT HOME STAR' },
     { label: 'UPGRADES', keys: '1 – 5' },
-    { label: 'FIELD MANUAL', keys: 'ESC' },
   ];
 
   // Minimap logic
@@ -724,8 +726,8 @@ export const HUD: React.FC<HUDProps> = ({
               <div className="flex flex-col gap-1">
                 {controlRows.map(row => (
                   <div key={row.label} className={`flex justify-between gap-3 text-[9px] font-mono ${row.dim ? 'opacity-40' : ''}`}>
-                    <span className="text-zinc-400 tracking-wider">{row.label}</span>
-                    <span className="text-[#33ff33] font-bold whitespace-nowrap">{row.keys}</span>
+                    <span className={`${row.bold ? 'text-zinc-100 font-bold' : 'text-zinc-400'} tracking-wider`}>{row.label}</span>
+                    <span className={`text-[#33ff33] font-bold whitespace-nowrap ${row.bold ? 'text-[10px]' : ''}`}>{row.keys}</span>
                   </div>
                 ))}
               </div>
