@@ -32,6 +32,7 @@
 
 import { PHYSICS } from '../constants';
 import { turretsForMilestones } from '../starDefense';
+import type { TeamId } from '../net/protocol';
 import type { GameState, Harvester, Star } from '../types';
 import { createMatchLayout } from './matchInit';
 import type { MatchStarCount } from './matchInit';
@@ -41,6 +42,10 @@ import { createSeatSimState, createStarterShip } from './seatState';
 export interface MatchSeatConfig {
   ownerId: string;
   controller: 'human' | 'bot';
+  /** The seat's team from the room (TEAMS): the lobby pick as
+   *  resolved by the DO at match start. Absent = the seat's
+   *  default color-team (the factory's value stands). */
+  teamId?: TeamId;
 }
 
 export interface CreateMatchConfig {
@@ -131,7 +136,11 @@ export const createMatch = (config: CreateMatchConfig): GameState => {
     const ship = createStarterShip(seatConfig.ownerId, shipSpawnPosition(star), {
       withStarterWeapon: true,
     });
-    return createSeatSimState(star, starIndex, seatConfig.controller, ship);
+    const seat = createSeatSimState(star, starIndex, seatConfig.controller, ship);
+    // TEAMS: the room's resolved team rides the seat record (the
+    // factory's default color-team stands when none is given).
+    if (seatConfig.teamId) seat.teamId = seatConfig.teamId;
+    return seat;
   });
 
   const drones = seats.map((seat) => createSeatDrone(seat.star, seat.starIndex));

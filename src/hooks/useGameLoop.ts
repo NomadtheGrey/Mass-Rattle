@@ -25,6 +25,7 @@ import { stepDrones } from '../sim/drones';
 import { stepMines, stepProjectiles } from '../sim/projectiles';
 import { stepCme } from '../sim/cme';
 import { computeStandings } from '../sim/standings';
+import { areHostile, areTeammates } from '../sim/teams';
 import { applyDeathLoss, botRepurchaseDue, tryRepurchase } from '../sim/deathEconomy';
 import { appendEventRecords, EventFeedEntry } from '../sim/eventFeed';
 import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, applyDeliveryHeal } from '../starDefense';
@@ -74,6 +75,21 @@ const walletPay = (carrying: number, banked: number, cost: number, bankAccessibl
   const fromHold = Math.min(carrying, cost);
   return { carrying: carrying - fromHold, banked: banked - (cost - fromHold) };
 };
+
+/**
+ * TEAMS dock gate (Adam's pin, 2026-10-21: "the team works together
+ * to build the star"): a seat is AT A DOCK when its ship sits in the
+ * bank well (effective radius, P2-4) of ANY star on its own team —
+ * its own star included, so SP and all-default matches read exactly
+ * the shipped own-well predicate. Feed, bank, shop-open and every
+ * progression purchase read this one gate; the bank account and
+ * wallet touched are always the acting seat's own — only the DOCK
+ * is shared.
+ */
+const inTeamWell = (seats: readonly SeatSimState[], ship: Ship): boolean =>
+  seats.some(seat =>
+    (seat.ownerId === ship.ownerId || areTeammates(seats, ship.ownerId, seat.ownerId)) &&
+    inBankWell(ship.pos, seat.star.pos, effectiveRadiusForStar(seat.star)));
 
 export const useGameLoop = (width: number, height: number, net?: NetSession | null) => {
   // MATCH GEOMETRY (Phase 2, src/sim/matchInit.ts): SP plays the
@@ -236,7 +252,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       // workshop only OPENS inside the home star's gravity well — it is a
       // dock, not a carried menu. Closing is always allowed. A refused
       // open stamps shopRefusedAt so the HUD can show the fly-home hint.
-      if (wantOpen && !prev.isShopOpen && !inBankWell(prev.ship.pos, prev.star.pos, effectiveRadiusForStar(prev.star))) {
+      if (wantOpen && !prev.isShopOpen && !inTeamWell(prev.seats, prev.ship)) {
         return { ...prev, shopRefusedAt: Date.now() };
       }
       return { ...prev, isShopOpen: wantOpen };
@@ -276,7 +292,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       if (currentLevel >= capsFor(prev.ship.line, prev.ship.typeTier)[capKey]) return prev;
       const cost = baseCost + (currentLevel * Math.floor(baseCost * 0.5));
       
-      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost, inBankWell(prev.ship.pos, prev.star.pos, effectiveRadiusForStar(prev.star)));
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost, inTeamWell(prev.seats, prev.ship));
       if (!payment) return prev;
 
       const next = { ...prev };
@@ -316,7 +332,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       const owned = prev.ship.arsenal[itemId] || 0;
       if (owned >= MAX_ITEM_TIER) return prev;
       const cost = itemTierCost(def, owned);
-      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost, inBankWell(prev.ship.pos, prev.star.pos, effectiveRadiusForStar(prev.star)));
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost, inTeamWell(prev.seats, prev.ship));
       if (!payment) return prev;
 
       const ship = { ...prev.ship };
@@ -348,7 +364,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       // priced on the INCOMING item's tier. Empty slot = free equip.
       // Paid from the combined wallet like every other purchase.
       if (current !== null) {
-        const payment = walletPay(prev.ship.carrying, prev.bankedScrap, swapCostForTier(owned), inBankWell(prev.ship.pos, prev.star.pos, effectiveRadiusForStar(prev.star)));
+        const payment = walletPay(prev.ship.carrying, prev.bankedScrap, swapCostForTier(owned), inTeamWell(prev.seats, prev.ship));
         if (!payment) return prev;
         ship.carrying = payment.carrying;
         banked = payment.banked;
@@ -370,23 +386,44 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   // star's EFFECTIVE radius (src/sim/starStages.ts), never star.size —
   // at NEUTRON the body collapses but the well follows the un-shrunk
   // growth curve, so the dock doesn't move when the star goes dense.
+  // DOCK (TEAMS): the well that counts is any SAME-TEAM star's — see
+  // inTeamWell above; deposit/withdraw move the acting seat's OWN
+  // bank at any team dock, feedCargo delivers to the dock's star.
   // ------------------------------------------------------------------
   const feedCargo = useCallback(() => {
     setState(prev => {
-      if (!inBankWell(prev.ship.pos, prev.star.pos, effectiveRadiusForStar(prev.star))) return prev; // feeding happens at home
       if (prev.ship.carrying <= 0) return prev;
       const amount = prev.ship.carrying;
-      const star = { ...prev.star };
+      // TEAMS cross-feed (Adam's pin: "the team works together to
+      // build the star"): the target is the same-team star whose
+      // well holds the ship — its own star first (seat order puts
+      // the local seat first), else a teammate's. The fed star
+      // gains the infusion + heal exactly as a home delivery, and
+      // its seat's fedTotal mirror refreshes from the star next
+      // frame. teamScrap is the LOCAL seat's counter, so it grows
+      // only when the fed star is the local seat's own — the SP /
+      // own-dock path below is the shipped return, unchanged.
+      const selfId = prev.ship.ownerId;
+      const target = prev.seats.find(seat =>
+        (seat.ownerId === selfId || areTeammates(prev.seats, selfId, seat.ownerId)) &&
+        inBankWell(prev.ship.pos, seat.star.pos, effectiveRadiusForStar(seat.star)));
+      if (!target) return prev; // feeding happens at a team dock
+      const star = { ...target.star };
       infuseStar(star, amount);
       applyDeliveryHeal(star, amount);
       const ship = { ...prev.ship, carrying: 0 };
-      return { ...prev, ship, star, teamScrap: prev.teamScrap + amount, glitchActive: true, lastGlitchTime: performance.now() };
+      if (target.ownerId === selfId) {
+        return { ...prev, ship, star, teamScrap: prev.teamScrap + amount, glitchActive: true, lastGlitchTime: performance.now() };
+      }
+      const seats = prev.seats.map(seat =>
+        seat.ownerId === target.ownerId ? { ...seat, star } : seat);
+      return { ...prev, ship, seats, glitchActive: true, lastGlitchTime: performance.now() };
     });
   }, []);
 
   const depositBank = useCallback(() => {
     setState(prev => {
-      if (!inBankWell(prev.ship.pos, prev.star.pos, effectiveRadiusForStar(prev.star))) return prev; // banking happens at home
+      if (!inTeamWell(prev.seats, prev.ship)) return prev; // banking happens at home
       if (prev.ship.carrying <= 0) return prev;
       const ship = { ...prev.ship, carrying: 0 };
       return { ...prev, ship, bankedScrap: prev.bankedScrap + prev.ship.carrying, glitchActive: true, lastGlitchTime: performance.now() };
@@ -395,7 +432,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
 
   const withdrawBank = useCallback(() => {
     setState(prev => {
-      if (!inBankWell(prev.ship.pos, prev.star.pos, effectiveRadiusForStar(prev.star))) return prev; // banking happens at home
+      if (!inTeamWell(prev.seats, prev.ship)) return prev; // banking happens at home
       if (prev.bankedScrap <= 0) return prev;
       const regularCapacity = PHYSICS.CARGO.BASE_CAPACITY + prev.ship.upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS + typeFor(prev.ship.line, prev.ship.typeTier).cargoBonus;
       const totalCapacity = regularCapacity + Math.floor(regularCapacity * PHYSICS.CARGO.OVERLOAD_RATIO);
@@ -416,14 +453,14 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   // ------------------------------------------------------------------
   const buyType = useCallback((line?: ShipLine) => {
     setState(prev => {
-      if (!inBankWell(prev.ship.pos, prev.star.pos, effectiveRadiusForStar(prev.star))) return prev; // types are bought at home
+      if (!inTeamWell(prev.seats, prev.ship)) return prev; // types are bought at home
       if (prev.ship.typeTier >= 4) return prev; // top of the ladder
       // From the SKIFF (T1) the purchase CHOOSES the line; from T2 up it
       // climbs within the line the ship already flies.
       const targetLine = prev.ship.typeTier === 1 ? line : prev.ship.line;
       if (!targetLine) return prev;
       const cost = typeStepPrice(targetLine, prev.ship.typeTier);
-      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost, inBankWell(prev.ship.pos, prev.star.pos, effectiveRadiusForStar(prev.star)));
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost, inTeamWell(prev.seats, prev.ship));
       if (!payment) return prev;
 
       const ship = { ...prev.ship, carrying: payment.carrying, line: targetLine, typeTier: (prev.ship.typeTier + 1) as TypeTier };
@@ -436,12 +473,12 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
 
   const buyHullStep = useCallback(() => {
     setState(prev => {
-      if (!inBankWell(prev.ship.pos, prev.star.pos, effectiveRadiusForStar(prev.star))) return prev; // hull work happens at home
+      if (!inTeamWell(prev.seats, prev.ship)) return prev; // hull work happens at home
       // The type's hullStepCap is the gate: at the cap, growing further
       // REQUIRES a bigger type (Adam's two-ladder rule) — refuse here.
       if (prev.ship.hullSteps >= typeFor(prev.ship.line, prev.ship.typeTier).hullStepCap) return prev;
       const cost = hullStepPrice(prev.ship.hullSteps);
-      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost, inBankWell(prev.ship.pos, prev.star.pos, effectiveRadiusForStar(prev.star)));
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost, inTeamWell(prev.seats, prev.ship));
       if (!payment) return prev;
 
       const hullSteps = prev.ship.hullSteps + 1;
@@ -461,10 +498,10 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
 
   const switchLine = useCallback((line: ShipLine) => {
     setState(prev => {
-      if (!inBankWell(prev.ship.pos, prev.star.pos, effectiveRadiusForStar(prev.star))) return prev; // refits happen at home
+      if (!inTeamWell(prev.seats, prev.ship)) return prev; // refits happen at home
       if (prev.ship.typeTier < 2 || !prev.ship.line || line === prev.ship.line) return prev;
       const toll = switchToll(prev.ship);
-      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, toll, inBankWell(prev.ship.pos, prev.star.pos, effectiveRadiusForStar(prev.star)));
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, toll, inTeamWell(prev.seats, prev.ship));
       if (!payment) return prev;
 
       // Tier, hull steps, track levels, and cargo all ride across —
@@ -485,10 +522,10 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
    */
   const buildDrone = useCallback(() => {
     setState(prev => {
-      if (!inBankWell(prev.ship.pos, prev.star.pos, effectiveRadiusForStar(prev.star))) return prev; // drones are built at home
+      if (!inTeamWell(prev.seats, prev.ship)) return prev; // drones are built at home
       const fielded = prev.drones.filter(d => d.owner === 'player').length;
       if (fielded >= typeFor(prev.ship.line, prev.ship.typeTier).dronesFielded) return prev;
-      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, DRONE_PRICE, inBankWell(prev.ship.pos, prev.star.pos, effectiveRadiusForStar(prev.star)));
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, DRONE_PRICE, inTeamWell(prev.seats, prev.ship));
       if (!payment) return prev;
 
       const ship = { ...prev.ship, carrying: payment.carrying };
@@ -715,7 +752,9 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     const match = createMatch({
       seed: room.seed,
       starCount: room.starCount,
-      seats: room.seats.map(s => ({ ownerId: s.ownerId, controller: s.occupant.kind })),
+      // TEAMS: the room seats carry the DO-resolved teams (lobby
+      // picks as settled at match start) into the sim seats.
+      seats: room.seats.map(s => ({ ownerId: s.ownerId, controller: s.occupant.kind, teamId: s.teamId })),
     });
     match.scrap = buildScrapField({ x: 0, y: 0 });
     const mine = projectStateForViewer(match, myOwnerId);
@@ -845,7 +884,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         if (e.code === 'Tab') e.preventDefault();
         setState(prev => {
           // Same shop-well gate as toggleShop (Adam's pin, 2026-10-19).
-          if (!prev.isShopOpen && !inBankWell(prev.ship.pos, prev.star.pos, effectiveRadiusForStar(prev.star))) {
+          if (!prev.isShopOpen && !inTeamWell(prev.seats, prev.ship)) {
             return { ...prev, shopRefusedAt: Date.now() };
           }
           return { ...prev, isShopOpen: !prev.isShopOpen };
@@ -1465,6 +1504,11 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
             if (input.rotateLeft) physKeys.add('ArrowLeft');
             if (input.rotateRight) physKeys.add('ArrowRight');
             if (input.vac) physKeys.add('KeyQ');
+            // NOTE (TEAMS): this "hostileStar" is a misnomer kept
+            // from P2-3b — physics reads it ONLY as the wrap-center
+            // midpoint (geometry, not a hostility decision), so it
+            // stays the first other seat exactly as shipped; the
+            // burn itself keys on team inside stepStarBurn.
             const hostileSeat = simSeats.find(os => os.ownerId !== seat.ownerId);
             const remoteFrame = runHumanShipFrame({
               s: sShip,
@@ -1500,6 +1544,11 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           // delivered to its OWN seat's star feeds it; cargo striking
           // a hostile star damages it. In SP the player's cargo meets
           // exactly the home/enemy pair, as shipped.)
+          // (TEAMS, Adam's pin "the team works together to build the
+          // star": cargo striking a SAME-TEAM star feeds THAT star —
+          // the fed seat's fedTotal mirror refreshes from its star
+          // next frame, like every infusion. Hostile stars still
+          // take the damage branch, bit for bit.)
           for (const seat of simSeats) {
             const s = seat.star;
             const dx = s.pos.x - c.pos.x;
@@ -1508,7 +1557,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
 
             if (dist < s.size + 10) {
               const amount = 1;
-              if (c.ownerId === s.ownerId) {
+              if (c.ownerId === s.ownerId || areTeammates(simSeats, c.ownerId, s.ownerId)) {
                 infuseStar(s, amount);
                 applyDeliveryHeal(s, amount);
                 if (s.ownerId === localOwnerId) next.teamScrap += amount;
@@ -1549,7 +1598,8 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
 
         // Shop-well gate, second half: drift out of the well with the
         // workshop open and it closes behind you (Adam's pin, 2026-10-19).
-        if (next.isShopOpen && !inBankWell(ship.pos, star.pos, effectiveRadiusForStar(star))) {
+        // (TEAMS: the well is any same-team star's — see inTeamWell.)
+        if (next.isShopOpen && !inTeamWell(simSeats, ship)) {
           next.isShopOpen = false;
         }
 
@@ -1604,13 +1654,15 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           let hitProj: any = null;
           let hitDrone: any = null;
           let bestD = PD_RANGE;
+          // (TEAMS: hostile TEAM — PD never zaps a teammate's bolt
+          // or drone.)
           next.projectiles.forEach(p => {
-            if (p.ownerId === ship.ownerId) return;
+            if (!areHostile(simSeats, p.ownerId, ship.ownerId)) return;
             const dd = Math.hypot(p.pos.x - ship.pos.x, p.pos.y - ship.pos.y);
             if (dd < bestD) { bestD = dd; hitProj = p; hitDrone = null; zapTarget = p.pos; }
           });
           next.drones.forEach(d => {
-            if (d.ownerId === ship.ownerId) return;
+            if (!areHostile(simSeats, d.ownerId, ship.ownerId)) return;
             const dd = Math.hypot(d.pos.x - ship.pos.x, d.pos.y - ship.pos.y);
             if (dd < bestD) { bestD = dd; hitDrone = d; hitProj = null; zapTarget = d.pos; }
           });
@@ -1639,8 +1691,10 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         if (!localSeatDead && autoGunCount > 0) {
           let gunTarget: Vector2D | null = null;
           let gunBestD = AUTO_GUN.range;
+          // (TEAMS: hostile TEAM throughout — drones and the star
+          // fallback alike.)
           next.drones.forEach(d => {
-            if (d.ownerId === ship.ownerId) return;
+            if (!areHostile(simSeats, d.ownerId, ship.ownerId)) return;
             const dd = Math.hypot(d.pos.x - ship.pos.x, d.pos.y - ship.pos.y);
             if (dd < gunBestD) { gunBestD = dd; gunTarget = d.pos; }
           });
@@ -1649,7 +1703,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
             // measured to its center, edge proximity does not trigger).
             for (const seat of simSeats) {
               const s = seat.star;
-              if (s.ownerId === ship.ownerId) continue;
+              if (!areHostile(simSeats, s.ownerId, ship.ownerId)) continue;
               const dd = Math.hypot(s.pos.x - ship.pos.x, s.pos.y - ship.pos.y);
               if (dd < AUTO_GUN.range && dd < gunBestD) gunTarget = s.pos;
             }
@@ -1687,7 +1741,9 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         if (!localSeatDead && hyId === 'thorn_hull') {
           const thornPerFrame = thornDamageFor(hyTier) / 60;
           next.drones.forEach(d => {
-            if (d.ownerId === ship.ownerId) return;
+            // (TEAMS: thorn bites hostile drones only — a teammate's
+            // drone ramming the hull is just a friendly bump.)
+            if (!areHostile(simSeats, d.ownerId, ship.ownerId)) return;
             if (Math.hypot(d.pos.x - ship.pos.x, d.pos.y - ship.pos.y) < ship.size + 14) {
               d.health -= thornPerFrame;
               d.lastHitByOwnerId = ship.ownerId;
@@ -1825,6 +1881,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
               ships: simSeats
                 .filter(s => s.ship)
                 .map(s => ({ ownerId: s.ownerId, ship: s.ship! })),
+              seats: simSeats,
               localOwnerId,
               time,
             },
@@ -1880,13 +1937,16 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         simSeats.forEach(seat => {
           const s = seat.star;
           let target: { pos: Vector2D } | null = null;
-          if (next.decoy && next.decoy.ownerId !== s.ownerId) {
+          // (TEAMS: a decoy draws a star's fire only when it is
+          // hostile to that star, and ships are targeted only when
+          // hostile — a teammate's ship/decoy is never engaged.)
+          if (next.decoy && areHostile(simSeats, next.decoy.ownerId, s.ownerId)) {
             target = { pos: next.decoy.pos };
           }
           if (!target) {
             let bd = Infinity;
             for (const os of simSeats) {
-              if (!os.ship || os.ownerId === s.ownerId) continue;
+              if (!os.ship || !areHostile(simSeats, os.ownerId, s.ownerId)) continue;
               const dd = Math.hypot(os.ship.pos.x - s.pos.x, os.ship.pos.y - s.pos.y);
               if (dd < bd) { bd = dd; target = os.ship; }
             }
@@ -1938,6 +1998,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           simSeats.map(seat => ({
             starIndex: seat.starIndex,
             ownerId: seat.ownerId,
+            teamId: seat.teamId,
             totalScrapInfused: seat.star.totalScrapInfused,
             mass: seat.star.mass,
             integrity: seat.star.integrity,

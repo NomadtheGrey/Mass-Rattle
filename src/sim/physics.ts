@@ -15,6 +15,7 @@
 import { PHYSICS } from '../constants';
 import { SAIL_RANGE, sailThrustFor, thornDamageFor } from '../loadout';
 import { effectiveRadiusForStar } from './starStages';
+import { areHostile } from './teams';
 import type { GameState, SeatSimState, Ship, Star } from '../types';
 
 export interface StarBurnContext {
@@ -42,13 +43,16 @@ export const stepStarBurn = (ctx: StarBurnContext): void => {
   const { next, ship, simSeats, hyId, hyTier, time, aegisAbsorb } = ctx;
   // Ship Health Damage from hostile star proximity (P2-2b: any
   // star whose ownerId isn't the ship's — in SP that is exactly
-  // the enemy star, with exactly the shipped math).
+  // the enemy star, with exactly the shipped math). TEAMS: the
+  // gate is now TEAM hostility — a teammate's star never burns
+  // you (Adam: "No friendly fire"). With default solo teams this
+  // is the ownerId rule bit for bit.
   // (The midpoint/centerDist computation that fed the retired
   // deep-space drain is gone too; the wrap below computes the
   // midpoint where it needs it.)
   for (const burnSeat of simSeats) {
     const burnStar = burnSeat.star;
-    if (burnStar.ownerId === ship.ownerId) continue;
+    if (!areHostile(simSeats, burnStar.ownerId, ship.ownerId)) continue;
     const edx = burnStar.pos.x - ship.pos.x;
     const edy = burnStar.pos.y - ship.pos.y;
     const eDist = Math.sqrt(edx * edx + edy * edy);

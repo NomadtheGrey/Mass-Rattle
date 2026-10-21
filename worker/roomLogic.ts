@@ -36,6 +36,9 @@ import {
   CLIENT_VERSION,
   SEAT_COLORS,
   SEAT_CUES,
+  TEAM_PICKER_ORDER,
+  defaultTeamForSeatIndex,
+  isTeamId,
 } from '../src/net/protocol';
 import type {
   RoomMeta,
@@ -43,6 +46,7 @@ import type {
   RoomState,
   Seat,
   StarCount,
+  TeamId,
 } from '../src/net/protocol';
 
 /** Host heartbeat cadence (design draft §6, DRAFT numbers): the host
@@ -119,6 +123,9 @@ function botSeat(starIndex: number): Seat {
     starIndex,
     starId: `star-${starIndex}`,
     ownerId: `seat-${starIndex}`,
+    // TEAMS: a seat is born on its default color-team (its own
+    // presentation color) — pre-teams behavior until someone picks.
+    teamId: defaultTeamForSeatIndex(starIndex),
     occupant: {
       kind: 'bot',
       playerId: null,
@@ -593,11 +600,65 @@ export function startMatch(
 ): boolean {
   if (record.phase !== 'lobby') return false;
   if (!isHost(record, playerId)) return false;
+  // TEAMS: resolve bot seats' teams against the humans' picks
+  // before the phase flips, so the live roomState carries the
+  // final teams the host sim assembles from.
+  resolveTeamsAtStart(record);
   if (!transitionPhase(record, 'live')) return false;
   if (now !== undefined && record.hostLastHeartbeatAt === null) {
     record.hostLastHeartbeatAt = now;
   }
   return true;
+}
+
+/**
+ * A lobby team pick (TEAMS, pure): the sender sets THEIR OWN seat's
+ * team. Legal only in the lobby, only for the seat the sender
+ * currently holds (their playerId is the seat's occupant), and only
+ * to a palette team — unbalanced splits are legal by Adam's design
+ * (free choice, no balancing police). Anything else returns false
+ * and changes nothing: the wire's standing philosophy is to ignore
+ * what it has no error code for. Returns true when the pick landed
+ * (the DO persists + broadcasts the roomState).
+ */
+export function setSeatTeam(
+  record: RoomRecord,
+  playerId: string,
+  teamId: unknown,
+): boolean {
+  if (record.phase !== 'lobby') return false;
+  if (!isTeamId(teamId)) return false;
+  const seat = findSeatByPlayerId(record, playerId);
+  if (!seat) return false;
+  seat.teamId = teamId;
+  return true;
+}
+
+/**
+ * Start-time team resolution (TEAMS, pure): human-held seats keep
+ * the picks they made in the lobby. Bot seats keep their DEFAULT
+ * team — with ONE exception: when every human-held seat shares a
+ * single team (a stacked co-op), all bot seats take the first
+ * picker-order color no human picked, so the stack still faces a
+ * single opposing team instead of a rainbow of solo bots. With no
+ * humans seated there is nothing to stack against and defaults
+ * stand. Runs once, when the host's start lands, before the phase
+ * flips (see startMatch) — the resolved seats ride the live
+ * roomState broadcast.
+ */
+export function resolveTeamsAtStart(record: RoomRecord): void {
+  const humanTeams = new Set(
+    record.seats
+      .filter((s) => s.occupant.kind === 'human')
+      .map((s) => s.teamId),
+  );
+  if (humanTeams.size !== 1) return;
+  const [stacked] = humanTeams;
+  const opposing =
+    TEAM_PICKER_ORDER.find((t) => t !== stacked) ?? stacked;
+  for (const seat of record.seats) {
+    if (seat.occupant.kind === 'bot') seat.teamId = opposing;
+  }
 }
 
 /** Records the host's heartbeat timestamp (the migration watch reads

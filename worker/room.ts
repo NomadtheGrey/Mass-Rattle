@@ -43,12 +43,14 @@ import {
   reconcileHosting,
   recordHostHeartbeat,
   roomMeta,
+  setSeatTeam,
   shouldCloseRoom,
   startMatch,
   toRoomState,
   createRoomRecord,
 } from './roomLogic';
 import type { MigrationOutcome, RoomRecord } from './roomLogic';
+import { defaultTeamForSeatIndex } from '../src/net/protocol';
 import type {
   ClientMessage,
   RoomMeta,
@@ -91,6 +93,11 @@ export class RoomDO {
         // Records written before P2-3a lack the grace/ban bookkeeping.
         this.room.heldIdentities ??= {};
         this.room.bannedPlayerIds ??= [];
+        // Records written before TEAMS lack seat teamIds — backfill
+        // each seat's default color-team.
+        for (const seat of this.room.seats) {
+          seat.teamId ??= defaultTeamForSeatIndex(seat.starIndex);
+        }
       }
       this.latestSnapshot =
         (await state.storage.get<unknown>(SNAPSHOT_KEY)) ?? null;
@@ -163,6 +170,18 @@ export class RoomDO {
     if (!playerId || !this.room) return;
 
     switch (msg.type) {
+      case 'setTeam': {
+        // TEAMS: a lobby team pick — roomLogic validates (lobby
+        // only, own seat only, palette teams only; anything else
+        // silently ignored). On a landed pick, persist and push
+        // the full sync: every lobby sees the new tallies.
+        if (setSeatTeam(this.room, playerId, msg.teamId)) {
+          await this.persistRoom();
+          this.broadcastRoomState();
+          await this.notifyIndex();
+        }
+        break;
+      }
       case 'start': {
         if (startMatch(this.room, playerId, Date.now())) {
           await this.persistRoom();

@@ -1,5 +1,5 @@
 import type { ShipLine, TypeTier } from './shipProgression';
-import type { MatchEndReason, Standing } from './net/protocol';
+import type { MatchEndReason, Standing, TeamId } from './net/protocol';
 import type { EventFeedRecord } from './sim/eventFeed';
 
 export interface Vector2D {
@@ -236,6 +236,11 @@ export interface SeatSimState {
   /** Seat-scoped ownerId (`seat-<starIndex>`); never changes. */
   ownerId: string;
   starIndex: number;
+  /** The seat's team (TEAMS, Adam 2026-10-21): hostility and
+   *  cross-feeding key on this, not on ownerId (src/sim/teams.ts).
+   *  Defaults to the seat's own color-team; the room's resolved
+   *  teams thread in through match assembly. */
+  teamId: TeamId;
   /** Who drives this seat's ship: a human's input or the bot driver. */
   controller: 'human' | 'bot';
   ship: Ship | null;
