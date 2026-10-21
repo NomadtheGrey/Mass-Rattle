@@ -99,7 +99,10 @@ export default {
         }
         const name =
           typeof body.name === 'string' ? body.name.trim() : '';
-        if (!name || name.length > 40) {
+        // The name is OPTIONAL (the lobby labels it so): a blank or
+        // missing name is defaulted below once the code exists.
+        // Only the length cap is enforced here.
+        if (name.length > 40) {
           return Response.json({ error: 'bad_request' }, { status: 400 });
         }
         if (![2, 3, 4].includes(body.starCount)) {
@@ -126,7 +129,7 @@ export default {
 
         const seed = Math.floor(Math.random() * 2 ** 31);
         const init: RoomInitBody = {
-          name,
+          name: name === '' ? `ROOM ${code}` : name,
           starCount: body.starCount,
           private: body.private ?? false,
           code,
