@@ -99,6 +99,11 @@ export interface SeatTrackingResult {
  * match end — critical mass (a star reaches BLACK HOLE, M15) first,
  * then last-survivor (exactly one seat standing after at least one
  * elimination). An already-decided match end is never overwritten.
+ * A critical-mass derivation also stamps the collapse-cinematic
+ * bookkeeping (P2-4) onto the record — inputLockout, the collapsing
+ * (winning) star's id, and the cinematic start on the ms-epoch clock
+ * (`nowEpochMs`, injectable for tests; wall clock by default) — so
+ * the host's matchEnded announce reads them from state verbatim.
  *
  * A seat is eliminated when its STAR's integrity reaches 0 (Adam's
  * ruling: ship death is not elimination).
@@ -108,6 +113,7 @@ export const advanceSeatTracking = (
   seats: SeatSimState[],
   prevMatchEnd: MatchEndState | null,
   at?: number,
+  nowEpochMs?: number,
 ): SeatTrackingResult => {
   const entries: EventFeedEntry[] = [];
   const prevByOwnerId = new Map(prevSeats.map(s => [s.ownerId, s]));
@@ -166,6 +172,12 @@ export const advanceSeatTracking = (
       matchEnd = {
         endReason: 'critical_mass',
         winnerOwnerId: blackHoleSeat.ownerId,
+        // Collapse cinematic (P2-4): inputs lock, the collapsing
+        // star is the winner's, and the cinematic clock starts now
+        // (ms epoch — the protocol's shared freeze clock).
+        inputLockout: true,
+        collapsingStarId: starIdForSeat(blackHoleSeat.starIndex),
+        cinematicStartedAt: nowEpochMs ?? Date.now(),
       };
     } else {
       const standing = seats.filter(s => !s.eliminated);
@@ -173,6 +185,7 @@ export const advanceSeatTracking = (
         matchEnd = {
           endReason: 'last_survivor',
           winnerOwnerId: standing[0].ownerId,
+          inputLockout: false,
         };
       }
     }

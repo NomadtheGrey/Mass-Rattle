@@ -126,6 +126,17 @@ export interface StarTurret {
 export interface Star extends GameObject {
   mass: number;
   totalScrapInfused: number;
+  /**
+   * Growth base radius (P2-4): this star's size at 0 milestones.
+   * Every current radius derives from it deterministically in
+   * src/sim/starStages.ts — the physical size (growth curve, then
+   * the NEUTRON collapse) and the effective/well radius (the
+   * un-shrunk curve) — and the game loop reconciles `size` to that
+   * derivation every frame, so `size` is never edited by hand.
+   * Factories set it: 40 for match stars and the SP home star; the
+   * SP enemy star starts pre-grown at 120.
+   */
+  baseSize: number;
   type: 'home' | 'enemy';
   /** Seat-scoped ownerId (Phase 2, src/sim/ownership.ts): the seat
    * that owns this entity for the whole match, whoever controls it. */
@@ -247,12 +258,28 @@ export interface SeatSimState {
 
 /**
  * Match-end DATA (Phase 2, P2-2b) — the sim's record that an end
- * condition has been reached. The cinematic freeze (critical mass)
- * and the results wiring are P2-4; this is the fact, not the show.
+ * condition has been reached. P2-4 adds the collapse-cinematic
+ * bookkeeping the protocol's matchEnded carries: the fields below
+ * are stamped once, at derivation (src/sim/seatState.ts), and the
+ * host's wire announce reads them from here verbatim — the wire
+ * shape is protocol.ts's MatchEndedEvent, unchanged.
  */
 export interface MatchEndState {
   endReason: MatchEndReason;
   winnerOwnerId: string;
+  /** Critical-mass ends: ship inputs stop applying while the
+   * collapse cinematic runs (the loop's input phase enforces it).
+   * Stamped false for last-survivor ends, which lock nothing. */
+  inputLockout?: boolean;
+  /** Critical-mass ends only: `star-<starIndex>` of the collapsing
+   * star — by the match-end law that is the WINNER's star (the one
+   * that reached BLACK HOLE). */
+  collapsingStarId?: string;
+  /** Critical-mass ends only: when the cinematic began, ms epoch —
+   * the protocol's shared clock, so every client freezes together
+   * and the lockout window (starStages.CINEMATIC_DURATION_MS) is
+   * measured on it. */
+  cinematicStartedAt?: number;
 }
 
 export interface GameState {

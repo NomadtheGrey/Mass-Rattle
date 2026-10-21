@@ -66,6 +66,7 @@ const createSeatStar = (
   pos: { ...pos },
   vel: { x: 0, y: 0 },
   size: 40,
+  baseSize: 40,
   mass: 400,
   totalScrapInfused: 0,
   type: starIndex === 0 ? 'home' : 'enemy',
