@@ -6,6 +6,7 @@ import { shieldMaxFor, PD_RANGE } from '../loadout';
 import { turretRingRadius } from '../starDefense';
 import { getUiOptions } from '../uiOptions';
 import { stealthAlphaFor, mineVisibleToViewer, isStealthShip } from '../sim/stealth';
+import { shipSprite, tintedShipSprite, SPRITE_SCALE } from '../shipSprites';
 import { typeFor } from '../shipProgression';
 import { stageStateForInfused } from '../sim/starStages';
 
@@ -947,13 +948,32 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       ctx.stroke();
     }
 
-    // Ship Body — the frame's own silhouette (see HULL_OUTLINES).
-    ctx.fillStyle = '#1a1a1c';
-    ctx.strokeStyle = COLORS.CRT_GLOW;
-    ctx.lineWidth = 2;
-    traceOutline(ctx, hullPts);
-    ctx.fill();
-    ctx.stroke();
+    // Ship Body — the painted SPRITE when it has loaded (Pretty
+    // Ships): rotated from nose-up into the hull's forward, drawn at
+    // SPRITE_SCALE over the outline's footprint, with the outline
+    // stroked thin over the art so the silhouette truth still reads.
+    // Until the image lands (or if it ever fails), the vector body
+    // below draws exactly as it always has. Armor rim (under) and
+    // the capability tells (over) are unchanged either way.
+    const localSprite = shipSprite(ship.line, ship.typeTier);
+    if (localSprite) {
+      ctx.save();
+      ctx.rotate(Math.PI / 2);
+      const S = ship.size * SPRITE_SCALE;
+      ctx.drawImage(localSprite, -S / 2, -S / 2, S, S);
+      ctx.restore();
+      ctx.strokeStyle = COLORS.CRT_GLOW;
+      ctx.lineWidth = 1.5;
+      traceOutline(ctx, hullPts);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = '#1a1a1c';
+      ctx.strokeStyle = COLORS.CRT_GLOW;
+      ctx.lineWidth = 2;
+      traceOutline(ctx, hullPts);
+      ctx.fill();
+      ctx.stroke();
+    }
 
     // CAPABILITY TELLS: the frame's special, drawn from the same def the
     // sim fires with — extra hard points as flank mount nubs, cruiser
@@ -1209,12 +1229,30 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
           ctx.lineTo(-rs.size * 0.8, (Math.random() - 0.5) * 4);
           ctx.fill();
         }
-        ctx.fillStyle = '#1a1a1c';
-        ctx.strokeStyle = ghost ? 'rgba(150, 215, 255, 0.9)' : (label ? label.color : COLORS.CRT_GLOW);
-        ctx.lineWidth = 2;
-        traceOutline(ctx, hullOutlineFor(rs.line, rs.typeTier, rs.size));
-        ctx.fill();
-        ctx.stroke();
+        // Hull presentation: an IDENTIFIED ship (not a cloak ghost)
+        // wears its painted sprite, washed toward its team color;
+        // a ghost keeps the sonar vector — detection earns a shape,
+        // identification earns the ship. Vector fallback while the
+        // image loads, as with the local hull.
+        const rsSprite = !ghost ? tintedShipSprite(rs.line, rs.typeTier, label ? label.color : null) : null;
+        if (rsSprite) {
+          ctx.save();
+          ctx.rotate(Math.PI / 2);
+          const S = rs.size * SPRITE_SCALE;
+          ctx.drawImage(rsSprite, -S / 2, -S / 2, S, S);
+          ctx.restore();
+          ctx.strokeStyle = label ? label.color : COLORS.CRT_GLOW;
+          ctx.lineWidth = 1.5;
+          traceOutline(ctx, hullOutlineFor(rs.line, rs.typeTier, rs.size));
+          ctx.stroke();
+        } else {
+          ctx.fillStyle = '#1a1a1c';
+          ctx.strokeStyle = ghost ? 'rgba(150, 215, 255, 0.9)' : (label ? label.color : COLORS.CRT_GLOW);
+          ctx.lineWidth = 2;
+          traceOutline(ctx, hullOutlineFor(rs.line, rs.typeTier, rs.size));
+          ctx.fill();
+          ctx.stroke();
+        }
         ctx.restore();
         if (ghost) {
           // The sonar echo: a dashed ring says DETECTED, not seen.
