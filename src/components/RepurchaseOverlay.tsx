@@ -16,7 +16,7 @@ import React from 'react';
  *    post-loss bank (stepping down per death), FREE at zero — it can
  *    never exceed what the player has. That guarantee is the panel's
  *    backbone copy, not fine print.
- * 2. LEAVING IS A REAL DOOR: LEAVE MATCH (the room leave path) sits
+ * 2. LEAVING IS TWO REAL DOORS (grace-vs-forfeit): STEP AWAY keeps
  *    beside REPURCHASE; buying back is a choice.
  * 3. DISMISSAL HAS A WAY BACK: the corner [X], ESC, and the X key
  *    dismiss the panel (the modal rule), and App keeps a persistent
@@ -28,7 +28,13 @@ interface RepurchaseOverlayProps {
   bankedScrap: number;
   price: number;
   onRepurchase: () => void;
+  /** STEP AWAY: the plain leave — the seat parks in grace, a bot
+   *  flies it, and the player may reclaim it all match. */
   onLeaveMatch: () => void;
+  /** FORFEIT: the seat is released for good (Adam's grace-vs-forfeit
+   *  ruling) — no reclaim, and a paid buy-back is forgotten with it.
+   *  No refund exists. */
+  onForfeitMatch: () => void;
   onDismiss: () => void;
   /** DEATH TAX (Adam, 2026-10-21): when the sim's death-tax state
    * lands, a PAID buy-back sets the seat's respawn deadline (seat.respawnAt)
@@ -41,7 +47,7 @@ interface RepurchaseOverlayProps {
 }
 
 export const RepurchaseOverlay: React.FC<RepurchaseOverlayProps> = ({
-  deaths, bankedScrap, price, onRepurchase, onLeaveMatch, onDismiss,
+  deaths, bankedScrap, price, onRepurchase, onLeaveMatch, onForfeitMatch, onDismiss,
   respawnAt = null,
 }) => {
   // The countdown ticks on its own clock while the paid wait runs,
@@ -126,14 +132,24 @@ export const RepurchaseOverlay: React.FC<RepurchaseOverlayProps> = ({
             Paid buy-backs also wait out a short redeploy timer — the death tax. The free floor never does.
           </p>
         )}
-        <button
-          onClick={onLeaveMatch}
-          className="w-full mt-2 py-2.5 rounded font-bold text-xs tracking-widest bg-zinc-900 text-red-400 border border-red-900 hover:border-red-500 hover:text-red-300 active:scale-[0.98] touch-manipulation"
-        >
-          LEAVE MATCH
-        </button>
+        <div className="flex gap-2 mt-2">
+          <button
+            onClick={onLeaveMatch}
+            className="flex-1 py-2.5 rounded font-bold text-xs tracking-widest bg-zinc-900 text-zinc-300 border border-zinc-700 hover:border-zinc-400 active:scale-[0.98] touch-manipulation"
+          >
+            STEP AWAY
+          </button>
+          <button
+            onClick={onForfeitMatch}
+            className="flex-1 py-2.5 rounded font-bold text-xs tracking-widest bg-zinc-900 text-red-400 border border-red-900 hover:border-red-500 hover:text-red-300 active:scale-[0.98] touch-manipulation"
+          >
+            FORFEIT SEAT
+          </button>
+        </div>
         <p className="text-[9px] font-mono text-zinc-600 mt-2 leading-snug">
-          Leaving isn't dying twice: rejoin while the match runs and you can reclaim your seat.
+          {insurancePaid
+            ? 'You PAID for this buy-back. Step away and your seat — wait and all — stays yours to reclaim. Forfeit and the payment is forgotten with the seat: no refund, no reclaim.'
+            : 'Step away: your seat is kept, a bot flies it, and you can reclaim it any time this match. Forfeit: the seat is released for good — no reclaim.'}
         </p>
         <p className="text-[9px] font-mono text-zinc-600 mt-3 leading-snug">
           A fresh starter frame, bought from your bank. Each death steps the price down — coming back gets cheaper, never free of consequence.

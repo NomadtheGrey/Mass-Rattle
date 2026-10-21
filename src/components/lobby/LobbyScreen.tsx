@@ -22,7 +22,11 @@ export interface LobbyCallbacks {
   onCreate: (name: string, starCount: 2 | 3 | 4, isPrivate: boolean, callsign: string) => void;
   onJoin: (code: string, callsign: string) => void;
   onStart: () => void;
+  /** STEP AWAY: plain leave — the seat parks in grace, a bot flies
+   *  it, reclaimable all match. */
   onLeave: () => void;
+  /** FORFEIT: the seat is released for good (no hold, no reclaim). */
+  onForfeit: () => void;
   /** Close the modal WITHOUT leaving (entry view: nothing to leave). */
   onClose: () => void;
   onSetTeam: (teamId: TeamId) => void;
@@ -216,7 +220,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
       className="fixed top-3 right-3 z-[110] min-w-11 h-11 px-2 rounded bg-zinc-900/85 border border-zinc-600 text-zinc-200 font-mono font-bold text-sm flex items-center justify-center gap-1.5 touch-manipulation active:scale-95 hover:border-red-400 hover:text-white shadow-lg"
     >
       <span aria-hidden="true">✕</span>
-      {seated && <span className="text-[9px] tracking-widest text-zinc-400">LEAVE</span>}
+      {seated && <span className="text-[9px] tracking-widest text-zinc-400">STEP AWAY</span>}
     </button>
   );
 
@@ -328,12 +332,23 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             </div>
           )}
 
-          <button
-            onClick={callbacks.onLeave}
-            className="w-full py-2 text-[11px] font-mono text-zinc-500 hover:text-red-400 tracking-widest touch-manipulation"
-          >
-            [ LEAVE ROOM ]
-          </button>
+          <p className="text-[9px] font-mono text-zinc-600 leading-snug px-1">
+            STEP AWAY keeps your seat — a bot flies it and you can reclaim it any time this match. FORFEIT releases it for good.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={callbacks.onLeave}
+              className="flex-1 py-2 text-[11px] font-mono text-zinc-400 hover:text-zinc-100 border border-zinc-800 rounded tracking-widest touch-manipulation"
+            >
+              [ STEP AWAY ]
+            </button>
+            <button
+              onClick={callbacks.onForfeit}
+              className="flex-1 py-2 text-[11px] font-mono text-zinc-500 hover:text-red-400 border border-zinc-800 rounded tracking-widest touch-manipulation"
+            >
+              [ FORFEIT ]
+            </button>
+          </div>
         </div>
         </div>
       </div>

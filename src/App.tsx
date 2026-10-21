@@ -145,6 +145,7 @@ export default function App() {
           price={repurchasePriceFor(localSeat.bankedScrap, localSeat.deaths)}
           onRepurchase={() => repurchaseShip(localSeat.ownerId)}
           onLeaveMatch={() => { net.leaveRoom(); setLobbyOpen(false); }}
+          onForfeitMatch={() => { net.forfeitRoom(); setLobbyOpen(false); }}
           onDismiss={() => setRepurchaseDismissed(true)}
           respawnAt={localRespawnAt}
         />
@@ -181,6 +182,7 @@ export default function App() {
             onStart: net.startMatch,
             onSetTeam: net.setTeam,
             onLeave: () => { net.leaveRoom(); setLobbyOpen(false); },
+            onForfeit: () => { net.forfeitRoom(); setLobbyOpen(false); },
             onClose: () => setLobbyOpen(false),
           }}
         />
