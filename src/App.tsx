@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { GameCanvas } from './components/GameCanvas';
+import { TEAM_COLORS } from './net/protocol';
 import { HUD } from './components/HUD';
 import { ResultsOverlay } from './components/ResultsOverlay';
 import { MobileControls } from './components/MobileControls';
@@ -41,6 +42,19 @@ export default function App() {
   // game; when a room's phase leaves 'lobby' the game screen takes
   // over, and the session also rides NetSessionContext to the shell.
   const net = useNetClient();
+  // NAMEPLATE bridge (Adam, 2026-10-21): in a net room, every seat's
+  // issued callsign + team color, keyed by the seat-scoped ownerId
+  // the sim stamps on its ships. The canvas joins on that id — the
+  // sim's seat state carries no callsign, by contract. Solo: no room,
+  // no labels, no plates.
+  const seatLabels = useMemo(() => {
+    if (!net.room) return undefined;
+    const map: Record<string, { callsign: string; color: string }> = {};
+    for (const s of net.room.seats) {
+      map[s.ownerId] = { callsign: s.occupant.callsign, color: TEAM_COLORS[s.teamId] };
+    }
+    return map;
+  }, [net.room]);
 
   const {
     state,
@@ -262,7 +276,7 @@ export default function App() {
         <div className="absolute inset-0 z-0">
           <div className="w-full h-full relative bg-[#050505]">
             <div className="absolute inset-0 grid-bg opacity-20 pointer-events-none" />
-            <GameCanvas state={state} width={dimensions.width} height={dimensions.height} />
+            <GameCanvas state={state} width={dimensions.width} height={dimensions.height} seatLabels={seatLabels} />
           </div>
         </div>
 

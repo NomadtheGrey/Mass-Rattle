@@ -73,11 +73,15 @@ const traceOutline = (c: CanvasRenderingContext2D, pts: Pt[]) => {
 
 interface GameCanvasProps {
   state: GameState;
+  /** NAMEPLATES (Adam, 2026-10-21): ownerId -> {callsign, team color}
+   *  for every seat in a net room, built by App from the room state.
+   *  Absent in solo — no plates, and remote ships don't exist there. */
+  seatLabels?: Record<string, { callsign: string; color: string }>;
   width: number;
   height: number;
 }
 
-export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) => {
+export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, seatLabels }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // Wrap-edge flash: a >2000-unit jump between frames can only be the
   // world wrap firing — remember when it happened so the rim can flash.
@@ -1048,6 +1052,59 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height }) 
       }
     }
     ctx.restore();
+
+    // REMOTE SHIPS + NAMEPLATES (Adam, 2026-10-21): every seat's ship
+    // is on the field in a net room — until now this canvas drew only
+    // the viewer's frame, so other players were invisible. A remote
+    // frame wears its own type/hull silhouette stroked in its TEAM
+    // color (friend-or-foe at a glance) with a thrust flame when its
+    // sim says it's burning — and none of the viewer's instruments
+    // (no VAC ring, no gauges: those belong to the seat you fly).
+    // Every ship in the room, the viewer's included, wears a
+    // NAMEPLATE: the callsign exactly as issued (bots read BOT-<n>)
+    // in the seat's team color. Solo passes no labels; nothing here
+    // draws there.
+    if (seatLabels) {
+      const plateFor = (sx: number, sy: number, size: number, ownerId: string) => {
+        const label = seatLabels[ownerId];
+        if (!label) return;
+        ctx.save();
+        ctx.font = '11px monospace';
+        ctx.textAlign = 'center';
+        const w = ctx.measureText(label.callsign).width + 10;
+        const y = sy - size - 18;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+        ctx.fillRect(sx - w / 2, y - 9, w, 13);
+        ctx.fillStyle = label.color;
+        ctx.fillText(label.callsign, sx, y + 2);
+        ctx.restore();
+      };
+      for (const seat of state.seats) {
+        const rs = seat.ship;
+        if (!rs || seat.ownerId === ship.ownerId) continue;
+        const label = seatLabels[seat.ownerId];
+        ctx.save();
+        ctx.translate(rs.pos.x, rs.pos.y);
+        ctx.rotate(rs.angle);
+        if (rs.thrust) {
+          ctx.fillStyle = '#ff6600';
+          ctx.beginPath();
+          ctx.moveTo(-rs.size * 0.8, 0);
+          ctx.lineTo(-rs.size * 2 - Math.random() * 15, (Math.random() - 0.5) * 8);
+          ctx.lineTo(-rs.size * 0.8, (Math.random() - 0.5) * 4);
+          ctx.fill();
+        }
+        ctx.fillStyle = '#1a1a1c';
+        ctx.strokeStyle = label ? label.color : COLORS.CRT_GLOW;
+        ctx.lineWidth = 2;
+        traceOutline(ctx, hullOutlineFor(rs.line, rs.typeTier, rs.size));
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+        plateFor(rs.pos.x, rs.pos.y, rs.size, seat.ownerId);
+      }
+      plateFor(ship.pos.x, ship.pos.y, ship.size, ship.ownerId);
+    }
 
     ctx.restore(); // End Camera space
 
