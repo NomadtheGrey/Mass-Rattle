@@ -906,7 +906,18 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
 
   useEffect(() => {
     let frameId: number;
+    let prevFrameTime: number | null = null;
     const loop = (time: number) => {
+      // Frame delta for the survival ledger (death-tax decay).
+      // Clamped: a hidden tab or a long hitch must not bank
+      // survival the player never lived. Guests return early
+      // below — their seats' ledgers accrue on the HOST and ride
+      // the snapshots, like every other seat fact.
+      const frameDtMs =
+        prevFrameTime === null
+          ? 0
+          : Math.min(250, Math.max(0, time - prevFrameTime));
+      prevFrameTime = time;
       // NET MODE GATES (P2-3b). Solo (no room): both gates are inert
       // and the frame below runs exactly as shipped.
       const frameSession = netRef.current;
@@ -1851,6 +1862,17 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         // repurchaseShip callback, below). Runs before the bot
         // drivers so a bought-back ship flies this same frame.
         if (!prev.matchEnd) {
+          // SURVIVAL LEDGER (death-tax decay, Adam, 2026-10-21):
+          // time alive banks on the seat and never resets — each
+          // full minute forgives one death-step of the respawn
+          // wait's growth (deathEconomy). Dead, waiting, and
+          // eliminated seats accrue nothing: the ship is the proof
+          // of life.
+          for (const seat of simSeats) {
+            if (seat.ship && !seat.eliminated) {
+              seat.survivalMs = (seat.survivalMs ?? 0) + frameDtMs;
+            }
+          }
           // DEATH-TAX ARRIVALS (Adam, 2026-10-21): a paid buy-back's
           // frame lands when its respawn wait elapses. Payment was
           // recorded at purchase; arrival itself is silent.

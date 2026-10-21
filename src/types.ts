@@ -277,6 +277,13 @@ export interface SeatSimState {
    * off snapshots (their own clock is not the host's loop clock, so
    * the total + first-sight is their countdown basis). */
   respawnWaitMs?: number;
+  /** Total time this seat has SURVIVED this match (ms, loop clock),
+   * accrued per frame while it has a ship and is not eliminated;
+   * never reset by death — survival is banked across lives. Read
+   * only by the death tax: each full SURVIVAL_MS_PER_TAX_STEP of it
+   * forgives one death-step of the respawn wait's growth (Adam,
+   * 2026-10-21: the tax decays through honest play). */
+  survivalMs?: number;
   /** A seat is eliminated when its STAR dies (Adam's ruling: ship
    * death is not elimination). */
   eliminated: boolean;

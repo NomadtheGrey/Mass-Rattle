@@ -80,17 +80,43 @@ export const RESPAWN_WAIT_PER_DEATH_MS = 1000;
  *  ("shills") — a wait climbing toward a 30 s ceiling makes the
  *  farming cost real time. */
 export const RESPAWN_WAIT_MAX_MS = 30000;
+/** DRAFT, UNRULED (Adam, 2026-10-21 — the tax DECAYS through
+ *  honest play): each full stretch of this much SURVIVED time
+ *  forgives one death-step of the wait's growth — "if the player
+ *  survives X amount of seconds, the tax gets lowered. As a reward
+ *  for surviving." Drafted at a minute of honest play per step:
+ *  forgiveness is earned, never ambient, and a deep hole takes
+ *  real play to climb out of. Survival is BANKED across lives
+ *  (the seat's survivalMs never resets on death) and steps are
+ *  whole — no fractions, the ledger stays legible. */
+export const SURVIVAL_MS_PER_TAX_STEP = 60000;
+
+/** Whole death-steps forgiven by a seat's banked survival. */
+export const taxStepsForgiven = (survivalMs: number): number =>
+  Math.floor(Math.max(0, survivalMs) / SURVIVAL_MS_PER_TAX_STEP);
+
+/**
+ * The death count the WAIT reads: raw deaths minus forgiven
+ * steps, floored at 1 — survival can work the tax back down to
+ * the first-death base, never below it. (The PRICE step-down is
+ * a separate curve and is NOT forgiven: repurchasePriceFor reads
+ * raw deaths, exactly as before.)
+ */
+export const effectiveTaxDeaths = (deaths: number, survivalMs: number): number =>
+  Math.max(1, deaths - taxStepsForgiven(survivalMs));
 
 /**
  * The death-tax wait for a seat's NEXT paid repurchase, from its
  * lifetime death count (the count AFTER the death being bought
- * back from — the first buy-back waits the base). Pure.
+ * back from — the first buy-back waits the base) reduced by the
+ * steps its banked survival forgives. Pure.
  */
-export const respawnWaitMsFor = (deaths: number): number =>
+export const respawnWaitMsFor = (deaths: number, survivalMs = 0): number =>
   Math.min(
     RESPAWN_WAIT_MAX_MS,
     RESPAWN_WAIT_BASE_MS +
-      RESPAWN_WAIT_PER_DEATH_MS * Math.max(0, deaths - 1),
+      RESPAWN_WAIT_PER_DEATH_MS *
+        Math.max(0, effectiveTaxDeaths(deaths, survivalMs) - 1),
   );
 
 export interface DeathLossResult {
@@ -195,7 +221,7 @@ export const tryRepurchase = (
     const ship = completeRespawn(seat);
     return ship ? { ship, cost } : null;
   }
-  const waitMs = respawnWaitMsFor(seat.deaths);
+  const waitMs = respawnWaitMsFor(seat.deaths, seat.survivalMs ?? 0);
   seat.respawnAt = now + waitMs;
   seat.respawnWaitMs = waitMs;
   return { ship: null, cost, respawnAt: seat.respawnAt };

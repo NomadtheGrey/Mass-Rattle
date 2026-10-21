@@ -84,6 +84,7 @@ export const createSeatSimState = (
   fedTotal: star.totalScrapInfused,
   kills: 0,
   deaths: 0,
+  survivalMs: 0,
   eliminated: false,
   eliminationOrder: null,
 });
