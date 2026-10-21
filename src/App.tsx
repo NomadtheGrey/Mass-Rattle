@@ -166,17 +166,15 @@ export default function App() {
           clientState={net.clientState}
           room={net.room}
           myPlayerId={net.myPlayerId}
-          defaultCallsign={window.localStorage.getItem('mr.callsign') || ''}
+          defaultCallsign=""
           initialCode={urlRoomCode}
           reclaimedOwnerId={net.reclaimedOwnerId}
           notice={net.notice}
           callbacks={{
             onCreate: (name, starCount, isPrivate, callsign) => {
-              window.localStorage.setItem('mr.callsign', callsign);
               net.createRoom(name, starCount, isPrivate, callsign);
             },
             onJoin: (code, callsign) => {
-              window.localStorage.setItem('mr.callsign', callsign);
               net.joinRoom(code, callsign);
             },
             onStart: net.startMatch,
