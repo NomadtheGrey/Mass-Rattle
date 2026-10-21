@@ -62,6 +62,7 @@ export const createStarterShip = (
   typeTier: 1,
   hullSteps: 0,
   lineSwitchesUsed: 0,
+  turretMounts: 0,
 });
 
 /** A seat record around an existing star (+ ship, for seats that fly). */

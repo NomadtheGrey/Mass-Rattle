@@ -31,7 +31,7 @@ import { applyDeathLoss, botRepurchaseDue, completeRespawn, respawnDue, tryRepur
 import { appendEventRecords, EventFeedEntry } from '../sim/eventFeed';
 import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, turretAngleAt, targetInTurretArc, applyDeliveryHeal } from '../starDefense';
 import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, thornDamageFor, aegisAbsorbFor } from '../loadout';
-import { ShipLine, TypeTier, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, EXTRA_MOUNT_DAMAGE, AUTO_GUN } from '../shipProgression';
+import { ShipLine, TypeTier, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, EXTRA_MOUNT_DAMAGE, AUTO_GUN, autoGunCapFor, effectiveAutoGuns, turretMountPriceFor } from '../shipProgression';
 
 /**
  * SHIP PROGRESSION (Phase 3, src/shipProgression.ts — DRAFT numbers):
@@ -503,6 +503,28 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         maxHealth: prev.ship.maxHealth + HULL_STEP_HEALTH,
         health: prev.ship.health + HULL_STEP_HEALTH,
       };
+      return { ...prev, ship, bankedScrap: payment.banked, glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
+    });
+  }, []);
+
+  /**
+   * Buy ONE turret mount (Arsenal slice 2, 2026-10-21): mounts fill
+   * the current type's autoGuns CAP one purchase at a time, priced
+   * off turretMountPriceFor (DRAFT — see shipProgression.ts). At the
+   * cap the purchase refuses (the hull carries no more — a deeper
+   * type is the way up, the two-ladder rule again). Mounts persist
+   * across type/line changes and die with the ship (the fresh
+   * starter frame carries none). Workshop work: well-gated like
+   * every refit.
+   */
+  const buyTurretMount = useCallback(() => {
+    setState(prev => {
+      if (!inTeamWell(prev.seats, prev.ship)) return prev; // mounts are fitted at home
+      if (prev.ship.turretMounts >= autoGunCapFor(prev.ship.line, prev.ship.typeTier)) return prev;
+      const cost = turretMountPriceFor(prev.ship.turretMounts);
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost, inTeamWell(prev.seats, prev.ship));
+      if (!payment) return prev;
+      const ship = { ...prev.ship, carrying: payment.carrying, turretMounts: prev.ship.turretMounts + 1 };
       return { ...prev, ship, bankedScrap: payment.banked, glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
     });
   }, []);
@@ -1743,16 +1765,19 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           }
         }
 
-        // CRUISER AUTO-GUNS (Phase 3): the cruiser line's shipboard
-        // turrets fire on their own — each gun independently rolls its
-        // fire chance per frame at the NEAREST hostile in range (an
-        // enemy drone, else the enemy star). They never focus-fire the
-        // pilot's target; the pilot's own weapon is separate. Bolts are
-        // ordinary player projectiles with kind 'auto_gun', so they run
-        // the same drone/star hit paths as ship weapons (star turret
-        // bolts pass drones by leaving kind unset; these set it, so
-        // they connect with drones too — that's their job).
-        const autoGunCount = typeFor(ship.line, ship.typeTier).autoGuns;
+        // SHIPBOARD AUTO-TURRETS (Phase 3, universalized by Arsenal
+        // slice 2, 2026-10-21): purchased turret mounts fire on their
+        // own — each gun independently rolls its fire chance per frame
+        // at the NEAREST hostile in range (an enemy drone, else the
+        // enemy star). They never focus-fire the pilot's target; the
+        // pilot's own weapon is separate. Bolts are ordinary player
+        // projectiles with kind 'auto_gun', so they run the same
+        // drone/star hit paths as ship weapons (star turret bolts pass
+        // drones by leaving kind unset; these set it, so they connect
+        // with drones too — that's their job). The count is
+        // effectiveAutoGuns: the type's CAP bounded by mounts OWNED —
+        // an unbought cap fires nothing.
+        const autoGunCount = effectiveAutoGuns(ship);
         if (!localSeatDead && autoGunCount > 0) {
           let gunTarget: Vector2D | null = null;
           let gunBestD = AUTO_GUN.range;
@@ -2156,6 +2181,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     equipItem,
     buyType,
     buyHullStep,
+    buyTurretMount,
     switchLine,
     buildDrone,
     repurchaseShip,

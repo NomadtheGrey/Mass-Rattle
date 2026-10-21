@@ -75,6 +75,13 @@ export interface Ship extends GameObject {
   hullSteps: number;
   /** Lifetime line switches this match (the first switch is free). */
   lineSwitchesUsed: number;
+  /** Turret mounts OWNED (Arsenal slice 2, 2026-10-21): bought one
+   *  at a time in the workshop up to the current type's cap (the
+   *  autoGuns field, read via effectiveAutoGuns). Per-match ship
+   *  property like the arsenal: the fresh starter frame after a
+   *  death carries none. Persists across type/line changes — caps
+   *  gate buying and firing, never strip what is owned. */
+  turretMounts: number;
 }
 
 export interface Projectile {

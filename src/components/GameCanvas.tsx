@@ -7,7 +7,7 @@ import { turretRingRadius } from '../starDefense';
 import { getUiOptions } from '../uiOptions';
 import { stealthAlphaFor, mineVisibleToViewer, isStealthShip } from '../sim/stealth';
 import { shipSprite, tintedShipSprite, SPRITE_SCALE } from '../shipSprites';
-import { typeFor } from '../shipProgression';
+import { typeFor, effectiveAutoGuns } from '../shipProgression';
 import { stageStateForInfused } from '../sim/starStages';
 
 // CME EJECTA (Adam, 2026-10-21): a CME is stellar mass jetting out and
@@ -1046,7 +1046,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
           ctx.stroke();
         }
       }
-      for (let i = 0; i < def.autoGuns; i++) {
+      for (let i = 0; i < effectiveAutoGuns(ship); i++) {
         const gx = ship.size * (0.5 - i * 0.55);
         ctx.beginPath();
         ctx.arc(gx, 0, 3, 0, Math.PI * 2);
