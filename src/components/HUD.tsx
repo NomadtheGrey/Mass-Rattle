@@ -352,6 +352,7 @@ export const HUD: React.FC<HUDProps> = ({
       : []),
     { label: 'SHOP', keys: 'TAB · U — AT HOME STAR' },
     { label: 'UPGRADES', keys: '1 – 5' },
+    { label: 'FIELD MANUAL', keys: 'ESC' },
   ];
 
   // Minimap logic
