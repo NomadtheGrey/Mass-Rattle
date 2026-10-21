@@ -266,31 +266,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
           }
         }
 
-      // Turret Hubs — read straight from state (Phase 1c): star.turrets
-      // is the ladder's list ({shell, angle, tier} per turret, a pure
-      // function of milestone count — see starDefense.ts). Angles are
-      // ABSOLUTE: the sim fires from pos + angle x turretRingRadius, so
-      // the hubs sit exactly where the bolts come from. (The old draw
-      // rotated the ring by starOrbit and showed one hub — the hubs
-      // appeared to orbit while the sim fired from fixed angles.)
-      // Hub box grows a little per tier, matching its fire stats.
-      (s.turrets || []).forEach(t => {
-        const ring = turretRingRadius(s.size, t.shell);
-        const hub = 9 + Math.min(t.tier, 4);
-        ctx.save();
-        ctx.rotate(t.angle);
-        ctx.translate(ring, 0);
-        ctx.fillStyle = isHome ? '#1a1a1c' : '#300';
-        ctx.strokeStyle = isHome ? COLORS.CRT_GLOW : '#f43f5e';
-        ctx.lineWidth = 1;
-        ctx.fillRect(-hub / 2, -hub / 2, hub, hub);
-        ctx.strokeRect(-hub / 2, -hub / 2, hub, hub);
-        // Barrel
-        ctx.fillRect(hub / 2, -2, 8, 4);
-        ctx.strokeRect(hub / 2, -2, 8, 4);
-        ctx.restore();
-      });
-
       // BANK WELL (home star only): the gravity-well ring that IS the bank,
       // plus one orbiting mote per banked scrap (capped for readability) so
       // savings are visible in the world, circling their star.
@@ -427,7 +402,52 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       ctx.fillStyle = isHome ? '#33ff33' : '#f43f5e';
       ctx.font = '10px monospace';
       ctx.fillText(isHome ? 'SYS: HOME_STAR_CORE' : 'SYS: ENEMY_STAR_CORE', -30, -s.size - 20);
-      
+
+      // Turret Hubs — read straight from state (Phase 1c): star.turrets
+      // is the ladder's list ({shell, angle, tier} per turret, a pure
+      // function of milestone count — see starDefense.ts). Angles are
+      // ABSOLUTE: the sim fires from pos + angle x turretRingRadius, so
+      // the hubs sit exactly where the bolts come from. (The old draw
+      // rotated the ring by starOrbit and showed one hub — the hubs
+      // appeared to orbit while the sim fired from fixed angles.)
+      // Hub box grows a little per tier, matching its fire stats.
+      // DRAWN LAST IN THE STAR BLOCK (Adam's live-test ticket,
+      // 2026-10-21): the hub orbits OUTSIDE the body (inner ring =
+      // size + 15) — it was never inside the star, it was UNDER its
+      // light: the noise flares, the core gradient's rim and the CME
+      // agitation all painted over a 10px dark box, and a gun you
+      // can't see feels like cheating when it kills you. So the hub
+      // now draws after body + glow and wears a bright allegiance
+      // core on a black contrast halo: visible against the bright
+      // rim and against dark space alike.
+      (s.turrets || []).forEach(t => {
+        const ring = turretRingRadius(s.size, t.shell);
+        const hub = 9 + Math.min(t.tier, 4);
+        const allegiance = isHome ? COLORS.CRT_GLOW : '#f43f5e';
+        ctx.save();
+        ctx.rotate(t.angle);
+        ctx.translate(ring, 0);
+        // Contrast halo, then the dark box with its allegiance rim.
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.lineWidth = 3.5;
+        ctx.strokeRect(-hub / 2, -hub / 2, hub, hub);
+        ctx.fillStyle = isHome ? '#1a1a1c' : '#300';
+        ctx.fillRect(-hub / 2, -hub / 2, hub, hub);
+        ctx.strokeStyle = allegiance;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(-hub / 2, -hub / 2, hub, hub);
+        // The bright core: the gun's lit heart, half the box.
+        ctx.fillStyle = allegiance;
+        const core = hub * 0.5;
+        ctx.fillRect(-core / 2, -core / 2, core, core);
+        // Barrel, lit the same way — the threat direction reads too.
+        ctx.fillRect(hub / 2, -2, 8, 4);
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(hub / 2, -2, 8, 4);
+        ctx.restore();
+      });
+
       ctx.restore();
     });
 
