@@ -23,6 +23,8 @@ export interface LobbyCallbacks {
   onJoin: (code: string, callsign: string) => void;
   onStart: () => void;
   onLeave: () => void;
+  /** Close the modal WITHOUT leaving (entry view: nothing to leave). */
+  onClose: () => void;
   onSetTeam: (teamId: TeamId) => void;
 }
 
@@ -139,6 +141,54 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   const busy = clientState.connection === 'connecting';
   const callsignOk = callsign.trim().length > 0;
 
+  // THE EXIT (Adam, 2026-10-21: 'We don't have a way to exit the
+  // multiplayer screen'). Closing is honest about where you are: in
+  // the entry view it just closes the modal; SEATED in a room, the
+  // same gesture LEAVES the room (the existing onLeave path) — so the
+  // room view's button says LEAVE, not a bare X that would strand
+  // nobody but tell nobody either. ESC and the X key close too. The
+  // listener is CAPTURE-phase with stopPropagation: the lobby is a
+  // pre-game context, and neither key may fall through to the in-game
+  // handlers behind it (ESC would open the FIELD MANUAL; X is the
+  // decoy key). The X key yields while typing in a field — callsigns
+  // contain Xs.
+  const seated = room !== null;
+  const handleClose = React.useCallback(() => {
+    if (seated) callbacks.onLeave();
+    else callbacks.onClose();
+  }, [seated, callbacks]);
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        handleClose();
+        return;
+      }
+      if ((e.key === 'x' || e.key === 'X') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const t = e.target as HTMLElement | null;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [handleClose]);
+  const closeButton = (
+    <button
+      type="button"
+      onClick={handleClose}
+      title={seated ? 'Leave the room and close' : 'Close'}
+      aria-label={seated ? 'Leave the room and close' : 'Close multiplayer'}
+      className="fixed top-3 right-3 z-[110] min-w-11 h-11 px-2 rounded bg-zinc-900/85 border border-zinc-600 text-zinc-200 font-mono font-bold text-sm flex items-center justify-center gap-1.5 touch-manipulation active:scale-95 hover:border-red-400 hover:text-white shadow-lg"
+    >
+      <span aria-hidden="true">✕</span>
+      {seated && <span className="text-[9px] tracking-widest text-zinc-400">LEAVE</span>}
+    </button>
+  );
+
   const errorBanner = clientState.lastError && (
     <div className="hud-panel px-3 py-2 rounded border-2 border-red-500 bg-red-950/40 text-center">
       <span className="text-[11px] font-mono font-bold text-red-300">{ERROR_LABELS[clientState.lastError]}</span>
@@ -151,6 +201,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
     const mySeat = room.seats.find(seat => seat.occupant.playerId !== null && seat.occupant.playerId === myPlayerId) ?? null;
     return (
       <div className="fixed inset-0 z-[100] overflow-y-auto bg-zinc-950/90 text-[#33ff33] flex justify-center p-3 sm:p-6">
+      {closeButton}
         <div className="w-full max-w-md md:max-w-3xl flex gap-4 items-start">
         {/* Left margin: field notes (desktop); phones get the same
             block inline below — nothing shrunk away. */}
@@ -261,6 +312,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   /* ------------------------------ ENTRY VIEW ----------------------------- */
   return (
     <div className="fixed inset-0 z-[100] overflow-y-auto bg-zinc-950/90 text-[#33ff33] flex justify-center p-3 sm:p-6">
+      {closeButton}
       <div className="w-full max-w-md flex flex-col gap-4">
         <div className="text-center mt-2">
           <h1 className="text-3xl font-black tracking-tighter italic text-zinc-50">MASS RATTLE</h1>

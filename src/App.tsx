@@ -140,6 +140,7 @@ export default function App() {
             onStart: net.startMatch,
             onSetTeam: net.setTeam,
             onLeave: () => { net.leaveRoom(); setLobbyOpen(false); },
+            onClose: () => setLobbyOpen(false),
           }}
         />
       )}
