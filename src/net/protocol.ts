@@ -267,6 +267,38 @@ export interface MatchEndedEvent {
 /* Client → server messages (WebSocket).                              */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* In-game chat (Adam's commission, 2026-10-21). Room-wide ALL chat  */
+/* only in v1 — a team channel is a later, announced extension.     */
+/* Identity is stamped SERVER-side from the sender's seat (ownerId, */
+/* callsign, teamId): a client-supplied name would be spoofable.    */
+/* The server echoes every accepted message to ALL sockets, the     */
+/* sender included — clients render ONLY on echo, so there is one   */
+/* ordering and no duplicate local copy. `seq` is the room's        */
+/* monotonic chat sequence; `at` is the server's ms-epoch stamp.    */
+/* History is a rolling window held in DO memory, match-scoped,     */
+/* never persisted: a joiner/reclaimer is seeded with the last      */
+/* CHAT_HISTORY_LIMIT messages right after their welcome. Hygiene   */
+/* is server-side: text is trimmed, must be non-empty and within    */
+/* CHAT_MAX_CHARS (violations are dropped whole, never truncated),  */
+/* and each connection is rate-limited to one accepted message per  */
+/* CHAT_MIN_INTERVAL_MS (excess silently dropped — the wire's       */
+/* standing no-error-code shape). Text is plain data, never markup. */
+/* ------------------------------------------------------------------ */
+
+export interface ChatMessage {
+  seq: number;
+  at: number;
+  ownerId: string;
+  callsign: string;
+  teamId: TeamId;
+  text: string;
+}
+
+export const CHAT_HISTORY_LIMIT = 50;
+export const CHAT_MAX_CHARS = 240;
+export const CHAT_MIN_INTERVAL_MS = 500;
+
 export type ClientMessage =
   /** First message on the socket (contract join flow). playerId is
    *  issued by the server on first hello and stored by the client;
@@ -310,6 +342,10 @@ export type ClientMessage =
    *  only a disconnect accident. A dropped connection likewise
    *  defaults to grace. */
   | { type: 'forfeit' }
+  /** In-game chat (see the chat banner above): the sender's raw
+   *  text and nothing else — identity is the server's to stamp.
+   *  Seated senders only, any phase (lobby and live alike). */
+  | { type: 'chat'; text: string }
   /** Guest input intent — opaque JSON in P2-1, typed by P2-3. The DO
    *  relays it to the host connection only. */
   | { type: 'input'; payload: unknown }
@@ -367,7 +403,15 @@ export type ServerMessage =
       payload: unknown;
     }
   /** The host's latest snapshot, relayed to everyone but the host. */
-  | { type: 'snapshot'; state: unknown };
+  | { type: 'snapshot'; state: unknown }
+  /** An accepted chat message, relayed to EVERY socket in the
+   *  room, the sender included (render-on-echo: see the chat
+   *  banner above). Identity is seat-stamped by the server. */
+  | { type: 'chat'; message: ChatMessage }
+  /** The rolling chat window, sent to a joiner/reclaimer right
+   *  after their welcome (oldest first). Replaces the client's
+   *  log wholesale — the seed is also the resync. */
+  | { type: 'chatHistory'; messages: ChatMessage[] };
 
 /* ------------------------------------------------------------------ */
 /* HTTP shapes (Worker routes).                                       */

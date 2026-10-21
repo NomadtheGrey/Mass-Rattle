@@ -53,8 +53,14 @@ import {
   createRoomRecord,
 } from './roomLogic';
 import type { MigrationOutcome, RoomRecord } from './roomLogic';
-import { defaultTeamForSeatIndex } from '../src/net/protocol';
+import {
+  CHAT_HISTORY_LIMIT,
+  CHAT_MAX_CHARS,
+  CHAT_MIN_INTERVAL_MS,
+  defaultTeamForSeatIndex,
+} from '../src/net/protocol';
 import type {
+  ChatMessage,
   ClientMessage,
   RoomMeta,
   Seat,
@@ -77,6 +83,11 @@ interface SocketSession {
    *  (ms epoch) — the 5 s attempt timer is per connection
    *  (Adam, 2026-10-21). */
   lastReservedAttemptAt?: number;
+  /** Last ACCEPTED chat message on this connection (ms epoch) —
+   *  the chat rate limit's stamp (in-game chat, 2026-10-21). Only
+   *  accepted messages restamp: a dropped burst never extends its
+   *  own lockout. */
+  lastChatAt?: number;
 }
 
 /** Adam's mitigation for the reserved-callsign password box: one
@@ -106,6 +117,12 @@ export class RoomDO {
    *  of the RoomRecord: it is opaque bulk, persisted under its own
    *  storage key so membership writes don't rewrite it. */
   private latestSnapshot: unknown = null;
+  /** In-game chat: the rolling window + its sequence counter.
+   *  DO MEMORY ONLY (protocol banner): match-scoped, never
+   *  persisted — a DO restart mid-match clears the window, which
+   *  the chatHistory resync then honestly reflects. */
+  private chatLog: ChatMessage[] = [];
+  private chatSeq = 0;
 
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
@@ -264,6 +281,44 @@ export class RoomDO {
         }
         break;
       }
+      case 'chat': {
+        // IN-GAME CHAT (Adam's commission, 2026-10-21; contract in
+        // protocol.ts): the DO relays a seated player's line to the
+        // WHOLE room, sender included — clients render on echo
+        // only. Identity is stamped HERE from the seat record
+        // (ownerId, callsign, team as of this moment); anything the
+        // client claims about itself is ignored. Hygiene: trimmed,
+        // non-empty, within CHAT_MAX_CHARS (dropped whole, never
+        // truncated), one accepted message per connection per
+        // CHAT_MIN_INTERVAL_MS — every violation silently dropped,
+        // the wire's standing shape. Any phase: the conversation is
+        // the room's, lobby through results.
+        const seat = findSeatByPlayerId(this.room, playerId);
+        if (!seat || seat.occupant.playerId !== playerId) break;
+        const text = typeof msg.text === 'string' ? msg.text.trim() : '';
+        if (!text || text.length > CHAT_MAX_CHARS) break;
+        const now = Date.now();
+        const session = this.sessionOf(ws);
+        if (now - (session.lastChatAt ?? 0) < CHAT_MIN_INTERVAL_MS) break;
+        ws.serializeAttachment({
+          ...session,
+          lastChatAt: now,
+        } satisfies SocketSession);
+        const message: ChatMessage = {
+          seq: ++this.chatSeq,
+          at: now,
+          ownerId: seat.ownerId,
+          callsign: seat.occupant.callsign,
+          teamId: seat.teamId,
+          text,
+        };
+        this.chatLog.push(message);
+        if (this.chatLog.length > CHAT_HISTORY_LIMIT) {
+          this.chatLog.splice(0, this.chatLog.length - CHAT_HISTORY_LIMIT);
+        }
+        this.broadcast({ type: 'chat', message });
+        break;
+      }
       case 'input': {
         // Guest intent → the host connection only. The host's own
         // inputs are local to its sim and are never relayed.
@@ -405,6 +460,10 @@ export class RoomDO {
       seat,
       room: toRoomState(this.room),
     });
+    // Chat seed: the rolling window follows the welcome on the
+    // same socket (join and reclaim alike) — the client replaces
+    // its log with it wholesale.
+    this.send(ws, { type: 'chatHistory', messages: this.chatLog });
     this.broadcast(
       claim.reclaimed
         ? { type: 'seatClaimed', seat, reclaimed: true }
