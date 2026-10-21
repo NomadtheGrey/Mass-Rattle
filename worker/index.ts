@@ -23,6 +23,7 @@
  */
 
 import { generateRoomCode, isClientVersionSupported } from './roomLogic';
+import { randomRoomName } from '../src/net/roomNames';
 import { INDEX_NAME } from './room';
 import type { RoomInitBody } from './room';
 import type {
@@ -54,34 +55,6 @@ async function indexHasRoom(
     new Request(`https://index.internal/metas/${code}`),
   );
   return res.status === 200;
-}
-
-/**
- * Default room names (Adam's ruling, 2026-10-21): when a player
- * leaves the room name blank, the game assigns one — two words
- * chosen at random, galactic in feel and cheerfully nonsensical
- * (Star Killer, Ship Basher, Fat Hauler…). Names are decoration;
- * the room code stays the identity, so no uniqueness is needed.
- */
-const ROOM_NAME_FIRST = [
-  'Star', 'Ship', 'Fat', 'Void', 'Nova', 'Iron', 'Solar', 'Cosmic',
-  'Rogue', 'Plasma', 'Nebula', 'Rusty', 'Lunar', 'Comet', 'Warp',
-  'Astro', 'Quantum', 'Diesel', 'Thunder', 'Velvet', 'Soggy',
-  'Angry', 'Silent', 'Drunken', 'Turbo', 'Mega',
-];
-const ROOM_NAME_SECOND = [
-  'Killer', 'Basher', 'Hauler', 'Drifter', 'Mauler', 'Eater',
-  'Runner', 'Wraith', 'Gobbler', 'Smasher', 'Cruiser', 'Wanderer',
-  'Chomper', 'Brawler', 'Sneaker', 'Howler', 'Muncher', 'Prowler',
-  'Grinder', 'Dasher', 'Lurker', 'Bouncer',
-];
-
-function generateRoomName(): string {
-  const first =
-    ROOM_NAME_FIRST[Math.floor(Math.random() * ROOM_NAME_FIRST.length)];
-  const second =
-    ROOM_NAME_SECOND[Math.floor(Math.random() * ROOM_NAME_SECOND.length)];
-  return `${first} ${second}`;
 }
 
 async function roomExists(env: Env, code: string): Promise<boolean> {
@@ -158,7 +131,7 @@ export default {
 
         const seed = Math.floor(Math.random() * 2 ** 31);
         const init: RoomInitBody = {
-          name: name === '' ? generateRoomName() : name,
+          name: name === '' ? randomRoomName() : name,
           starCount: body.starCount,
           private: body.private ?? false,
           code,
