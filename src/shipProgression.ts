@@ -216,11 +216,17 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
     types: [
       SKIFF,
       {
+        // WORKFORCE CROWN (Adam's ruling, 2026-10-21 — "If anyone
+        // has harvesters, HAULERS should"): the hauler row wears
+        // the deep workforce ladder (2/3/5/7, the drone line's old
+        // numbers) in number AND quality — her dronesFielded and
+        // the droneSpeedPct/droneCarryBonus axis are both the
+        // game's peak. Still DRAFT for the numbers pass.
         name: 'MULE',
         turnFactor: 0.72,
         hullStepCap: 3,
         trackCaps: { thrust: 5, handling: 5, vac: 4, fuel: 4, cargo: 4 },
-        hardPoints: 1, autoGuns: 1, minesPerDrop: 1, dronesFielded: 1, cargoBonus: 4, vacBonus: 20, defenseDrones: 1, droneSpeedPct: 0, droneCarryBonus: 0,
+        hardPoints: 1, autoGuns: 1, minesPerDrop: 1, dronesFielded: 2, cargoBonus: 4, vacBonus: 20, defenseDrones: 1, droneSpeedPct: 0, droneCarryBonus: 0,
       },
       {
         name: 'MAMMOTH',
@@ -228,7 +234,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hullStepCap: 5,
         // PEAK: vac + cargo (+1 over baseline at T3).
         trackCaps: { thrust: 8, handling: 8, vac: 7, fuel: 7, cargo: 7 },
-        hardPoints: 1, autoGuns: 2, minesPerDrop: 2, dronesFielded: 2, cargoBonus: 8, vacBonus: 40, defenseDrones: 2, droneSpeedPct: 10, droneCarryBonus: 1,
+        hardPoints: 1, autoGuns: 2, minesPerDrop: 2, dronesFielded: 3, cargoBonus: 8, vacBonus: 40, defenseDrones: 2, droneSpeedPct: 10, droneCarryBonus: 1,
       },
       {
         name: 'LEVIATHAN',
@@ -236,7 +242,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hullStepCap: 9, // Hauler T4 peaks hull second only to Cruiser.
         // PEAK: vac + cargo (+2 over baseline at T4).
         trackCaps: { thrust: 12, handling: 12, vac: 12, fuel: 10, cargo: 12 },
-        hardPoints: 2, autoGuns: 2, minesPerDrop: 2, dronesFielded: 3, cargoBonus: 12, vacBonus: 60, defenseDrones: 2, droneSpeedPct: 20, droneCarryBonus: 1,
+        hardPoints: 2, autoGuns: 2, minesPerDrop: 2, dronesFielded: 5, cargoBonus: 12, vacBonus: 60, defenseDrones: 2, droneSpeedPct: 20, droneCarryBonus: 1,
       },
       {
         // T5 CROWN — ATLAS (Adam, adopted 2026-10-21: 'That's even
@@ -248,7 +254,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hullStepCap: 12,
         // PEAK: vac + cargo (+3 over the T5 baseline).
         trackCaps: { thrust: 16, handling: 16, vac: 16, fuel: 13, cargo: 16 },
-        hardPoints: 2, autoGuns: 3, minesPerDrop: 2, dronesFielded: 4, cargoBonus: 16, vacBonus: 80, defenseDrones: 2, droneSpeedPct: 30, droneCarryBonus: 2,
+        hardPoints: 2, autoGuns: 3, minesPerDrop: 2, dronesFielded: 7, cargoBonus: 16, vacBonus: 80, defenseDrones: 2, droneSpeedPct: 30, droneCarryBonus: 2,
       },
     ],
   },
@@ -257,11 +263,15 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
     types: [
       SKIFF,
       {
+        // MODEST CREW (Adam's ruling, 2026-10-21 — see the Mule):
+        // the drone line's workforce drops to 1/2/3/4 — enough to
+        // tend her star, no more. This line's abundance is her
+        // ESCORT WING (Arsenal slice 5), not her workers.
         name: 'SHEPHERD',
         turnFactor: 0.72,
         hullStepCap: 3,
         trackCaps: { thrust: 5, handling: 5, vac: 4, fuel: 4, cargo: 4 },
-        hardPoints: 1, autoGuns: 1, minesPerDrop: 1, dronesFielded: 2, cargoBonus: 2, vacBonus: 10, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0,
+        hardPoints: 1, autoGuns: 1, minesPerDrop: 1, dronesFielded: 1, cargoBonus: 2, vacBonus: 10, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0,
       },
       {
         name: 'WARDEN',
@@ -269,7 +279,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hullStepCap: 5,
         // PEAK: fuel (+1 over baseline at T3).
         trackCaps: { thrust: 8, handling: 8, vac: 6, fuel: 8, cargo: 6 },
-        hardPoints: 2, autoGuns: 2, minesPerDrop: 1, dronesFielded: 3, cargoBonus: 2, vacBonus: 20, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0,
+        hardPoints: 2, autoGuns: 2, minesPerDrop: 1, dronesFielded: 2, cargoBonus: 2, vacBonus: 20, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0,
       },
       {
         name: 'CARRIER',
@@ -277,7 +287,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hullStepCap: 8,
         // PEAK: fuel (+2 over baseline at T4).
         trackCaps: { thrust: 12, handling: 12, vac: 10, fuel: 12, cargo: 10 },
-        hardPoints: 2, autoGuns: 3, minesPerDrop: 2, dronesFielded: 5, cargoBonus: 4, vacBonus: 30, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0,
+        hardPoints: 2, autoGuns: 3, minesPerDrop: 2, dronesFielded: 3, cargoBonus: 4, vacBonus: 30, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0,
       },
       {
         // T5 CROWN — MOTHERSHIP (Adam, adopted 2026-10-21).
@@ -286,7 +296,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hullStepCap: 11,
         // PEAK: fuel (+3 over the T5 baseline).
         trackCaps: { thrust: 16, handling: 16, vac: 13, fuel: 16, cargo: 13 },
-        hardPoints: 2, autoGuns: 4, minesPerDrop: 2, dronesFielded: 7, cargoBonus: 6, vacBonus: 40, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0,
+        hardPoints: 2, autoGuns: 4, minesPerDrop: 2, dronesFielded: 4, cargoBonus: 6, vacBonus: 40, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0,
       },
     ],
   },
