@@ -142,6 +142,7 @@ export default function App() {
         shipHealth={state.ship.health}
         maxShipHealth={state.ship.maxHealth}
         enemyIntegrity={state.enemyStar.integrity}
+        enemyTotalInfused={state.enemyStar.totalScrapInfused}
         isShopOpen={state.isShopOpen}
         shipPos={state.ship.pos}
         starPos={state.star.pos}

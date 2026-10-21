@@ -2,7 +2,7 @@ import { motion } from 'motion/react';
 import React from 'react';
 import { PHYSICS } from '../constants';
 import { milestonesForInfused, progressIntoNextMilestone, nextMilestoneCost, cumulativeCostForMilestones } from '../starGrowth';
-import { stageStateForInfused } from '../sim/starStages';
+import { stageStateForInfused, type StarStageState } from '../sim/starStages';
 import type { StarStage } from '../net/protocol';
 import { STAGE_LABELS } from './lobby/lobbyTypes';
 import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor } from '../loadout';
@@ -76,6 +76,25 @@ const STAGE_COLORS: Record<StarStage, string> = {
 };
 const STAGE_ORDER: StarStage[] = ['red_dwarf', 'red_giant', 'yellow', 'white', 'neutron', 'black_hole'];
 
+/** Everything a star field renders, from one fed total — the home and
+ * enemy fields share this so the two readouts can never drift apart. */
+interface StageField {
+  state: StarStageState;
+  color: string;
+  fedInBand: number;
+  bandSize: number;
+  next: StarStage | null;
+}
+const stageFieldFor = (totalInfused: number): StageField => {
+  const state = stageStateForInfused(totalInfused);
+  const bandStart = Math.floor(state.milestone / 3) * 3;
+  const fedInBand = totalInfused - cumulativeCostForMilestones(bandStart);
+  const bandSize = cumulativeCostForMilestones(bandStart + 3) - cumulativeCostForMilestones(bandStart);
+  const idx = STAGE_ORDER.indexOf(state.stage);
+  const next = idx >= 0 && idx < STAGE_ORDER.length - 1 ? STAGE_ORDER[idx + 1] : null;
+  return { state, color: STAGE_COLORS[state.stage], fedInBand, bandSize, next };
+};
+
 interface HUDProps {
   starMass: number;
   velocity: number;
@@ -88,6 +107,7 @@ interface HUDProps {
   shipHealth: number;
   maxShipHealth: number;
   enemyIntegrity: number;
+  enemyTotalInfused?: number;
   isShopOpen: boolean;
   useAnalogGauges: boolean;
   shipPos: { x: number; y: number };
@@ -143,6 +163,7 @@ export const HUD: React.FC<HUDProps> = ({
   shipHealth,
   maxShipHealth,
   enemyIntegrity,
+  enemyTotalInfused = 0,
   isShopOpen,
   useAnalogGauges,
   shipPos,
@@ -241,13 +262,13 @@ export const HUD: React.FC<HUDProps> = ({
   // kept separate from the bank). Stage derives from src/sim/starStages
   // on the PINNED bands (Red Giant M3 / Yellow M6 / White M9 / Neutron
   // M12 / Black Hole M15 — Adam, 2026-10-21, adopted as drafted).
-  const stageState = stageStateForInfused(totalScrapInfused);
-  const stageColor = STAGE_COLORS[stageState.stage];
-  const stageBandStart = Math.floor(stageState.milestone / 3) * 3;
-  const stageFedInBand = totalScrapInfused - cumulativeCostForMilestones(stageBandStart);
-  const stageBandSize = cumulativeCostForMilestones(stageBandStart + 3) - cumulativeCostForMilestones(stageBandStart);
-  const stageIdx = STAGE_ORDER.indexOf(stageState.stage);
-  const nextStage: StarStage | null = stageIdx >= 0 && stageIdx < STAGE_ORDER.length - 1 ? STAGE_ORDER[stageIdx + 1] : null;
+  const homeField = stageFieldFor(totalScrapInfused);
+  const stageState = homeField.state;
+  const stageColor = homeField.color;
+  const stageFedInBand = homeField.fedInBand;
+  const stageBandSize = homeField.bandSize;
+  const nextStage = homeField.next;
+  const enemyField = stageFieldFor(enemyTotalInfused);
   const [showSysCfg, setShowSysCfg] = React.useState(false);
   // Workshop tabs: the five base ship tracks, then the Arsenal categories.
   const [shopTab, setShopTab] = React.useState<'ship' | 'bank' | ArsenalCategory>('ship');
@@ -555,6 +576,29 @@ export const HUD: React.FC<HUDProps> = ({
               </div>
             </div>
             
+            <div className="border border-red-950 rounded p-2 bg-zinc-950/60">
+              <div className="flex justify-between text-[10px] mb-1">
+                <span className="text-zinc-400 tracking-wider">ENEMY LIFECYCLE</span>
+                <span className="font-bold" style={{ color: enemyField.color }}>{STAGE_LABELS[enemyField.state.stage]}</span>
+              </div>
+              <div className="flex justify-between text-[10px] mb-1">
+                <span className="text-zinc-500">TOTAL FED</span>
+                <span className="text-zinc-200 font-bold">{enemyTotalInfused}U</span>
+              </div>
+              <div className="vu-meter h-1.5 bg-zinc-900">
+                <motion.div
+                  className="h-full"
+                  style={{ backgroundColor: enemyField.color, boxShadow: `0 0 8px ${enemyField.color}` }}
+                  animate={{ width: `${enemyField.state.progressWithinStage * 100}%` }}
+                />
+              </div>
+              <div className="text-[9px] font-mono text-zinc-500 mt-1">
+                {enemyField.next
+                  ? `TO ${STAGE_LABELS[enemyField.next]}: ${enemyField.fedInBand}/${enemyField.bandSize}U FED`
+                  : 'CRITICAL MASS — COLLAPSE ENDS THE MATCH'}
+              </div>
+            </div>
+
             <div className="flex flex-col gap-2 items-center">
               <div className="text-[10px] uppercase opacity-50 self-start">Local Nav Map [Tactical]</div>
               {renderRadarView()}
