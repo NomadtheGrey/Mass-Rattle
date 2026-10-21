@@ -16,6 +16,14 @@
  *   hostile drone or ship in range, through the same projectile shape
  *   the game loop creates for the player's volleys.
  *
+ * OFFENSE (Arsenal slice 5a, 2026-10-21): the harvest loop is the
+ * default posture. A targetable hostile ship inside AGGRO_RANGE is
+ * hunted; an empty hold with nothing to hunt and no scrap inside
+ * SCAN_RANGE besieges the nearest hostile star from SIEGE_STANDOFF.
+ * All ship acquisition is stealth-aware (isVisibleTo) per the
+ * submarine ruling. The carrier wing's escorts (slice 5b) fly the
+ * same acquisition + fire discipline from their own step.
+ *
  * Decisions are pure with respect to the world view it is handed: it
  * mutates only its own seat's ship (a frame copy in the loop) and
  * reports scrap collections / deliveries / new projectiles back as
@@ -27,6 +35,7 @@
 import { PHYSICS } from '../constants';
 import { weaponStatsFor } from '../loadout';
 import { EXTRA_MOUNT_DAMAGE, typeFor } from '../shipProgression';
+import { isVisibleTo } from './stealth';
 import { areHostile, type TeamSeatLike } from './teams';
 import type {
   Harvester,
@@ -55,6 +64,19 @@ export const BOT_DRIVER = {
   DEPOSIT_RADIUS: PHYSICS.DRONES.DEPOSIT_RADIUS,
   /** Weapon range: the driver only opens fire inside this distance. */
   FIRE_RANGE: 520,
+  /** OFFENSE (Arsenal slice 5a, 2026-10-21): a targetable hostile
+   *  ship inside this distance becomes the bot's objective — it
+   *  pursues instead of harvesting. DRAFT. */
+  AGGRO_RANGE: 1000,
+  /** OFFENSE: with an empty hold, scrap must be at least this near
+   *  to keep the bot on the harvest loop; beyond it (and with no
+   *  ship to hunt) the bot goes to siege a hostile star. DRAFT. */
+  SCAN_RANGE: 700,
+  /** OFFENSE: the siege stand-off beyond the target star's
+   *  surface — outside the burn (size + 150) and outside the
+   *  avoidance push (size + AVOID_MARGIN), inside FIRE_RANGE of
+   *  the center for any star the growth curve produces. DRAFT. */
+  SIEGE_STANDOFF: 300,
   /** Hostile-star avoidance: steering repulsion begins this far
    * beyond the star's surface (the burn zone is size + 150). */
   AVOID_MARGIN: 190,
@@ -139,22 +161,96 @@ export const stepBotShip = (
   const capacity = holdCapacityFor(ship);
 
   // --- Decide the destination -------------------------------------
+  // OFFENSE (Arsenal slice 5a, 2026-10-21 — Adam's offensive-bots
+  // item, and the engine the carrier wing's escorts share): the
+  // harvest loop is now the DEFAULT posture, not the only one.
+  //   hunt  — a targetable hostile ship within AGGRO_RANGE is the
+  //           objective: pursue it, hold at firing range, engage.
+  //   siege — empty hold, nothing to hunt, no scrap within
+  //           SCAN_RANGE: close on the nearest hostile star and
+  //           hold at SIEGE_STANDOFF off its surface, firing in.
+  // Targeting is STEALTH-AWARE (the submarine ruling): a cloaked
+  // minelayer beyond its reveal band is never acquired — every
+  // acquisition below goes through isVisibleTo.
   const full = ship.carrying >= capacity;
   let target: { x: number; y: number } | null = null;
   let targetScrap: Scrap | null = null;
-  if (!full) {
-    let bestD = Infinity;
-    for (const s of world.scrap) {
-      const dd = Math.hypot(s.pos.x - ship.pos.x, s.pos.y - ship.pos.y);
-      if (dd < bestD) {
-        bestD = dd;
-        targetScrap = s;
+  let objective: 'harvest' | 'return' | 'hunt' | 'siege' = 'harvest';
+  let huntShip: Ship | null = null;
+  let siegeStar: Star | null = null;
+  if (full) {
+    objective = 'return';
+  } else {
+    // Hunt scan: nearest targetable hostile ship inside aggro.
+    let bestAggro = BOT_DRIVER.AGGRO_RANGE;
+    for (const hostile of world.ships) {
+      if (hostile.ownerId === seat.ownerId) continue;
+      if (!areHostile(world.seats, hostile.ownerId, seat.ownerId)) continue;
+      if (!isVisibleTo(hostile.ship, ship.pos)) continue;
+      const dd = Math.hypot(
+        hostile.ship.pos.x - ship.pos.x,
+        hostile.ship.pos.y - ship.pos.y,
+      );
+      if (dd < bestAggro) {
+        bestAggro = dd;
+        huntShip = hostile.ship;
       }
     }
-    if (targetScrap) target = targetScrap.pos;
+    if (huntShip) {
+      objective = 'hunt';
+      // Hold at firing range: inside it, coast and shoot.
+      target = bestAggro > BOT_DRIVER.FIRE_RANGE * 0.8 ? huntShip.pos : null;
+    } else {
+      // Harvest scan (nearest scrap, as ever).
+      let bestD = Infinity;
+      for (const s of world.scrap) {
+        const dd = Math.hypot(s.pos.x - ship.pos.x, s.pos.y - ship.pos.y);
+        if (dd < bestD) {
+          bestD = dd;
+          targetScrap = s;
+        }
+      }
+      if (ship.carrying === 0 && (!targetScrap || bestD > BOT_DRIVER.SCAN_RANGE)) {
+        // Siege scan: nearest hostile star.
+        let bestStar = Infinity;
+        for (const s of world.stars) {
+          if (!areHostile(world.seats, s.ownerId, seat.ownerId)) continue;
+          const dd = Math.hypot(s.pos.x - ship.pos.x, s.pos.y - ship.pos.y);
+          if (dd < bestStar) {
+            bestStar = dd;
+            siegeStar = s;
+          }
+        }
+        if (siegeStar) {
+          objective = 'siege';
+          targetScrap = null;
+          // Destination: the stand-off point on the star's rim
+          // facing the bot — steered to ALWAYS, not only from
+          // outside: a coast-only hold overshoots on arrival
+          // momentum (friction alone carries ~200 units) and dips
+          // into the burn before settling. Steering to the point
+          // makes the bot brake and correct around it instead.
+          const a = Math.atan2(
+            ship.pos.y - siegeStar.pos.y,
+            ship.pos.x - siegeStar.pos.x,
+          );
+          target = {
+            x: siegeStar.pos.x + Math.cos(a) * (siegeStar.size + BOT_DRIVER.SIEGE_STANDOFF),
+            y: siegeStar.pos.y + Math.sin(a) * (siegeStar.size + BOT_DRIVER.SIEGE_STANDOFF),
+          };
+        } else if (targetScrap) {
+          target = targetScrap.pos;
+        }
+      } else if (targetScrap) {
+        target = targetScrap.pos;
+      }
+    }
   }
-  const returning = full || (!targetScrap && ship.carrying > 0);
-  if (returning) target = ownStar.pos;
+  const returning = full || (objective === 'harvest' && !targetScrap && ship.carrying > 0);
+  if (returning) {
+    objective = 'return';
+    target = ownStar.pos;
+  }
 
   // --- Steer + integrate ------------------------------------------
   if (target) {
@@ -185,9 +281,20 @@ export const stepBotShip = (
   }
   ship.vel.x *= BOT_DRIVER.FRICTION;
   ship.vel.y *= BOT_DRIVER.FRICTION;
+  // Siege approach discipline: inside the stand-off's approach
+  // band the bot flies a slow final, so arrival momentum cannot
+  // carry it past the stand-off into the burn (see the siege
+  // destination note above).
+  let speedCap = BOT_DRIVER.MAX_SPEED;
+  if (objective === 'siege' && siegeStar) {
+    const surfD =
+      Math.hypot(ship.pos.x - siegeStar.pos.x, ship.pos.y - siegeStar.pos.y) -
+      siegeStar.size;
+    if (surfD < BOT_DRIVER.SIEGE_STANDOFF + 260) speedCap = 1.6;
+  }
   const speed = Math.hypot(ship.vel.x, ship.vel.y);
-  if (speed > BOT_DRIVER.MAX_SPEED) {
-    const ratio = BOT_DRIVER.MAX_SPEED / speed;
+  if (speed > speedCap) {
+    const ratio = speedCap / speed;
     ship.vel.x *= ratio;
     ship.vel.y *= ratio;
   }
@@ -241,6 +348,11 @@ export const stepBotShip = (
     if (!fireTarget) {
       for (const hostile of world.ships) {
         if (!areHostile(world.seats, hostile.ownerId, seat.ownerId)) continue;
+        // STEALTH (the submarine ruling, consumed offensively in
+        // slice 5a): a cloaked hull beyond its reveal band cannot
+        // be acquired, however close the geometry table says the
+        // hull is — visibility is the gate, not distance alone.
+        if (!isVisibleTo(hostile.ship, ship.pos)) continue;
         const dd = Math.hypot(
           hostile.ship.pos.x - ship.pos.x,
           hostile.ship.pos.y - ship.pos.y,
@@ -250,6 +362,18 @@ export const stepBotShip = (
           fireTarget = hostile.ship.pos;
         }
       }
+    }
+    if (!fireTarget && objective === 'siege' && siegeStar) {
+      // SIEGE FIRE (slice 5a): only on the siege objective — a
+      // harvesting bot never plinks a star opportunistically; the
+      // match's star pressure is a decision, not an accident. The
+      // bolts are ship-fired, so the projectile step chips the
+      // star at the ruled ship-fire rate.
+      const dd = Math.hypot(
+        siegeStar.pos.x - ship.pos.x,
+        siegeStar.pos.y - ship.pos.y,
+      );
+      if (dd < BOT_DRIVER.FIRE_RANGE) fireTarget = siegeStar.pos;
     }
     if (fireTarget) {
       const aim = Math.atan2(
