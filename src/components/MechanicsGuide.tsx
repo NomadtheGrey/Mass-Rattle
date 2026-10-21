@@ -43,7 +43,7 @@ export const MechanicsGuide: React.FC<{ onClose: () => void }> = ({ onClose }) =
         </div>
         <button
           onClick={onClose}
-          className="px-2 py-1 rounded border border-zinc-700 text-zinc-300 hover:text-white hover:border-red-500 font-mono text-xs touch-manipulation"
+          className="px-2.5 py-1.5 rounded border border-zinc-700 text-zinc-300 hover:text-white hover:border-red-500 font-mono text-xs touch-manipulation"
           aria-label="Close guide"
         >
           [X]

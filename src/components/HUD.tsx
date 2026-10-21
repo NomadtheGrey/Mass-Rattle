@@ -287,27 +287,52 @@ export const HUD: React.FC<HUDProps> = ({
 
   const radarActive = isMobileRadarOpen || localRadarOpen;
 
-  // ESC stack (Adam, 2026-10-20 + 2026-10-21): Escape closes the
-  // topmost open dialog first — SYSCFG, workshop, radar, then the
-  // mechanics guide — and with NOTHING open, Escape OPENS the guide.
-  // The results screen is deliberately NOT in this chain — it is the
-  // match end, and its exit is the restart button, not a dismissal.
+  // THE MODAL RULE (Adam, 2026-10-20 + 2026-10-21): every modal popup
+  // exits three ways — its corner [X] button, the X key, and ESC —
+  // and one press closes the TOPMOST modal only (SYSCFG, workshop,
+  // radar, then the mechanics guide). Closing lives in ONE capture-
+  // phase listener: it fires before the game loop's own key handling,
+  // and stopPropagation seals the key there, so an X pressed over a
+  // modal can no longer leak through and deploy a decoy behind it,
+  // and an ESC cannot fall through to anything else. The results
+  // screen is deliberately NOT in this chain — it is the match end,
+  // a state rather than a popup, and its exit is the restart button.
+  const anyModalOpen = showSysCfg || isShopOpen || radarActive || showGuide;
+  const closeTopmost = React.useCallback(() => {
+    if (showSysCfg) { setShowSysCfg(false); return; }
+    if (isShopOpen && onCloseShop) { onCloseShop(); return; }
+    if (radarActive) {
+      if (onToggleMobileRadar) onToggleMobileRadar();
+      setLocalRadarOpen(false);
+      return;
+    }
+    if (showGuide) { setShowGuide(false); }
+  }, [showSysCfg, isShopOpen, onCloseShop, radarActive, onToggleMobileRadar, showGuide]);
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if (showSysCfg) { setShowSysCfg(false); return; }
-      if (isShopOpen && onCloseShop) { onCloseShop(); return; }
-      if (radarActive) {
-        if (onToggleMobileRadar) onToggleMobileRadar();
-        setLocalRadarOpen(false);
-        return;
-      }
-      if (showGuide) { setShowGuide(false); return; }
+      const isEsc = e.key === 'Escape';
+      const isX = (e.key === 'x' || e.key === 'X') && !e.metaKey && !e.ctrlKey && !e.altKey;
+      if (!anyModalOpen || (!isEsc && !isX)) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      closeTopmost();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [anyModalOpen, closeTopmost]);
+  // ESC with NOTHING open opens the guide — the guide's door, kept
+  // from the original stack. (Closes never reach this listener: the
+  // capture handler above has already consumed them.)
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || anyModalOpen) return;
       setShowGuide(true);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [showSysCfg, isShopOpen, onCloseShop, radarActive, onToggleMobileRadar, showGuide]);
+  }, [anyModalOpen]);
 
   // CONTROLS CARD rows (desktop, bottom-left of the play area): the whole
   // key set in one readable place. Contextual like the rest of the HUD —
@@ -530,7 +555,7 @@ export const HUD: React.FC<HUDProps> = ({
                   if (onToggleMobileRadar) onToggleMobileRadar();
                   setLocalRadarOpen(false);
                 }}
-                className="text-red-500 hover:text-white text-xs font-mono px-2 py-0.5 bg-zinc-900 border border-red-900 rounded"
+                className="text-red-500 hover:text-white text-xs font-mono px-2.5 py-1.5 bg-zinc-900 border border-red-900 rounded touch-manipulation"
               >
                 [X] CLOSE
               </button>
@@ -1084,7 +1109,7 @@ export const HUD: React.FC<HUDProps> = ({
                   {onCloseShop && (
                     <button
                       onClick={onCloseShop}
-                      className="pitted-metal px-2.5 py-1 text-red-500 hover:text-white border border-red-900 text-xs font-mono font-bold rounded active:scale-95"
+                      className="pitted-metal px-2.5 py-1.5 text-red-500 hover:text-white border border-red-900 text-xs font-mono font-bold rounded active:scale-95 touch-manipulation"
                     >
                       [X]
                     </button>
@@ -1379,7 +1404,7 @@ export const HUD: React.FC<HUDProps> = ({
                 </div>
                 <button 
                   onClick={() => setShowSysCfg(false)}
-                  className="text-red-500 hover:text-red-400 text-xs font-mono font-bold px-2 py-1 bg-zinc-900 border border-red-900 rounded"
+                  className="text-red-500 hover:text-red-400 text-xs font-mono font-bold px-2.5 py-1.5 bg-zinc-900 border border-red-900 rounded touch-manipulation"
                 >
                   [X] ABORT
                 </button>
