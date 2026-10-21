@@ -12,6 +12,7 @@ import { MobileControls } from './components/MobileControls';
 import { useGameLoop } from './hooks/useGameLoop';
 import { inBankWell } from './bank';
 import { LobbyScreen } from './components/lobby/LobbyScreen';
+import { ChatPanel } from './components/ChatPanel';
 import { useNetClient, NetSessionContext } from './net/useNetClient';
 import { RepurchaseOverlay } from './components/RepurchaseOverlay';
 import { repurchasePriceFor } from './sim/deathEconomy';
@@ -185,6 +186,7 @@ export default function App() {
           }}
         />
       )}
+      {net.room && !lobbyOpen && <ChatPanel variant="overlay" />}
       <ResultsOverlay 
         isVictory={state.isVictory} 
         isGameOver={state.isGameOver}

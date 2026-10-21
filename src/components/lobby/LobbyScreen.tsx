@@ -5,6 +5,7 @@ import {
   TeamId, TEAM_ORDER, TEAM_COLORS, TEAM_LABELS, seatTeam,
 } from './lobbyTypes';
 import { generateUniqueRoomName } from '../../net/roomNames';
+import { ChatPanel } from '../ChatPanel';
 
 /**
  * Lobby front end (UI lane, Phase 2) — built against the frozen wire
@@ -203,6 +204,12 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        // Text fields keep their Esc (chat surface, 2026-10-21):
+        // an Esc typed in the composer or a lobby field must not
+        // close the room — the X branch below already yields the
+        // same way.
+        const t = e.target as HTMLElement | null;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
         e.preventDefault();
         e.stopPropagation();
         handleClose();
@@ -316,6 +323,8 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               />
             ))}
           </div>
+
+          <ChatPanel variant="room" />
 
           {room.phase === 'lobby' && mySeat && (
             <div className="hud-panel p-3 rounded border-2 border-zinc-800">

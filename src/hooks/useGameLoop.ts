@@ -885,6 +885,14 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // TEXT-FIELD SEAL (chat surface, 2026-10-21): while the player
+      // is typing — the chat composer, the lobby's fields — a
+      // keystroke is text, not flight: it never enters the held-keys
+      // set and no hotkey fires. KeyUP is deliberately NOT sealed:
+      // releasing a key over a field must still clear it from the
+      // set, or a key held while clicking into the composer sticks.
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       keys.current.add(e.code);
       
       // Upgrade Hotkeys
