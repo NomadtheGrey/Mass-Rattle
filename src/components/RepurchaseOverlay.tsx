@@ -31,32 +31,32 @@ interface RepurchaseOverlayProps {
   onLeaveMatch: () => void;
   onDismiss: () => void;
   /** DEATH TAX (Adam, 2026-10-21): when the sim's death-tax state
-   * lands, a PAID buy-back sets the seat's redeploy deadline
+   * lands, a PAID buy-back sets the seat's respawn deadline (seat.respawnAt)
    * (performance.now-based ms) instead of respawning instantly —
    * the price is scrap, the tax is time. The FREE-floor path never
    * sets it (instant, no timer on the broke). Until the sim carries
    * the field this prop is simply absent and the panel behaves
    * exactly as before: the display is built dark, lit by the data. */
-  redeployEndsAt?: number | null;
+  respawnAt?: number | null;
 }
 
 export const RepurchaseOverlay: React.FC<RepurchaseOverlayProps> = ({
   deaths, bankedScrap, price, onRepurchase, onLeaveMatch, onDismiss,
-  redeployEndsAt = null,
+  respawnAt = null,
 }) => {
   // The countdown ticks on its own clock while the paid wait runs,
   // independent of how often the app happens to re-render.
   const [, setTick] = React.useState(0);
   React.useEffect(() => {
-    if (!redeployEndsAt) return;
+    if (!respawnAt) return;
     const id = window.setInterval(() => setTick(t => t + 1), 200);
     return () => window.clearInterval(id);
-  }, [redeployEndsAt]);
-  const redeploySecs = redeployEndsAt
-    ? Math.max(0, Math.ceil((redeployEndsAt - performance.now()) / 1000))
+  }, [respawnAt]);
+  const respawnSecs = respawnAt
+    ? Math.max(0, Math.ceil((respawnAt - performance.now()) / 1000))
     : 0;
-  const redeployClock = `${Math.floor(redeploySecs / 60)}:${String(redeploySecs % 60).padStart(2, '0')}`;
-  const insurancePaid = redeployEndsAt !== null && redeploySecs > 0;
+  const respawnClock = `${Math.floor(respawnSecs / 60)}:${String(respawnSecs % 60).padStart(2, '0')}`;
+  const insurancePaid = respawnAt !== null && respawnSecs > 0;
   // The modal rule's keyboard half, owned here (HUD's stack does not
   // know this surface): ESC / X dismiss, capture-phase + swallowed so
   // neither key reaches the game behind.
@@ -111,7 +111,7 @@ export const RepurchaseOverlay: React.FC<RepurchaseOverlayProps> = ({
         )}
         {insurancePaid ? (
           <div className="w-full mt-4 py-3 rounded font-bold text-sm tracking-widest bg-[#33ff33]/15 border border-[#33ff33]/60 text-[#33ff33] font-mono">
-            INSURANCE PAID — REDEPLOY IN {redeployClock}
+            INSURANCE PAID — REDEPLOY IN {respawnClock}
           </div>
         ) : (
           <button

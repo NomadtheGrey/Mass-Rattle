@@ -293,6 +293,11 @@ export function useNetClient(): NetSession {
           setClientState({ connection: 'idle', lastError: null });
           if (code === 'version_mismatch') {
             setNotice('VERSION MISMATCH — REFRESH THE GAME AND TRY AGAIN');
+          } else if (code === 'name_taken') {
+            // Name uniqueness (Adam, 2026-10-21): live room names are
+            // unique — a typed collision is a refusal with a remedy,
+            // not a mystery. The dice sits right beside the field.
+            setNotice('THAT ROOM NAME IS TAKEN — PICK ANOTHER, OR ROLL THE DICE');
           } else if (code === 'code_unavailable') {
             // Not a refusal of anything the player did: the server
             // could not mint a room code (503). Rare enough to be a

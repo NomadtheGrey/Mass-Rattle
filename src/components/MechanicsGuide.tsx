@@ -84,6 +84,7 @@ export const MechanicsGuide: React.FC<{ onClose: () => void }> = ({ onClose }) =
         <Section title="💀 DEATH & BUY-BACK" tag="MULTIPLAYER">
           <p>Losing your ship costs <span className="text-zinc-100 font-bold">25% of your bank</span>. Buying back a fresh starter frame costs <span className="text-zinc-100 font-bold">20% of what remains</span>, discounted further with each death — and it's <span className="text-zinc-100">free at an empty bank</span>. Your star, your team, and the rest of your bank carry on.</p>
           <p>A <span className="text-zinc-100 font-bold">star's</span> death is different: that seat is <span className="text-zinc-100">eliminated</span>. There is no buy-back from that.</p>
+          <p>A <span className="text-zinc-100 font-bold">paid</span> buy-back also costs <span className="text-zinc-100">time</span> — the death tax: the new frame arrives after a respawn wait (5s, +1s per death, never more than 30s). The free floor never waits.</p>
           <p className="text-zinc-500">Solo: losing your ship ends the run outright — the buy-back is a match rule.</p>
         </Section>
 
