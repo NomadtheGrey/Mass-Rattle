@@ -36,7 +36,12 @@ export type NetActionIntent =
   | { kind: 'buyType'; line?: string }
   | { kind: 'buyHull' }
   | { kind: 'switchLine'; line: string }
-  | { kind: 'buildDrone' };
+  | { kind: 'buildDrone' }
+  /** P2-5 death economy: BARE — the host derives the seat from the
+   * relay's fromOwnerId and prices it host-side from the seat's
+   * ledger (repurchasePriceFor). Added by the UI lane on BackGround's
+   * flag, exactly as the sim landed it. */
+  | { kind: 'repurchase' };
 
 export interface NetInputPayload {
   /** Sender-local, monotonic; the host drops stale frames. */
