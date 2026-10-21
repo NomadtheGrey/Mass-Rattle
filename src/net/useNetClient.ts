@@ -5,6 +5,7 @@ import {
   RoomState, Seat, ClientState, ErrorCode,
   Standing, StageChangedEvent, MatchEndedEvent,
   CreateRoomRequest, CreateRoomResponse,
+  TeamId,
 } from './protocol';
 
 /**
@@ -94,7 +95,7 @@ export interface NetSession {
   kickPlayer: (targetPlayerId: string) => void;
   /** Teams (frozen contract, 2026-10-21): lobby phase, own seat only;
    * unbalanced is legal and invalid picks are silently ignored. */
-  setTeam: (teamId: string) => void;
+  setTeam: (teamId: TeamId) => void;
   sendInput: (payload: NetInputPayload) => void;
   sendSnapshot: (state: unknown) => void;
   sendHostMessage: (msg: ClientMessage) => void;
@@ -306,16 +307,9 @@ export function useNetClient(): NetSession {
   }, []);
 
   const startMatch = React.useCallback(() => send({ type: 'start' }), [send]);
-  const setTeam = React.useCallback((teamId: string) => {
-    // { type: 'setTeam', teamId } joins the ClientMessage union with
-    // BackGround's protocol landing (frozen teams contract); until
-    // that type is in this build, the message goes through the raw
-    // socket path so the hook compiles against either protocol.
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'setTeam', teamId }));
-    }
-  }, []);
+  const setTeam = React.useCallback((teamId: TeamId) => {
+    send({ type: 'setTeam', teamId });
+  }, [send]);
   const kickPlayer = React.useCallback((targetPlayerId: string) => send({ type: 'kick', targetPlayerId }), [send]);
   const sendInput = React.useCallback((payload: NetInputPayload) => send({ type: 'input', payload }), [send]);
   const sendSnapshot = React.useCallback((state: unknown) => send({ type: 'snapshot', state }), [send]);

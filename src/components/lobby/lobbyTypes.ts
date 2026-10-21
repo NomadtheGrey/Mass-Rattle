@@ -45,21 +45,14 @@ export const SEAT_CONNECTION_LABELS: Record<SeatConnection, string> = {
 };
 
 /* ------------------------------ Teams ------------------------------- */
-/* Frozen contract (BackGround, 2026-10-21): TeamId + TEAM_COLORS land
- * in src/net/protocol.ts with their slice; these mirrors carry the
- * same values so the lobby builds in parallel, and re-point there on
- * their landing. Picker order is contractual: red, blue, green, gold. */
+/* Re-pointed to src/net/protocol.ts on BackGround's teams landing
+ * (9cf181d) — TeamId, TEAM_COLORS, and the picker order live there as
+ * the single source; this file keeps only the rendered labels and
+ * the seatTeam accessor the seat cards use. */
 
-export type TeamId = 'red' | 'blue' | 'green' | 'gold';
-
-export const TEAM_ORDER: TeamId[] = ['red', 'blue', 'green', 'gold'];
-
-export const TEAM_COLORS: Record<TeamId, string> = {
-  red: '#ff6a5e',
-  blue: '#57b6ff',
-  green: '#6dffa8',
-  gold: '#ffc94d',
-};
+export type { TeamId } from '../../net/protocol';
+export { TEAM_COLORS, TEAM_PICKER_ORDER as TEAM_ORDER } from '../../net/protocol';
+import type { TeamId } from '../../net/protocol';
 
 export const TEAM_LABELS: Record<TeamId, string> = {
   red: 'RED',
@@ -68,13 +61,7 @@ export const TEAM_LABELS: Record<TeamId, string> = {
   gold: 'GOLD',
 };
 
-/** Each seat's default team = its own seat color as a solo team, so an
- * untouched lobby is exactly the free-for-all: seat 0 blue, 1 red,
- * 2 gold, 3 green. */
-export const DEFAULT_TEAM_BY_SEAT: TeamId[] = ['blue', 'red', 'gold', 'green'];
-
-/** The seat's team. Reads the contract's teamId when the wire carries
- * it and falls back to the seat's contractual default — an untouched
- * lobby is a free-for-all of solo colors either way. */
-export const seatTeam = (seat: Seat): TeamId =>
-  (seat as Seat & { teamId?: TeamId }).teamId ?? DEFAULT_TEAM_BY_SEAT[seat.starIndex] ?? 'blue';
+/** The seat's team — teamId is a required wire field (the DO assigns
+ * the per-seat default at creation: 0 blue, 1 red, 2 gold, 3 green,
+ * so an untouched lobby is a free-for-all of solo colors). */
+export const seatTeam = (seat: Seat): TeamId => seat.teamId;
