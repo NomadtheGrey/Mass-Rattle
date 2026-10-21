@@ -27,6 +27,7 @@
 import { PHYSICS } from '../constants';
 import { weaponStatsFor } from '../loadout';
 import { EXTRA_MOUNT_DAMAGE, typeFor } from '../shipProgression';
+import { areHostile, type TeamSeatLike } from './teams';
 import type {
   Harvester,
   Projectile,
@@ -70,6 +71,9 @@ export interface BotWorldView {
   drones: Harvester[];
   /** Every flying ship, by owning seat. */
   ships: { ownerId: string; ship: Ship }[];
+  /** The seat table (TEAMS): the driver's hostility reads — its
+   *  threat and fire choices key on team, not ownerId. */
+  seats: readonly TeamSeatLike[];
   /** The local seat's ownerId — projectile legacy-owner labels are
    * view-relative ('player' = the local seat's side), as everywhere
    * else in the sim. */
@@ -161,8 +165,9 @@ export const stepBotShip = (
   }
   // Hostile-star avoidance: a soft push out of the burn approach,
   // plus a hard keep-out so the driver never parks inside a star.
+  // (TEAMS: hostile TEAM — a teammate's star is no threat.)
   for (const s of world.stars) {
-    if (s.ownerId === seat.ownerId) continue;
+    if (!areHostile(world.seats, s.ownerId, seat.ownerId)) continue;
     const dx = ship.pos.x - s.pos.x;
     const dy = ship.pos.y - s.pos.y;
     const dist = Math.hypot(dx, dy) || 1;
@@ -222,10 +227,11 @@ export const stepBotShip = (
     world.time >= (ship.fireReadyAt || 0)
   ) {
     // Nearest hostile: drones first (the harvest war), then ships.
+    // (TEAMS: hostile TEAM — a bot never fires on its own side.)
     let fireTarget: { x: number; y: number } | null = null;
     let bestD = BOT_DRIVER.FIRE_RANGE;
     for (const d of world.drones) {
-      if (d.ownerId === seat.ownerId) continue;
+      if (!areHostile(world.seats, d.ownerId, seat.ownerId)) continue;
       const dd = Math.hypot(d.pos.x - ship.pos.x, d.pos.y - ship.pos.y);
       if (dd < bestD) {
         bestD = dd;
@@ -234,7 +240,7 @@ export const stepBotShip = (
     }
     if (!fireTarget) {
       for (const hostile of world.ships) {
-        if (hostile.ownerId === seat.ownerId) continue;
+        if (!areHostile(world.seats, hostile.ownerId, seat.ownerId)) continue;
         const dd = Math.hypot(
           hostile.ship.pos.x - ship.pos.x,
           hostile.ship.pos.y - ship.pos.y,

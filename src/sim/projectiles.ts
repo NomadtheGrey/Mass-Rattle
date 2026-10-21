@@ -27,6 +27,7 @@ import {
   siphonFuelFor,
   thornDamageFor,
 } from '../loadout';
+import { areHostile } from './teams';
 import type {
   GameState,
   Mine,
@@ -51,20 +52,20 @@ export const stepMines = (ctx: MineStepContext): Mine[] => {
   // MINES (Slice 4): a hostile drone wandering inside a mine's
   // radius trips it — everything hostile in the blast takes the
   // damage, including hostile stars if one is somehow close.
-  // (Hostile = not the mine's seat; in SP, the enemy's.)
+  // (Hostile = TEAMS: not the mine's TEAM; in SP, the enemy's.)
   return (next.mines || []).filter(mine => {
-    const tripped = next.drones.some(d => d.ownerId !== mine.ownerId &&
+    const tripped = next.drones.some(d => areHostile(simSeats, d.ownerId, mine.ownerId) &&
       Math.hypot(d.pos.x - mine.pos.x, d.pos.y - mine.pos.y) < mine.radius);
     if (!tripped) return true;
     next.drones.forEach(d => {
-      if (d.ownerId !== mine.ownerId && Math.hypot(d.pos.x - mine.pos.x, d.pos.y - mine.pos.y) < mine.radius) {
+      if (areHostile(simSeats, d.ownerId, mine.ownerId) && Math.hypot(d.pos.x - mine.pos.x, d.pos.y - mine.pos.y) < mine.radius) {
         d.health -= mine.damage;
         d.lastHitByOwnerId = mine.ownerId;
       }
     });
     for (const seat of simSeats) {
       const s = seat.star;
-      if (s.ownerId === mine.ownerId) continue;
+      if (!areHostile(simSeats, s.ownerId, mine.ownerId)) continue;
       if (Math.hypot(s.pos.x - mine.pos.x, s.pos.y - mine.pos.y) < mine.radius + s.size) {
         s.integrity -= mine.damage * 0.002;
         s.lastHitTime = time;
@@ -112,7 +113,7 @@ export const stepProjectiles = (ctx: ProjectileStepContext): Projectile[] => {
       let best: any = null;
       let bestD = 700;
       next.drones.forEach(d => {
-        if (d.ownerId === p.ownerId) return;
+        if (!areHostile(simSeats, d.ownerId, p.ownerId)) return;
         const dd = Math.hypot(d.pos.x - p.pos.x, d.pos.y - p.pos.y);
         if (dd < bestD) { bestD = dd; best = d; }
       });
@@ -142,7 +143,7 @@ export const stepProjectiles = (ctx: ProjectileStepContext): Projectile[] => {
     // scrap while VAC is on (attractRadius x 1.6). Ungated, the
     // passive attract field would eat every bolt near the ship and
     // quietly retire the Deflector Shield's whole job.
-    if (hyId === 'siphon_vac' && p.ownerId !== ship.ownerId && isVacActive &&
+    if (hyId === 'siphon_vac' && areHostile(simSeats, p.ownerId, ship.ownerId) && isVacActive &&
         Math.hypot(ship.pos.x - p.pos.x, ship.pos.y - p.pos.y) < ship.attractRadius * 1.6) {
       ship.fuel = Math.min(ship.maxFuel, ship.fuel + siphonFuelFor(hyTier));
       return false;
@@ -150,7 +151,9 @@ export const stepProjectiles = (ctx: ProjectileStepContext): Projectile[] => {
 
     // Collision with the DECOY beacon (Slice 6): hostile bolts eat
     // the beacon instead of the ship, until it is shot down.
-    if (next.decoy && p.ownerId !== next.decoy.ownerId &&
+    // (TEAMS: hostile to the DECOY's team — a teammate's bolt
+    // flies past their own side's beacon.)
+    if (next.decoy && areHostile(simSeats, p.ownerId, next.decoy.ownerId) &&
         Math.hypot(next.decoy.pos.x - p.pos.x, next.decoy.pos.y - p.pos.y) < 12) {
       // The bolt's own damage — star turret bolts carry their tier
       // damage (Phase 1c); absent a field, the stock DEFENSE damage.
@@ -165,7 +168,7 @@ export const stepProjectiles = (ctx: ProjectileStepContext): Projectile[] => {
     // the bot-ship pass after this one)
     const sdx = ship.pos.x - p.pos.x;
     const sdy = ship.pos.y - p.pos.y;
-    if (p.ownerId !== ship.ownerId && Math.sqrt(sdx * sdx + sdy * sdy) < ship.size) {
+    if (areHostile(simSeats, p.ownerId, ship.ownerId) && Math.sqrt(sdx * sdx + sdy * sdy) < ship.size) {
       // MIRROR SAIL (Phase 1b): the bolt never lands — the sail
       // throws it back the way it came, as a player projectile with
       // tier-scaled damage ("defense that is offense"), keeping
@@ -234,7 +237,7 @@ export const stepProjectiles = (ctx: ProjectileStepContext): Projectile[] => {
     // reduced to 0 is removed by the bot-ship death pass below.
     for (const seat of simSeats) {
       const bs = seat.ship;
-      if (!bs || seat.ownerId === localOwnerId || p.ownerId === seat.ownerId) continue;
+      if (!bs || seat.ownerId === localOwnerId || !areHostile(simSeats, p.ownerId, seat.ownerId)) continue;
       if ((p.hitIds || []).includes(seat.ownerId)) continue;
       if (Math.hypot(bs.pos.x - p.pos.x, bs.pos.y - p.pos.y) >= bs.size) continue;
       bs.health -= p.damage !== undefined ? p.damage : PHYSICS.DEFENSE.DAMAGE;
@@ -252,7 +255,7 @@ export const stepProjectiles = (ctx: ProjectileStepContext): Projectile[] => {
     // carry damage since Phase 1c but keep their old pass-through
     // behavior against drones)
     if (p.damage !== undefined && p.kind !== undefined) {
-      const hitDrone = next.drones.find(d => d.ownerId !== p.ownerId &&
+      const hitDrone = next.drones.find(d => areHostile(simSeats, d.ownerId, p.ownerId) &&
         !(p.hitIds || []).includes(d.id) &&
         Math.hypot(d.pos.x - p.pos.x, d.pos.y - p.pos.y) < 14);
       if (hitDrone) {
@@ -289,10 +292,13 @@ export const stepProjectiles = (ctx: ProjectileStepContext): Projectile[] => {
     // stars of every seat, harmlessly — the pre-ruling SP asymmetry
     // (local turret bolts chipped the enemy star; P2-2b) is retired
     // by this ruling, deliberately.
+    // (TEAMS: "hostile star" reads hostile TEAM — the loop gates on
+    // areHostile, so a ship's weapons never scratch a teammate's
+    // star, exactly like every other hit path in this step.)
     if (p.kind !== undefined) {
       for (const seat of simSeats) {
         const s = seat.star;
-        if (s.ownerId === p.ownerId) continue;
+        if (!areHostile(simSeats, s.ownerId, p.ownerId)) continue;
         const edx = s.pos.x - p.pos.x;
         const edy = s.pos.y - p.pos.y;
         const hitKey = `star:${s.ownerId}`;

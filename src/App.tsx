@@ -12,6 +12,8 @@ import { useGameLoop } from './hooks/useGameLoop';
 import { inBankWell } from './bank';
 import { LobbyScreen } from './components/lobby/LobbyScreen';
 import { useNetClient, NetSessionContext } from './net/useNetClient';
+import { RepurchaseOverlay } from './components/RepurchaseOverlay';
+import { repurchasePriceFor } from './sim/deathEconomy';
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -55,6 +57,7 @@ export default function App() {
     buyHullStep,
     switchLine,
     buildDrone,
+    repurchaseShip,
     feedCargo,
     depositBank, 
     withdrawBank, 
@@ -70,6 +73,16 @@ export default function App() {
   useEffect(() => {
     if (net.room && net.room.phase !== 'lobby') setLobbyOpen(false);
   }, [net.room]);
+  // REPURCHASE (P2-5): the local seat is death-economy shipless when
+  // its seat record has no ship and at least one death. Net matches
+  // only — an SP death is game over and ResultsOverlay owns it. The
+  // quoted price is the sim's own function; the host validates.
+  const localOwnerId = net.mySeat?.ownerId ?? state.ship.ownerId;
+  const localSeat = state.seats.find(seat => seat.ownerId === localOwnerId);
+  const localSeatDead = !!(
+    net.room && net.room.phase === 'live' && !net.matchEnded &&
+    localSeat && localSeat.ship === null && localSeat.deaths > 0
+  );
   const urlRoomCode = React.useMemo(
     () => new URLSearchParams(window.location.search).get('room') || '',
     []
@@ -98,6 +111,14 @@ export default function App() {
           {net.room ? `🌐 ROOM ${net.room.code} — LOBBY` : '🌐 MULTIPLAYER'}
         </button>
       )}
+      {localSeatDead && localSeat && (
+        <RepurchaseOverlay
+          deaths={localSeat.deaths}
+          bankedScrap={localSeat.bankedScrap}
+          price={repurchasePriceFor(localSeat.bankedScrap, localSeat.deaths)}
+          onRepurchase={() => repurchaseShip(localSeat.ownerId)}
+        />
+      )}
       {lobbyOpen && (
         <LobbyScreen
           clientState={net.clientState}
@@ -117,6 +138,7 @@ export default function App() {
               net.joinRoom(code, callsign);
             },
             onStart: net.startMatch,
+            onSetTeam: net.setTeam,
             onLeave: () => { net.leaveRoom(); setLobbyOpen(false); },
           }}
         />

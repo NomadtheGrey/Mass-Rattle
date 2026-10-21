@@ -1,6 +1,9 @@
 import React from 'react';
 import type { RoomState, Seat, ClientState } from '../../net/protocol';
-import { CUE_GLYPHS, ERROR_LABELS, SEAT_CONNECTION_LABELS } from './lobbyTypes';
+import {
+  CUE_GLYPHS, ERROR_LABELS, SEAT_CONNECTION_LABELS,
+  TeamId, TEAM_ORDER, TEAM_COLORS, TEAM_LABELS, seatTeam,
+} from './lobbyTypes';
 
 /**
  * Lobby front end (UI lane, Phase 2) — built against the frozen wire
@@ -19,6 +22,7 @@ export interface LobbyCallbacks {
   onJoin: (code: string, callsign: string) => void;
   onStart: () => void;
   onLeave: () => void;
+  onSetTeam: (teamId: TeamId) => void;
 }
 
 interface LobbyScreenProps {
@@ -35,9 +39,51 @@ interface LobbyScreenProps {
   callbacks: LobbyCallbacks;
 }
 
+/**
+ * Win conditions (Adam, 2026-10-21) — pinned facts, worded to read
+ * true in BOTH a free-for-all lobby and a team lobby: in a default
+ * lobby every seat is its own team, so "opposing teams" is every
+ * other star; on a shared team you win or fall together.
+ */
+const WinConditions: React.FC = () => (
+  <div className="hud-panel p-3 rounded border-2 border-amber-500/60 bg-amber-950/10">
+    <div className="text-[10px] font-mono font-bold tracking-[0.25em] text-amber-300 mb-2">🏆 HOW A MATCH IS WON</div>
+    <div className="space-y-2 text-[11px] font-mono leading-snug text-zinc-300">
+      <p>
+        <span className="text-amber-300 font-bold">1 · CRITICAL MASS</span> — feed a star all the way to
+        <span className="text-zinc-50 font-bold"> BLACK HOLE</span>: 4,125 scrap fed
+        <span className="text-zinc-500"> (Red Giant 375 → Yellow 975 → White 1,800 → Neutron 2,850 → Black Hole 4,125)</span>.
+        The match ends the moment it happens, and that star's team are recorded as its
+        <span className="text-amber-300 font-bold"> CARETAKERS</span>.
+      </p>
+      <p>
+        <span className="text-amber-300 font-bold">2 · LAST TEAM STANDING</span> — destroy every opposing
+        team's stars. Playing solo, that's every other star; on a team, you win or fall together.
+      </p>
+    </div>
+  </div>
+);
+
+/** First-timer basics (Adam, 2026-10-21) — the left margin on wide
+ * screens; on phones the same full text rides under the win
+ * conditions instead of being shrunk away. */
+const HowToBlock: React.FC = () => (
+  <div className="hud-panel p-3 rounded border-2 border-zinc-800">
+    <div className="text-[10px] font-mono font-bold tracking-[0.25em] text-zinc-400 mb-2">FIELD NOTES</div>
+    <ul className="space-y-2 text-[11px] font-mono leading-snug text-zinc-400">
+      <li>⛏ <span className="text-zinc-200">Harvest scrap</span> and carry it home — feeding grows your star.</li>
+      <li>🤝 <span className="text-zinc-200">On a team, anyone can feed any team star.</span> Build one together.</li>
+      <li>🔫 <span className="text-zinc-200">Only ship weapons hurt a star.</span> Turrets just defend — they never damage one.</li>
+      <li>🛡 <span className="text-zinc-200">Guard your star while it grows.</span> A fat star is a target.</li>
+      <li>💀 <span className="text-zinc-200">Dying costs a cut of your bank</span> plus a buy-back. Don't trade your ship cheaply.</li>
+    </ul>
+  </div>
+);
+
 const SeatCard: React.FC<{ seat: Seat; mine: boolean; reclaimed?: boolean }> = ({ seat, mine, reclaimed }) => {
   const { occupant } = seat;
   const glyph = CUE_GLYPHS[occupant.cue] || '●';
+  const team = seatTeam(seat);
   return (
     <div className={`hud-panel p-3 rounded border-2 flex items-center gap-3 ${mine ? 'border-[#33ff33]' : 'border-zinc-800'}`}>
       <div
@@ -61,6 +107,12 @@ const SeatCard: React.FC<{ seat: Seat; mine: boolean; reclaimed?: boolean }> = (
           {reclaimed && (
             <span className="text-[8px] font-mono font-bold px-1 py-0.5 rounded bg-amber-500/20 border border-amber-500 text-amber-300">SEAT RECLAIMED</span>
           )}
+          <span
+            className="text-[8px] font-mono font-bold px-1 py-0.5 rounded border"
+            style={{ color: TEAM_COLORS[team], borderColor: TEAM_COLORS[team], backgroundColor: `${TEAM_COLORS[team]}1a` }}
+          >
+            {TEAM_LABELS[team]}
+          </span>
         </div>
         <div className="text-[9px] font-mono text-zinc-500 tracking-wider">
           STAR {seat.starIndex + 1} · {occupant.cue.toUpperCase()} SEAT ·{' '}
@@ -95,9 +147,16 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   /* ------------------------------ ROOM VIEW ------------------------------ */
   if (room) {
     const iAmHost = myPlayerId !== null && room.hostPlayerId === myPlayerId;
+    const mySeat = room.seats.find(seat => seat.occupant.playerId !== null && seat.occupant.playerId === myPlayerId) ?? null;
     return (
       <div className="fixed inset-0 z-[100] overflow-y-auto bg-zinc-950 text-[#33ff33] flex justify-center p-3 sm:p-6">
-        <div className="w-full max-w-md flex flex-col gap-3">
+        <div className="w-full max-w-md md:max-w-3xl flex gap-4 items-start">
+        {/* Left margin: field notes (desktop); phones get the same
+            block inline below — nothing shrunk away. */}
+        <aside className="hidden md:block w-56 shrink-0 sticky top-0">
+          <HowToBlock />
+        </aside>
+        <div className="flex-1 min-w-0 max-w-md flex flex-col gap-3">
           <div className="text-center">
             <div className="text-[9px] font-mono tracking-[0.3em] text-zinc-500">ROOM CODE — SHARE IT TO INVITE</div>
             <div className="text-4xl font-black font-mono tracking-[0.35em] text-zinc-50 my-1">{room.code}</div>
@@ -113,6 +172,11 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             </div>
           )}
 
+          <WinConditions />
+          <div className="md:hidden">
+            <HowToBlock />
+          </div>
+
           <div className="flex flex-col gap-2">
             {room.seats.map(seat => (
               <SeatCard
@@ -123,6 +187,38 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               />
             ))}
           </div>
+
+          {room.phase === 'lobby' && mySeat && (
+            <div className="hud-panel p-3 rounded border-2 border-zinc-800">
+              <div className="text-[9px] font-mono tracking-[0.25em] text-zinc-500 mb-2">YOUR TEAM</div>
+              <div className="grid grid-cols-4 gap-1.5">
+                {TEAM_ORDER.map(t => {
+                  const humans = room.seats.filter(seat => seat.occupant.kind === 'human' && seatTeam(seat) === t).length;
+                  const mine = seatTeam(mySeat) === t;
+                  return (
+                    <button
+                      key={t}
+                      onClick={() => callbacks.onSetTeam(t)}
+                      className={`py-2 rounded border-2 font-mono touch-manipulation active:scale-95 ${mine ? 'bg-zinc-800' : 'bg-zinc-900'}`}
+                      style={{ borderColor: mine ? TEAM_COLORS[t] : '#3f3f46', boxShadow: mine ? `0 0 10px ${TEAM_COLORS[t]}55` : undefined }}
+                    >
+                      <span className="block w-4 h-2.5 mx-auto rounded-sm mb-1" style={{ backgroundColor: TEAM_COLORS[t] }} />
+                      <span className="block text-[10px] font-bold" style={{ color: TEAM_COLORS[t] }}>{TEAM_LABELS[t]}</span>
+                      <span className="block text-[8px] text-zinc-400 mt-0.5">{humans} PLAYER{humans === 1 ? '' : 'S'}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[9px] font-mono text-zinc-500 mt-2 leading-snug">
+                Teammates can't hurt you — and the team builds together: feed or bank at any team star.
+              </p>
+              <p className="text-[9px] font-mono text-zinc-600 mt-1 leading-snug">
+                Counts are real players only — bots never count, and a seat held through a reconnect counts.
+                Unbalanced teams are legal. At the start, bots hold their seat colors unless every human
+                stacks one team — then the bots form the opposition.
+              </p>
+            </div>
+          )}
 
           <p className="text-[10px] font-mono text-zinc-500 text-center leading-snug">
             Empty seats are flown by bots until a player joins and takes the seat over.
@@ -156,6 +252,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             [ LEAVE ROOM ]
           </button>
         </div>
+        </div>
       </div>
     );
   }
@@ -167,6 +264,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
         <div className="text-center mt-2">
           <h1 className="text-3xl font-black tracking-tighter italic text-zinc-50">MASS RATTLE</h1>
           <div className="text-[9px] font-mono tracking-[0.3em] text-zinc-500 mt-1">MULTIPLAYER LOBBY</div>
+          <div className="text-[10px] font-mono text-zinc-400 mt-2">Win by feeding a star to <span className="text-amber-300 font-bold">BLACK HOLE</span> — or be the <span className="text-amber-300 font-bold">LAST TEAM STANDING</span>.</div>
         </div>
 
         {errorBanner}

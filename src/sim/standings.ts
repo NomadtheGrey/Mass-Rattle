@@ -23,12 +23,14 @@
  * (eliminationOrder descending), fed total breaking any gaps.
  */
 
-import type { MatchEndReason, Standing } from '../net/protocol';
+import type { MatchEndReason, Standing, TeamId } from '../net/protocol';
 import { ownerIdForSeat, starIdForSeat } from './ownership';
 import { stageStateForInfused } from './starStages';
 
 export interface SeatStandingInput {
   starIndex: number;
+  /** The seat's team (TEAMS): carried onto the row when given. */
+  teamId?: TeamId;
   /** Defaults to the seat-scoped `seat-<starIndex>`. */
   ownerId?: string;
   /** Defaults to `star-<starIndex>`. */
@@ -88,6 +90,7 @@ export const computeStandings = (
       starIndex: input.starIndex,
       ownerId: input.ownerId ?? ownerIdForSeat(input.starIndex),
       starId: input.starId ?? starIdForSeat(input.starIndex),
+      teamId: input.teamId,
       placement: null,
       stage: stageState.stage,
       progressWithinStage: stageState.progressWithinStage,

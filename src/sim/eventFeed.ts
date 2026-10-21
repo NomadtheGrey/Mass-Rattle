@@ -52,6 +52,18 @@ export type EventFeedEntry =
       victimOwnerId: string;
       victimKind: 'ship' | 'drone' | 'star';
       at?: number;
+    }
+  | {
+      type: 'repurchase';
+      ownerId: string;
+      starId: string;
+      /** Scrap paid from the seat's bank for the new frame — 0 at
+       * the zero-value floor (a free starter; nobody is locked out). */
+      cost: number;
+      /** The seat's lifetime ship-death count, including the death
+       * this repurchase recovers from (drives the price step-down). */
+      deaths: number;
+      at?: number;
     };
 
 export type EventFeedRecord = EventFeedEntry & { seq: number };

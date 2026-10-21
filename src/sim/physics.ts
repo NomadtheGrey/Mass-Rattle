@@ -14,6 +14,8 @@
 
 import { PHYSICS } from '../constants';
 import { SAIL_RANGE, sailThrustFor, thornDamageFor } from '../loadout';
+import { effectiveRadiusForStar } from './starStages';
+import { areHostile } from './teams';
 import type { GameState, SeatSimState, Ship, Star } from '../types';
 
 export interface StarBurnContext {
@@ -41,13 +43,16 @@ export const stepStarBurn = (ctx: StarBurnContext): void => {
   const { next, ship, simSeats, hyId, hyTier, time, aegisAbsorb } = ctx;
   // Ship Health Damage from hostile star proximity (P2-2b: any
   // star whose ownerId isn't the ship's — in SP that is exactly
-  // the enemy star, with exactly the shipped math).
+  // the enemy star, with exactly the shipped math). TEAMS: the
+  // gate is now TEAM hostility — a teammate's star never burns
+  // you (Adam: "No friendly fire"). With default solo teams this
+  // is the ownerId rule bit for bit.
   // (The midpoint/centerDist computation that fed the retired
   // deep-space drain is gone too; the wrap below computes the
   // midpoint where it needs it.)
   for (const burnSeat of simSeats) {
     const burnStar = burnSeat.star;
-    if (burnStar.ownerId === ship.ownerId) continue;
+    if (!areHostile(simSeats, burnStar.ownerId, ship.ownerId)) continue;
     const edx = burnStar.pos.x - ship.pos.x;
     const edy = burnStar.pos.y - ship.pos.y;
     const eDist = Math.sqrt(edx * edx + edy * edy);
@@ -154,28 +159,40 @@ export const stepShipPhysics = (ctx: ShipPhysicsContext): ShipPhysicsResult => {
     const distSq = dx * dx + dy * dy;
     const dist = Math.sqrt(distSq);
 
+    // GRAVITY AUDIT (P2-4): the pull itself is mass-driven —
+    // G * s.mass / d² — and nothing may derive it from the star's
+    // SIZE (Adam's decoupling ruling: at NEUTRON the body collapses
+    // while the mass, and so the pull, keeps compounding). The one
+    // place size used to leak in was this distance floor (and the
+    // repulsion reach below): both now read the star's EFFECTIVE
+    // radius — the un-shrunk growth curve (src/sim/starStages.ts) —
+    // so the well's reach is continuous across the collapse. Before
+    // NEUTRON the effective radius IS the physical size, so the
+    // shipped feel is untouched.
+    const effRadius = effectiveRadiusForStar(s);
+
     // Safer gravity: cap distance to prevent "infinite" pull
-    const safeDistSq = Math.max(distSq, s.size * s.size);
+    const safeDistSq = Math.max(distSq, effRadius * effRadius);
     const isHomeStar = s.ownerId === ship.ownerId;
     const shipGravityModifier = isHomeStar ? 0.2 : 0.6; // Much weaker pull for home
-    
+
     const force = ((PHYSICS.G * s.mass * shipGravityModifier) / safeDistSq) * gravFactor;
-    
+
     const ax = (force * dx) / (dist || 1);
     const ay = (force * dy) / (dist || 1);
     ship.vel.x += ax / currentMass;
     ship.vel.y += ay / currentMass;
 
     // Repulsion buffer (Anti-Stuck Logic)
-    // If ship is inside the star's physical radius, push it out firmly
-    const repulsionRadius = s.size + 10;
+    // If ship is inside the star's well radius, push it out firmly
+    const repulsionRadius = effRadius + 10;
     if (dist < repulsionRadius) {
       const repulsion = (repulsionRadius - dist) * 0.25;
       ship.vel.x -= (dx / (dist || 1)) * repulsion;
       ship.vel.y -= (dy / (dist || 1)) * repulsion;
-      
+
       // Dampen velocity when hitting the star to prevent weird bouncing/gluing
-      if (dist < s.size) {
+      if (dist < effRadius) {
         ship.vel.x *= 0.8;
         ship.vel.y *= 0.8;
       }

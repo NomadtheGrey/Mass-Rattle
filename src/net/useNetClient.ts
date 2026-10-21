@@ -5,6 +5,7 @@ import {
   RoomState, Seat, ClientState, ErrorCode,
   Standing, StageChangedEvent, MatchEndedEvent,
   CreateRoomRequest, CreateRoomResponse,
+  TeamId,
 } from './protocol';
 
 /**
@@ -36,7 +37,12 @@ export type NetActionIntent =
   | { kind: 'buyType'; line?: string }
   | { kind: 'buyHull' }
   | { kind: 'switchLine'; line: string }
-  | { kind: 'buildDrone' };
+  | { kind: 'buildDrone' }
+  /** P2-5 death economy: BARE — the host derives the seat from the
+   * relay's fromOwnerId and prices it host-side from the seat's
+   * ledger (repurchasePriceFor). Added by the UI lane on BackGround's
+   * flag, exactly as the sim landed it. */
+  | { kind: 'repurchase' };
 
 export interface NetInputPayload {
   /** Sender-local, monotonic; the host drops stale frames. */
@@ -87,6 +93,9 @@ export interface NetSession {
   leaveRoom: () => void;
   startMatch: () => void;
   kickPlayer: (targetPlayerId: string) => void;
+  /** Teams (frozen contract, 2026-10-21): lobby phase, own seat only;
+   * unbalanced is legal and invalid picks are silently ignored. */
+  setTeam: (teamId: TeamId) => void;
   sendInput: (payload: NetInputPayload) => void;
   sendSnapshot: (state: unknown) => void;
   sendHostMessage: (msg: ClientMessage) => void;
@@ -298,6 +307,9 @@ export function useNetClient(): NetSession {
   }, []);
 
   const startMatch = React.useCallback(() => send({ type: 'start' }), [send]);
+  const setTeam = React.useCallback((teamId: TeamId) => {
+    send({ type: 'setTeam', teamId });
+  }, [send]);
   const kickPlayer = React.useCallback((targetPlayerId: string) => send({ type: 'kick', targetPlayerId }), [send]);
   const sendInput = React.useCallback((payload: NetInputPayload) => send({ type: 'input', payload }), [send]);
   const sendSnapshot = React.useCallback((state: unknown) => send({ type: 'snapshot', state }), [send]);
@@ -325,7 +337,7 @@ export function useNetClient(): NetSession {
     migration, standings, matchEnded, stageByStar,
     reclaimedOwnerId, notice,
     snapshotRef, snapshotVersion, guestInputsRef,
-    createRoom, joinRoom, leaveRoom, startMatch, kickPlayer,
+    createRoom, joinRoom, leaveRoom, startMatch, kickPlayer, setTeam,
     sendInput, sendSnapshot, sendHostMessage,
   };
 }

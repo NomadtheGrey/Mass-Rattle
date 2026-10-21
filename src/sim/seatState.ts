@@ -11,6 +11,7 @@
  */
 
 import { PHYSICS } from '../constants';
+import { defaultTeamForSeatIndex } from '../net/protocol';
 import type { SeatSimState, Ship, Star, MatchEndState } from '../types';
 import type { EventFeedEntry } from './eventFeed';
 import { stageStateForInfused } from './starStages';
@@ -72,12 +73,17 @@ export const createSeatSimState = (
 ): SeatSimState => ({
   ownerId: star.ownerId,
   starIndex,
+  // TEAMS: the seat's own color-team by default (SP seats: 0 blue,
+  // 1 red — a 1v1 of solo teams, behavior identical to pre-teams).
+  // Match assembly overwrites with the room's resolved team.
+  teamId: defaultTeamForSeatIndex(starIndex),
   controller,
   ship,
   star,
   bankedScrap: 0,
   fedTotal: star.totalScrapInfused,
   kills: 0,
+  deaths: 0,
   eliminated: false,
   eliminationOrder: null,
 });
@@ -97,8 +103,18 @@ export interface SeatTrackingResult {
  * milestone crossings / stage changes / star eliminations (setting
  * eliminated + eliminationOrder on the seat copy), and derive the
  * match end — critical mass (a star reaches BLACK HOLE, M15) first,
- * then last-survivor (exactly one seat standing after at least one
- * elimination). An already-decided match end is never overwritten.
+ * then last-survivor BY TEAM (TEAMS): the match ends when at most
+ * one TEAM still has a non-eliminated seat, after at least one
+ * elimination; the winner is the surviving seat of that team with
+ * the highest fedTotal. With every seat on its own default team
+ * this reduces exactly to the pre-teams derivation (the sole
+ * standing seat wins). An already-decided match end is never
+ * overwritten.
+ * A critical-mass derivation also stamps the collapse-cinematic
+ * bookkeeping (P2-4) onto the record — inputLockout, the collapsing
+ * (winning) star's id, and the cinematic start on the ms-epoch clock
+ * (`nowEpochMs`, injectable for tests; wall clock by default) — so
+ * the host's matchEnded announce reads them from state verbatim.
  *
  * A seat is eliminated when its STAR's integrity reaches 0 (Adam's
  * ruling: ship death is not elimination).
@@ -108,6 +124,7 @@ export const advanceSeatTracking = (
   seats: SeatSimState[],
   prevMatchEnd: MatchEndState | null,
   at?: number,
+  nowEpochMs?: number,
 ): SeatTrackingResult => {
   const entries: EventFeedEntry[] = [];
   const prevByOwnerId = new Map(prevSeats.map(s => [s.ownerId, s]));
@@ -166,13 +183,33 @@ export const advanceSeatTracking = (
       matchEnd = {
         endReason: 'critical_mass',
         winnerOwnerId: blackHoleSeat.ownerId,
+        // Collapse cinematic (P2-4): inputs lock, the collapsing
+        // star is the winner's, and the cinematic clock starts now
+        // (ms epoch — the protocol's shared freeze clock).
+        inputLockout: true,
+        collapsingStarId: starIdForSeat(blackHoleSeat.starIndex),
+        cinematicStartedAt: nowEpochMs ?? Date.now(),
       };
     } else {
+      // LAST SURVIVOR, BY TEAM (TEAMS): eliminations stay per-seat,
+      // but the match ends when at most one TEAM is still standing.
+      // The winner seat is deterministic: the standing seat of the
+      // winning team with the highest fedTotal (seat order breaks
+      // ties — filter/sort are stable). Critical mass above is
+      // unchanged: the collapsing seat wins, and through it its
+      // team. All-default teams (each seat solo) make the standing
+      // teams set a singleton exactly when one seat stands — the
+      // pre-teams rule, bit for bit.
       const standing = seats.filter(s => !s.eliminated);
-      if (eliminationCount >= 1 && standing.length === 1) {
+      const standingTeams = new Set(standing.map(s => s.teamId));
+      if (eliminationCount >= 1 && standing.length >= 1 && standingTeams.size === 1) {
+        const winner = standing.reduce((best, s) =>
+          s.fedTotal > best.fedTotal ? s : best,
+        );
         matchEnd = {
           endReason: 'last_survivor',
-          winnerOwnerId: standing[0].ownerId,
+          winnerOwnerId: winner.ownerId,
+          inputLockout: false,
         };
       }
     }

@@ -33,7 +33,7 @@ import type {
   RoomState,
 } from '../src/net/protocol';
 
-export { RoomDO, INDEX_NAME } from './room';
+export { RoomDO } from './room';
 export { LobbyIndexDO } from './lobbyIndex';
 
 const CODE_PATH = /^\/api\/rooms\/([A-Za-z2-9]{6})\/ws$/;

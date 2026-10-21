@@ -15,6 +15,7 @@
 import { PHYSICS } from '../constants';
 import { infuseStar } from '../starGrowth';
 import { applyDeliveryHeal } from '../starDefense';
+import { areHostile } from './teams';
 import type { GameState, Harvester, SeatSimState, Star } from '../types';
 
 export interface DroneStepContext {
@@ -41,6 +42,8 @@ export interface DroneStepResult {
 export const stepDrones = (ctx: DroneStepContext): DroneStepResult => {
   const { next, seatByOwnerId, star, enemyStar, localOwnerId } = ctx;
   let teamScrap = ctx.teamScrap;
+  // TEAMS hostility reads (the seat table, as a list).
+  const simSeats = [...seatByOwnerId.values()];
   // 5. Drones Logic
   const drones = (next.drones || []).map(drone => {
     // Home star by ownerId (P2-2b): the drone's seat's star.
@@ -60,8 +63,9 @@ export const stepDrones = (ctx: DroneStepContext): DroneStepResult => {
     // Decoy Beacon: hostile drones within 500 chase the beacon
     // instead of working — it screams "hostile" louder than scrap
     // whispers, and a returning drone delays its delivery to chase
-    // it. (Hostile = not the decoy's seat; in SP, the enemy's.)
-    if (next.decoy && drone.ownerId !== next.decoy.ownerId) {
+    // it. (Hostile = TEAMS: not the decoy's TEAM; in SP, the
+    // enemy's.)
+    if (next.decoy && areHostile(simSeats, drone.ownerId, next.decoy.ownerId)) {
       const bx = next.decoy.pos.x - drone.pos.x;
       const by = next.decoy.pos.y - drone.pos.y;
       const bd = Math.hypot(bx, by);

@@ -1,5 +1,5 @@
 import type { ShipLine, TypeTier } from './shipProgression';
-import type { MatchEndReason, Standing } from './net/protocol';
+import type { MatchEndReason, Standing, TeamId } from './net/protocol';
 import type { EventFeedRecord } from './sim/eventFeed';
 
 export interface Vector2D {
@@ -126,6 +126,17 @@ export interface StarTurret {
 export interface Star extends GameObject {
   mass: number;
   totalScrapInfused: number;
+  /**
+   * Growth base radius (P2-4): this star's size at 0 milestones.
+   * Every current radius derives from it deterministically in
+   * src/sim/starStages.ts — the physical size (growth curve, then
+   * the NEUTRON collapse) and the effective/well radius (the
+   * un-shrunk curve) — and the game loop reconciles `size` to that
+   * derivation every frame, so `size` is never edited by hand.
+   * Factories set it: 40 for match stars and the SP home star; the
+   * SP enemy star starts pre-grown at 120.
+   */
+  baseSize: number;
   type: 'home' | 'enemy';
   /** Seat-scoped ownerId (Phase 2, src/sim/ownership.ts): the seat
    * that owns this entity for the whole match, whoever controls it. */
@@ -225,6 +236,11 @@ export interface SeatSimState {
   /** Seat-scoped ownerId (`seat-<starIndex>`); never changes. */
   ownerId: string;
   starIndex: number;
+  /** The seat's team (TEAMS, Adam 2026-10-21): hostility and
+   *  cross-feeding key on this, not on ownerId (src/sim/teams.ts).
+   *  Defaults to the seat's own color-team; the room's resolved
+   *  teams thread in through match assembly. */
+  teamId: TeamId;
   /** Who drives this seat's ship: a human's input or the bot driver. */
   controller: 'human' | 'bot';
   ship: Ship | null;
@@ -238,6 +254,17 @@ export interface SeatSimState {
   fedTotal: number;
   /** Ships + drones this seat's weapons/waves/mines have destroyed. */
   kills: number;
+  /** Lifetime SHIP deaths this match (Phase 2, P2-5 death economy).
+   * Star deaths are eliminations, not counted here. Drives the
+   * repurchase price's value step-down and distinguishes a seat
+   * that is shipless because its ship died (deaths > 0) from one
+   * that never flew (SP's enemy seat: ship null, deaths 0). */
+  deaths: number;
+  /** Loop-clock timestamp (the frame's rAF clock) when the seat's
+   * current shiplessness began; set by the death sweep, cleared on
+   * repurchase. Bot seats auto-repurchase off this stamp. Absent
+   * while the seat has a ship. */
+  shipLostAt?: number;
   /** A seat is eliminated when its STAR dies (Adam's ruling: ship
    * death is not elimination). */
   eliminated: boolean;
@@ -247,12 +274,28 @@ export interface SeatSimState {
 
 /**
  * Match-end DATA (Phase 2, P2-2b) — the sim's record that an end
- * condition has been reached. The cinematic freeze (critical mass)
- * and the results wiring are P2-4; this is the fact, not the show.
+ * condition has been reached. P2-4 adds the collapse-cinematic
+ * bookkeeping the protocol's matchEnded carries: the fields below
+ * are stamped once, at derivation (src/sim/seatState.ts), and the
+ * host's wire announce reads them from here verbatim — the wire
+ * shape is protocol.ts's MatchEndedEvent, unchanged.
  */
 export interface MatchEndState {
   endReason: MatchEndReason;
   winnerOwnerId: string;
+  /** Critical-mass ends: ship inputs stop applying while the
+   * collapse cinematic runs (the loop's input phase enforces it).
+   * Stamped false for last-survivor ends, which lock nothing. */
+  inputLockout?: boolean;
+  /** Critical-mass ends only: `star-<starIndex>` of the collapsing
+   * star — by the match-end law that is the WINNER's star (the one
+   * that reached BLACK HOLE). */
+  collapsingStarId?: string;
+  /** Critical-mass ends only: when the cinematic began, ms epoch —
+   * the protocol's shared clock, so every client freezes together
+   * and the lockout window (starStages.CINEMATIC_DURATION_MS) is
+   * measured on it. */
+  cinematicStartedAt?: number;
 }
 
 export interface GameState {

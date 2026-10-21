@@ -42,6 +42,55 @@ export type StarStage =
 export type SeatCue = 'triangle' | 'diamond' | 'circle' | 'square';
 
 /**
+ * Team identity (TEAMS, Adam 2026-10-21): a seat's team for the whole
+ * match, picked by color in the lobby (picker order = declaration
+ * order here). Hostility in the sim is keyed on TEAM, not ownership:
+ * same-team seats cannot hurt each other (Adam's pin: "No friendly
+ * fire") and build one another's stars (Adam's pin: "The team works
+ * together to build the star" — cross-feeding/banking at any
+ * same-team star). Each seat's DEFAULT team is its own presentation
+ * color, so a room where nobody picks plays exactly the pre-teams
+ * game: every seat its own team.
+ */
+export type TeamId = 'red' | 'blue' | 'green' | 'gold';
+
+/** Team display colors — the SEAT_COLORS hexes remapped by name, so
+ *  the palette the lobby has always shown gains team names without
+ *  changing a single rendered color. */
+export const TEAM_COLORS: Record<TeamId, string> = {
+  red: '#ff6a5e',
+  blue: '#57b6ff',
+  green: '#6dffa8',
+  gold: '#ffc94d',
+};
+
+/** Team picker order (contract): red, blue, green, gold. Also the
+ *  order the start-time team resolution scans when it needs the
+ *  first color no human picked. */
+export const TEAM_PICKER_ORDER: readonly TeamId[] = [
+  'red',
+  'blue',
+  'green',
+  'gold',
+];
+
+/** The default team for a seat index: the seat's existing
+ *  presentation color as its solo team (0 → blue, 1 → red,
+ *  2 → gold, 3 → green — SEAT_COLORS order). */
+export const DEFAULT_TEAM_BY_SEAT_INDEX: readonly TeamId[] = [
+  'blue',
+  'red',
+  'gold',
+  'green',
+];
+
+export const defaultTeamForSeatIndex = (starIndex: number): TeamId =>
+  DEFAULT_TEAM_BY_SEAT_INDEX[starIndex % DEFAULT_TEAM_BY_SEAT_INDEX.length];
+
+export const isTeamId = (value: unknown): value is TeamId =>
+  value === 'red' || value === 'blue' || value === 'green' || value === 'gold';
+
+/**
  * Seat presentation, assigned by starIndex (contract: color/cue are
  * assigned by starIndex). UNPINNED presentation data — the contract
  * fixes that the assignment is by starIndex and which cue set exists,
@@ -87,6 +136,12 @@ export interface Seat {
    *  creation, never changes during the match. Every entity owned by
    *  this seat carries this id; color is presentation only. */
   ownerId: string;
+  /** The seat's team (TEAMS): born as the seat's default color-team,
+   *  changeable by its human holder in the lobby via `setTeam`,
+   *  resolved for bot seats at match start, then fixed for the
+   *  match. A takeover flips the occupant only — the team rides
+   *  the seat, like ownerId and the star. */
+  teamId: TeamId;
   occupant: SeatOccupant;
   connection: SeatConnection;
   isHost: boolean;
@@ -153,6 +208,9 @@ export type ErrorCode =
 export interface Standing {
   ownerId: string;
   starId: string;
+  /** The seat's team (TEAMS): host-filled from the sim's seat
+   *  records. Optional so pre-teams readers/snapshots stay valid. */
+  teamId?: TeamId;
   placement: number | null;
   stage: StarStage;
   progressWithinStage: number;
@@ -223,6 +281,12 @@ export type ClientMessage =
   /** Host-only, from the lobby: phase → 'live', arena live
    *  immediately. No ready state exists anywhere. */
   | { type: 'start' }
+  /** Lobby-only team pick (TEAMS): the sender sets THEIR OWN seat's
+   *  team — never another seat's. Lobby phase only; any palette team
+   *  is legal (unbalanced splits included). Invalid picks (wrong
+   *  phase, not your seat, unknown team) are silently ignored, per
+   *  the wire's standing no-error-code philosophy. */
+  | { type: 'setTeam'; teamId: TeamId }
   /** Host-only: free the target's seat (they get error 'kicked'). */
   | { type: 'kick'; targetPlayerId: string }
   /** Guest input intent — opaque JSON in P2-1, typed by P2-3. The DO

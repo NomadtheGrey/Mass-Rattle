@@ -5,6 +5,7 @@ import { milestonesForInfused, progressIntoNextMilestone, nextMilestoneCost, cum
 import { stageStateForInfused, type StarStageState } from '../sim/starStages';
 import type { StarStage } from '../net/protocol';
 import { STAGE_LABELS } from './lobby/lobbyTypes';
+import { MechanicsGuide } from './MechanicsGuide';
 import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor } from '../loadout';
 import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
 
@@ -270,16 +271,18 @@ export const HUD: React.FC<HUDProps> = ({
   const nextStage = homeField.next;
   const enemyField = stageFieldFor(enemyTotalInfused);
   const [showSysCfg, setShowSysCfg] = React.useState(false);
+  const [showGuide, setShowGuide] = React.useState(false);
   // Workshop tabs: the five base ship tracks, then the Arsenal categories.
   const [shopTab, setShopTab] = React.useState<'ship' | 'bank' | ArsenalCategory>('ship');
   const [localRadarOpen, setLocalRadarOpen] = React.useState(false);
 
   const radarActive = isMobileRadarOpen || localRadarOpen;
 
-  // ESC = the X, everywhere (Adam, 2026-10-20): every dialog that shows
-  // an X also answers to Escape, closing the topmost one first. The
-  // results screen is deliberately NOT in this chain — it is the match
-  // end, and its exit is the restart button, not a dismissal.
+  // ESC stack (Adam, 2026-10-20 + 2026-10-21): Escape closes the
+  // topmost open dialog first — SYSCFG, workshop, radar, then the
+  // mechanics guide — and with NOTHING open, Escape OPENS the guide.
+  // The results screen is deliberately NOT in this chain — it is the
+  // match end, and its exit is the restart button, not a dismissal.
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
@@ -288,11 +291,14 @@ export const HUD: React.FC<HUDProps> = ({
       if (radarActive) {
         if (onToggleMobileRadar) onToggleMobileRadar();
         setLocalRadarOpen(false);
+        return;
       }
+      if (showGuide) { setShowGuide(false); return; }
+      setShowGuide(true);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [showSysCfg, isShopOpen, onCloseShop, radarActive, onToggleMobileRadar]);
+  }, [showSysCfg, isShopOpen, onCloseShop, radarActive, onToggleMobileRadar, showGuide]);
 
   // CONTROLS CARD rows (desktop, bottom-left of the play area): the whole
   // key set in one readable place. Contextual like the rest of the HUD —
@@ -449,6 +455,12 @@ export const HUD: React.FC<HUDProps> = ({
               className="text-zinc-400 hover:text-white px-1.5 py-0.5 bg-zinc-900 border border-zinc-700 rounded text-[8px]"
             >
               SYS
+            </button>
+            <button
+              onClick={() => setShowGuide(true)}
+              className="text-zinc-400 hover:text-white px-1.5 py-0.5 bg-zinc-900 border border-zinc-700 rounded text-[8px]"
+            >
+              GUIDE
             </button>
           </div>
         </div>
@@ -685,6 +697,12 @@ export const HUD: React.FC<HUDProps> = ({
                 className="w-10 h-10 pitted-metal flex items-center justify-center text-[#33ff33] hover:text-white hover:bg-zinc-800 transition-colors text-[8px] text-center pointer-events-auto cursor-pointer"
               >
                 SYSCFG
+              </button>
+              <button 
+                onClick={() => setShowGuide(true)}
+                className="w-10 h-10 pitted-metal flex items-center justify-center text-[#33ff33] hover:text-white hover:bg-zinc-800 transition-colors text-[8px] text-center pointer-events-auto cursor-pointer"
+              >
+                GUIDE
               </button>
             </div>
             <div className="hud-panel w-20 p-2 border-2 bg-zinc-950/90 flex flex-col items-center justify-center gap-1">
@@ -1310,6 +1328,12 @@ export const HUD: React.FC<HUDProps> = ({
           </motion.div>
         </div>
       )}
+
+      {/* Mechanics guide (Adam, 2026-10-21): ESC with nothing open, the
+          GUIDE buttons, closes via ESC / X / backdrop. Sits at the
+          BOTTOM of the dialog stack (z-105) — workshop, radar, and
+          SYSCFG all layer above it and close before it. */}
+      {showGuide && <MechanicsGuide onClose={() => setShowGuide(false)} />}
 
       {/* SYSCFG Popup (Responsive) */}
       {showSysCfg && (

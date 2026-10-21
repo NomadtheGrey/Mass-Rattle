@@ -18,6 +18,7 @@
 import { PHYSICS } from '../constants';
 import { milestonesForInfused } from '../starGrowth';
 import { cmeReductionFor } from '../loadout';
+import { areHostile } from './teams';
 import type { GameState, SeatSimState, Ship } from '../types';
 
 export interface CmeStepContext {
@@ -69,31 +70,36 @@ export const stepCme = (ctx: CmeStepContext): void => {
       if (s.ownerId === localOwnerId) {
         // Shipped preference order: the nearest hostile DRONE if
         // one exists at all, else the (nearest hostile) star.
+        // (TEAMS: hostile = hostile TEAM throughout this step.)
         let bt: any = null;
         let bd = Infinity;
         next.drones.forEach(d => {
-          if (d.ownerId === s.ownerId) return;
+          if (!areHostile(simSeats, d.ownerId, s.ownerId)) return;
           const dd = Math.hypot(d.pos.x - s.pos.x, d.pos.y - s.pos.y);
           if (dd < bd) { bd = dd; bt = d; }
         });
         if (!bt) {
           let sd = Infinity;
           for (const os of simSeats) {
-            if (os.ownerId === s.ownerId) continue;
+            if (!areHostile(simSeats, os.ownerId, s.ownerId)) continue;
             const dd = Math.hypot(os.star.pos.x - s.pos.x, os.star.pos.y - s.pos.y);
             if (dd < sd) { sd = dd; bt = os.star; }
           }
         }
-        s.cmeAimAngle = Math.atan2(bt.pos.y - s.pos.y, bt.pos.x - s.pos.x);
+        // TEAMS edge: a one-team room has no hostile at all —
+        // leave the aim unset (the fire below falls back to 0)
+        // rather than dereference an empty target set, a state
+        // the pre-teams game could never reach.
+        if (bt) s.cmeAimAngle = Math.atan2(bt.pos.y - s.pos.y, bt.pos.x - s.pos.x);
       } else {
         let t: { x: number; y: number } | null = null;
-        if (next.decoy && next.decoy.ownerId !== s.ownerId) {
+        if (next.decoy && areHostile(simSeats, next.decoy.ownerId, s.ownerId)) {
           t = next.decoy.pos;
         }
         if (!t) {
           let bd = Infinity;
           for (const os of simSeats) {
-            if (!os.ship || os.ownerId === s.ownerId) continue;
+            if (!os.ship || !areHostile(simSeats, os.ownerId, s.ownerId)) continue;
             const dd = Math.hypot(os.ship.pos.x - s.pos.x, os.ship.pos.y - s.pos.y);
             if (dd < bd) { bd = dd; t = os.ship.pos; }
           }
@@ -101,12 +107,12 @@ export const stepCme = (ctx: CmeStepContext): void => {
         if (!t) {
           let bd = Infinity;
           for (const os of simSeats) {
-            if (os.ownerId === s.ownerId) continue;
+            if (!areHostile(simSeats, os.ownerId, s.ownerId)) continue;
             const dd = Math.hypot(os.star.pos.x - s.pos.x, os.star.pos.y - s.pos.y);
             if (dd < bd) { bd = dd; t = os.star.pos; }
           }
         }
-        s.cmeAimAngle = Math.atan2(t!.y - s.pos.y, t!.x - s.pos.x);
+        if (t) s.cmeAimAngle = Math.atan2(t.y - s.pos.y, t.x - s.pos.x);
       }
     }
     if (s.cmeChargeEndsAt && time >= s.cmeChargeEndsAt) {
@@ -163,10 +169,13 @@ export const stepCme = (ctx: CmeStepContext): void => {
       d.stunFrames = Math.max(d.stunFrames || 0, 30);
     };
 
-    if (w.ownerId !== localOwnerId) {
+    if (areHostile(simSeats, w.ownerId, localOwnerId)) {
       // A DIRECTED hostile CME eats the decoy whole: the beacon dies,
       // the wave dies with it. A radial one just washes past it.
-      if (next.decoy && next.decoy.ownerId !== w.ownerId && !w.hitIds.includes('decoy') && inBand(next.decoy.pos) && inCone(next.decoy.pos)) {
+      // (TEAMS: this whole defended wash runs only for waves hostile
+      // to the local seat — a teammate's wave washes past the local
+      // ship exactly as the local star's own waves always did.)
+      if (next.decoy && areHostile(simSeats, next.decoy.ownerId, w.ownerId) && !w.hitIds.includes('decoy') && inBand(next.decoy.pos) && inCone(next.decoy.pos)) {
         w.hitIds.push('decoy');
         next.decoy = null;
         if (w.dirAngle !== null) return false;
@@ -201,10 +210,11 @@ export const stepCme = (ctx: CmeStepContext): void => {
     // Other seats' SHIPS in the wave (P2-2b): plain damage +
     // knockback, no loadout defenses. Inert in SP (no bot ships
     // fly); the local ship's wash above keeps its full
-    // hardening/shield/aegis treatment.
+    // hardening/shield/aegis treatment. (TEAMS: the wave's own
+    // seat and its teammates are skipped — hostile teams only.)
     for (const seat of simSeats) {
       const bs = seat.ship;
-      if (!bs || seat.ownerId === localOwnerId || seat.ownerId === w.ownerId) continue;
+      if (!bs || seat.ownerId === localOwnerId || !areHostile(simSeats, seat.ownerId, w.ownerId)) continue;
       const hitKey = `ship:${seat.ownerId}`;
       if (w.hitIds.includes(hitKey) || !inBand(bs.pos) || !inCone(bs.pos)) continue;
       w.hitIds.push(hitKey);
@@ -216,8 +226,8 @@ export const stepCme = (ctx: CmeStepContext): void => {
     }
     // Drones: the wave washes every drone hostile to its star —
     // in SP, an enemy wave washes player drones and a home wave
-    // washes enemy drones, as shipped.
-    next.drones.forEach(d => { if (d.ownerId !== w.ownerId) washDrone(d); });
+    // washes enemy drones, as shipped. (TEAMS: hostile team.)
+    next.drones.forEach(d => { if (areHostile(simSeats, d.ownerId, w.ownerId)) washDrone(d); });
     return true;
   });
 };
