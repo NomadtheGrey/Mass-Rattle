@@ -896,11 +896,34 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       }
     };
     const handleKeyUp = (e: KeyboardEvent) => keys.current.delete(e.code);
+    // STUCK-KEY GUARD (Adam, 2026-10-21): alt-tab out mid-thrust and
+    // the keyup lands in the other app — the Set never hears it, and
+    // the ship flies itself on return, hard to recapture. Losing the
+    // window (blur, or the tab going hidden) now releases EVERY held
+    // input at the source, keyboard and touch alike: controls sit
+    // inactive until the player is back and presses fresh. A key
+    // still physically held on return stays released until it is
+    // re-pressed — that is the point of the rule.
+    const releaseAllInputs = () => {
+      keys.current.clear();
+      touchInputs.current.thrust = false;
+      touchInputs.current.rotateLeft = false;
+      touchInputs.current.rotateRight = false;
+      touchInputs.current.vac = false;
+      touchInputs.current.jettison = false;
+      touchInputs.current.fire = false;
+      touchInputs.current.analogStick = null;
+    };
+    const onVisibility = () => { if (document.hidden) releaseAllInputs(); };
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', releaseAllInputs);
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', releaseAllInputs);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [upgrade, deployDecoy]);
 

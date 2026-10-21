@@ -154,7 +154,7 @@ export default function App() {
         <button
           type="button"
           onClick={() => setRepurchaseDismissed(false)}
-          className="fixed bottom-[150px] sm:bottom-[122px] left-1/2 -translate-x-1/2 z-[90] px-4 py-2.5 rounded-full bg-zinc-950/85 border-2 border-red-500 text-red-400 font-mono text-[11px] font-bold tracking-widest shadow-[0_0_16px_rgba(239,68,68,0.4)] animate-pulse active:scale-95 touch-manipulation"
+          className="fixed bottom-[150px] sm:bottom-[122px] left-1/2 -translate-x-1/2 z-[90] px-4 py-2.5 rounded-full bg-zinc-950/70 border-2 border-red-500 text-red-400 font-mono text-[11px] font-bold tracking-widest shadow-[0_0_16px_rgba(239,68,68,0.4)] animate-pulse active:scale-95 touch-manipulation"
         >
           {localRespawnAt && localRespawnAt > performance.now()
             ? `☠ INSURANCE PAID — REDEPLOY IN ${Math.floor(Math.max(0, Math.ceil((localRespawnAt - performance.now()) / 1000)) / 60)}:${String(Math.max(0, Math.ceil((localRespawnAt - performance.now()) / 1000)) % 60).padStart(2, '0')}`
@@ -166,17 +166,15 @@ export default function App() {
           clientState={net.clientState}
           room={net.room}
           myPlayerId={net.myPlayerId}
-          defaultCallsign={window.localStorage.getItem('mr.callsign') || ''}
+          defaultCallsign=""
           initialCode={urlRoomCode}
           reclaimedOwnerId={net.reclaimedOwnerId}
           notice={net.notice}
           callbacks={{
             onCreate: (name, starCount, isPrivate, callsign) => {
-              window.localStorage.setItem('mr.callsign', callsign);
               net.createRoom(name, starCount, isPrivate, callsign);
             },
             onJoin: (code, callsign) => {
-              window.localStorage.setItem('mr.callsign', callsign);
               net.joinRoom(code, callsign);
             },
             onStart: net.startMatch,

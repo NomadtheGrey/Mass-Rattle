@@ -313,10 +313,35 @@ export type ClaimOutcome =
  * casing is kept. Collisions take a numeric suffix: Nova, Nova-2,
  * Nova-3… First come keeps the plain name.
  */
+/**
+ * RESERVED CALLSIGNS (Adam, 2026-10-21: "Nomad" is his — the lobby
+ * used to hand it to anyone whose browser had it saved). A reserved
+ * name (lowercase key) may be held PLAIN by exactly one playerId —
+ * its owner (value). Every other claimant is suffixed like any
+ * collision, in every room, whether or not the owner is present:
+ * the name is held for the owner, not merely first-come. An empty
+ * owner value means the pin has not been captured yet — the name
+ * is then protected from EVERYONE (suffix-for-all) until Adam's
+ * playerId is pinned here, a one-line change.
+ */
+export const RESERVED_CALLSIGNS: ReadonlyMap<string, string> = new Map([
+  ['nomad', ''],
+]);
+
+function isReservedForOthers(
+  desired: string,
+  claimantPlayerId?: string,
+): boolean {
+  const owner = RESERVED_CALLSIGNS.get(desired.trim().toLowerCase());
+  if (owner === undefined) return false;
+  return claimantPlayerId !== owner;
+}
+
 export function disambiguateCallsign(
   record: RoomRecord,
   desired: string,
   selfOwnerId: string,
+  claimantPlayerId?: string,
 ): string {
   const taken = new Set<string>();
   for (const s of record.seats) {
@@ -324,6 +349,9 @@ export function disambiguateCallsign(
   }
   for (const [ownerId, held] of Object.entries(record.heldIdentities)) {
     if (ownerId !== selfOwnerId) taken.add(held.callsign.toLowerCase());
+  }
+  if (isReservedForOthers(desired, claimantPlayerId)) {
+    taken.add(desired.trim().toLowerCase());
   }
   if (!taken.has(desired.toLowerCase())) return desired;
   let n = 2;
@@ -350,6 +378,7 @@ export function claimSeat(
         record,
         callsign.trim(),
         existing.ownerId,
+        playerId,
       );
     }
     existing.connection = 'connected';
@@ -369,6 +398,7 @@ export function claimSeat(
         record,
         callsign.trim() || hold.held.callsign,
         seat.ownerId,
+        playerId,
       ),
       // color/cue are the seat's, assigned by starIndex for the match.
       color,
@@ -392,6 +422,7 @@ export function claimSeat(
       record,
       callsign.trim() || `PLAYER-${seat.starIndex + 1}`,
       seat.ownerId,
+      playerId,
     ),
     // color/cue are the seat's, assigned by starIndex for the match —
     // a takeover flips kind/playerId/callsign ONLY (contract).
