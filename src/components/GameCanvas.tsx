@@ -34,6 +34,52 @@ const cmeHash = (seed: string, i: number): number => {
   return (h >>> 0) / 4294967296;
 };
 
+// CME FIREBALL SPRITES (Adam, 2026-10-21: 'shouldn't they be more like
+// solar flares/fireballs?' — the bowed-stroke streamers read as green
+// squiggles). A fireball is a pre-rendered radial glow: white-hot core
+// cooling through the firing star's stage tint to transparency, in
+// three heats. Sprites are cached per (tint, heat) — a handful of
+// 128px canvases serve every wave — and drawn additively so overlaps
+// bloom like plasma instead of stacking like lines.
+type CmeHeat = 'hot' | 'mid' | 'ember';
+const cmeSpriteCache = new Map<string, HTMLCanvasElement>();
+const cmeSprite = (tint: [number, number, number], heat: CmeHeat): HTMLCanvasElement => {
+  const key = `${tint[0]},${tint[1]},${tint[2]}|${heat}`;
+  const hit = cmeSpriteCache.get(key);
+  if (hit) return hit;
+  const S = 128;
+  const cv = document.createElement('canvas');
+  cv.width = S; cv.height = S;
+  const g = cv.getContext('2d')!;
+  const grad = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  const [r, gg, b] = tint;
+  const mixW = (f: number): string => `${Math.round(r + (255 - r) * f)}, ${Math.round(gg + (250 - gg) * f)}, ${Math.round(b + (238 - b) * f)}`;
+  if (heat === 'hot') {
+    grad.addColorStop(0, 'rgba(255, 252, 244, 1)');
+    grad.addColorStop(0.3, `rgba(${mixW(0.65)}, 0.95)`);
+    grad.addColorStop(0.62, `rgba(${r}, ${gg}, ${b}, 0.55)`);
+    grad.addColorStop(1, `rgba(${r}, ${gg}, ${b}, 0)`);
+  } else if (heat === 'mid') {
+    grad.addColorStop(0, `rgba(${mixW(0.45)}, 0.95)`);
+    grad.addColorStop(0.45, `rgba(${r}, ${gg}, ${b}, 0.6)`);
+    grad.addColorStop(1, `rgba(${r}, ${gg}, ${b}, 0)`);
+  } else {
+    const dr = Math.round(r * 0.5), dg = Math.round(gg * 0.42), db = Math.round(b * 0.38);
+    grad.addColorStop(0, `rgba(${dr}, ${dg}, ${db}, 0.8)`);
+    grad.addColorStop(0.55, `rgba(${dr}, ${dg}, ${db}, 0.35)`);
+    grad.addColorStop(1, `rgba(${dr}, ${dg}, ${db}, 0)`);
+  }
+  g.fillStyle = grad;
+  g.fillRect(0, 0, S, S);
+  cmeSpriteCache.set(key, cv);
+  return cv;
+};
+const drawCmeBlob = (c: CanvasRenderingContext2D, sprite: HTMLCanvasElement, x: number, y: number, radius: number, alpha: number) => {
+  c.globalAlpha = Math.max(0, Math.min(1, alpha));
+  c.drawImage(sprite, x - radius, y - radius, radius * 2, radius * 2);
+  c.globalAlpha = 1;
+};
+
 // PER-TYPE SILHOUETTES (UI lane, Phase 3): every frame in the progression
 // table gets its own hull outline. Points are unit multiples of ship.size
 // (x forward, nose first), so hull steps scale every shape for free and
@@ -249,7 +295,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
         const progress = Math.max(0, Math.min(1, 1 - remain / PHYSICS.CME.CHARGE_MS));
         const aboutToFire = progress > 0.75;
         const pulse = 0.5 + 0.5 * Math.sin(now / (60 - 36 * progress));
-        const ringCol = !isHome && aboutToFire ? '255, 255, 255' : (isHome ? '51, 255, 51' : '244, 63, 94');
+        // A CME wears its star's STAGE tint (Adam, 2026-10-21 — the
+        // phosphor green read as UI chrome, not starfire): ring,
+        // dashes, agitation and ejecta all draw from this one tint.
+        // The about-to-fire white ramp stays, for every star — it is
+        // the glance cue, not a faction color.
+        const cmeTint: [number, number, number] = CME_STAGE_TINTS[stageStateForInfused(s.totalScrapInfused).stage] || [255, 170, 60];
+        const ringCol = aboutToFire ? '255, 255, 255' : `${cmeTint[0]}, ${cmeTint[1]}, ${cmeTint[2]}`;
         ctx.strokeStyle = `rgba(${ringCol}, ${0.35 + 0.4 * pulse})`;
         ctx.lineWidth = aboutToFire ? 3.5 : 2;
         ctx.beginPath();
@@ -259,7 +311,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
           const a = s.cmeAimAngle;
           const x1 = Math.cos(a) * s.size, y1 = Math.sin(a) * s.size;
           const x2 = Math.cos(a) * (s.size + 430), y2 = Math.sin(a) * (s.size + 430);
-          ctx.strokeStyle = isHome ? 'rgba(51, 255, 51, 0.32)' : 'rgba(244, 63, 94, 0.5)';
+          ctx.strokeStyle = `rgba(${cmeTint[0]}, ${cmeTint[1]}, ${cmeTint[2]}, 0.45)`;
           ctx.lineWidth = 2;
           ctx.setLineDash([10, 7]);
           ctx.lineDashOffset = -now / 22;
@@ -268,7 +320,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
           ctx.lineTo(x2, y2);
           ctx.stroke();
           ctx.setLineDash([]);
-          ctx.fillStyle = isHome ? 'rgba(51, 255, 51, 0.6)' : 'rgba(244, 63, 94, 0.75)';
+          ctx.fillStyle = `rgba(${cmeTint[0]}, ${cmeTint[1]}, ${cmeTint[2]}, 0.7)`;
           ctx.save();
           ctx.translate(x2, y2);
           ctx.rotate(a);
@@ -287,7 +339,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
         // the aim exact; this makes the star itself tell the story.
         {
           const agitSeed = s.ownerId || s.id;
-          const baseCol: [number, number, number] = isHome ? [51, 255, 51] : [244, 63, 94];
+          const baseCol: [number, number, number] = cmeTint;
           const flashes = 7;
           for (let k = 0; k < flashes; k++) {
             const tick = Math.floor(now / 110) + k * 17;
@@ -635,10 +687,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       const star = (state.stars || []).find(st => st.ownerId === w.ownerId);
       const stage = star ? stageStateForInfused(star.totalScrapInfused).stage : null;
       const tint: [number, number, number] = (stage && CME_STAGE_TINTS[stage])
-        || (w.owner === 'home' ? [51, 255, 51] : [244, 63, 94]);
+        || [255, 170, 60];
       const radial = w.dirAngle === null;
       const count = radial ? 46 : 30;
       ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
       ctx.lineCap = 'round';
       for (let i = 0; i < count; i++) {
         const rA = cmeHash(w.id, i * 7);
@@ -662,14 +715,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
         const len = Math.min(200, Math.max(12, head * (0.16 + 0.3 * rL)));
         const tail = Math.max(2, head - len);
         const width = (1.2 + 3.6 * rW) * (0.45 + 0.55 * fHead);
-        // Cooling: white-hot near the star, stage tint mid-flight,
-        // dark ember as it dies.
-        const hot = Math.max(0, 1 - q * 2.4);
-        const ember = Math.max(0, (q - 0.62) / 0.38);
-        const cool = 1 - 0.5 * ember;
-        const cr = Math.round((tint[0] + (255 - tint[0]) * hot) * cool);
-        const cg = Math.round((tint[1] + (246 - tint[1]) * hot) * cool);
-        const cb = Math.round((tint[2] + (230 - tint[2]) * hot) * cool);
+        // Cooling is carried by the sprite heat each blob picks
+        // below, from its own distance along the wave.
         const alpha = (0.1 + 0.5 * fHead) * (0.35 + 0.65 * frac);
         const hx = w.pos.x + Math.cos(ang) * head;
         const hy = w.pos.y + Math.sin(ang) * head;
@@ -679,23 +726,22 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
         const bow = (rBow - 0.5) * len * 0.35;
         const mx = (hx + tx) / 2 - Math.sin(ang) * bow;
         const my = (hy + ty) / 2 + Math.cos(ang) * bow;
-        // Under-glow, then the bright core, then the blob head.
-        ctx.strokeStyle = `rgba(${cr}, ${cg}, ${cb}, ${alpha * 0.32})`;
-        ctx.lineWidth = width * 2.6;
-        ctx.beginPath();
-        ctx.moveTo(tx, ty);
-        ctx.quadraticCurveTo(mx, my, hx, hy);
-        ctx.stroke();
-        ctx.strokeStyle = `rgba(${cr}, ${cg}, ${cb}, ${alpha})`;
-        ctx.lineWidth = width;
-        ctx.beginPath();
-        ctx.moveTo(tx, ty);
-        ctx.quadraticCurveTo(mx, my, hx, hy);
-        ctx.stroke();
-        ctx.fillStyle = `rgba(255, 246, 230, ${alpha * (0.2 + 0.6 * hot)})`;
-        ctx.beginPath();
-        ctx.arc(hx, hy, Math.max(0.6, width * 0.85), 0, Math.PI * 2);
-        ctx.fill();
+        // FIREBALLS, not squiggles (Adam, 2026-10-21): the streamer
+        // is a chain of glowing plasma blobs along its bowed path,
+        // swelling toward the head, each picking its heat from its
+        // own cooling coordinate — white-hot near the star, the stage
+        // tint mid-flight, dark ember as it dies. Under 'lighter'
+        // the overlaps bloom like fire instead of reading as lines.
+        const BLOBS = 5;
+        for (let bIdx = 0; bIdx < BLOBS; bIdx++) {
+          const t = bIdx / (BLOBS - 1);
+          const bx = (1 - t) * (1 - t) * tx + 2 * (1 - t) * t * mx + t * t * hx;
+          const by = (1 - t) * (1 - t) * ty + 2 * (1 - t) * t * my + t * t * hy;
+          const bq = (tail + (head - tail) * t) / w.maxRange;
+          const heat: CmeHeat = bq < 0.3 ? 'hot' : bq < 0.68 ? 'mid' : 'ember';
+          const bRad = Math.max(1.4, width * (1 + 2.3 * t));
+          drawCmeBlob(ctx, cmeSprite(tint, heat), bx, by, bRad, alpha * (0.5 + 0.55 * t));
+        }
       }
       // ERUPTION PLUME (early life): while the front is still near the
       // star, thick tendrils reach off the surface toward it — the
@@ -714,12 +760,19 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
             : (w.dirAngle as number) + (rA * 2 - 1) * 0.55;
           const inner = star.size * 0.92;
           const outer = Math.max(inner + 8, Math.min(w.radius * (0.75 + 0.3 * rL), star.size + (40 + 110 * rL) * baseFrac + w.radius * 0.3));
-          ctx.strokeStyle = `rgba(${tint[0]}, ${tint[1]}, ${tint[2]}, ${0.4 * baseFrac * (0.5 + 0.5 * rW)})`;
-          ctx.lineWidth = 2.5 + 3.5 * rW;
+          ctx.strokeStyle = `rgba(${tint[0]}, ${tint[1]}, ${tint[2]}, ${0.22 * baseFrac * (0.5 + 0.5 * rW)})`;
+          ctx.lineWidth = 2 + 2.5 * rW;
           ctx.beginPath();
           ctx.moveTo(w.pos.x + Math.cos(ang) * inner, w.pos.y + Math.sin(ang) * inner);
           ctx.lineTo(w.pos.x + Math.cos(ang) * outer, w.pos.y + Math.sin(ang) * outer);
           ctx.stroke();
+          // Flare lumps riding the tendril — a solar flare is arches
+          // of fire with bright knots, not a laser line.
+          for (const tt of [0.4, 0.7, 1]) {
+            const fx = w.pos.x + Math.cos(ang) * (inner + (outer - inner) * tt);
+            const fy = w.pos.y + Math.sin(ang) * (inner + (outer - inner) * tt);
+            drawCmeBlob(ctx, cmeSprite(tint, tt < 0.55 ? 'hot' : 'mid'), fx, fy, (2.6 + 4.4 * rW) * (0.6 + 0.5 * tt), 0.55 * baseFrac * (0.5 + 0.5 * rW));
+          }
         }
       }
       ctx.restore();
