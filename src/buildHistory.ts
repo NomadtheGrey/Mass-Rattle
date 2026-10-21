@@ -17,6 +17,7 @@ export interface BuildEntry {
 }
 
 export const BUILD_HISTORY: BuildEntry[] = [
+  { date: '2026-10-21', ref: 'PR #23', title: 'BEAUTIFUL SHIPS + THE CROWNS', detail: 'Painted sprites for all 21 hulls over the honest outlines; T5 crowns on every line — WARMONGER, NAUTILUS, ATLAS, MOTHERSHIP, DREADNOUGHT — with VANGUARD interpolated and the hauler’s MAMMOTH renamed; the minelayer becomes the submarine (proximity cloak, the periscope moment, turrets respect it); turret orbits pinned at five seconds; turning becomes a per-line character; the name Nomad is reserved by password; Options and this very history arrive.' },
   { date: '2026-10-21', ref: 'PR #21', title: 'ARMED BUTTONS + REAL GLASS', detail: 'Armed buttons read armed — the CTAs own their colors; glass panels lighten to blue-grey. The callsign field starts empty, “Nomad” becomes a reserved name, and alt-tab can no longer steal your ship.' },
   { date: '2026-10-21', ref: 'PR #19', title: 'THE FIELD MANUAL ROW', detail: 'The SHIP CONTROLS card gains its missing row — FIELD MANUAL · ESC, bold, on top.' },
   { date: '2026-10-21', ref: 'PR #17', title: 'DEATH TAX + TWO LEAVE DOORS', detail: 'A paid buy-back also costs time (redeploy wait, 30 s cap). Leaving splits into STEP AWAY and FORFEIT. Remote ships and nameplates arrive; team names go on screen.' },
