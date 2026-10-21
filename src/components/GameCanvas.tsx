@@ -142,6 +142,29 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
   // world wrap firing — remember when it happened so the rim can flash.
   const prevShipPosRef = useRef<{ x: number; y: number } | null>(null);
   const wrapFlashAtRef = useRef(0);
+  // HIT FLASH (Adam, 2026-10-21, live test of the painted fleet):
+  // the green edge is hit feedback, not furniture — a painted hull
+  // wears NO outline at rest, and the edge appears only for a beat
+  // when the ship takes a hit. The canvas watches each ship's health
+  // itself: a drop stamps a flash. Presentation-only — no sim field,
+  // no wire change; a health drop reads identically on host, guest,
+  // local hull and remote hull.
+  const prevHealthRef = useRef<Map<string, number>>(new Map());
+  const hitFlashAtRef = useRef<Map<string, number>>(new Map());
+  const noteHealth = (ownerId: string, health: number) => {
+    const prev = prevHealthRef.current.get(ownerId);
+    if (prev !== undefined && health < prev) {
+      hitFlashAtRef.current.set(ownerId, performance.now());
+    }
+    prevHealthRef.current.set(ownerId, health);
+  };
+  // 1 at the hit, fading to 0 over the flash window; 0 at rest.
+  const hitFlashFor = (ownerId: string): number => {
+    const at = hitFlashAtRef.current.get(ownerId);
+    if (at === undefined) return 0;
+    const age = performance.now() - at;
+    return age < 260 ? 1 - age / 260 : 0;
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -950,11 +973,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
 
     // Ship Body — the painted SPRITE when it has loaded (Pretty
     // Ships): rotated from nose-up into the hull's forward, drawn at
-    // SPRITE_SCALE over the outline's footprint, with the outline
-    // stroked thin over the art so the silhouette truth still reads.
-    // Until the image lands (or if it ever fails), the vector body
-    // below draws exactly as it always has. Armor rim (under) and
-    // the capability tells (over) are unchanged either way.
+    // SPRITE_SCALE over the outline's footprint. NO outline rides the
+    // art at rest (Adam, 2026-10-21): the green edge is the HIT
+    // FLASH now, stroked only for a beat when health drops. Until
+    // the image lands (or if it ever fails), the vector body below
+    // draws exactly as it always has — its green stroke is the body
+    // there, not an edge over paint. Armor rim (under) and the
+    // capability tells (over) are unchanged either way.
+    noteHealth(ship.ownerId, ship.health);
     const localSprite = shipSprite(ship.line, ship.typeTier);
     if (localSprite) {
       ctx.save();
@@ -962,10 +988,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       const S = ship.size * SPRITE_SCALE;
       ctx.drawImage(localSprite, -S / 2, -S / 2, S, S);
       ctx.restore();
-      ctx.strokeStyle = COLORS.CRT_GLOW;
-      ctx.lineWidth = 1.5;
-      traceOutline(ctx, hullPts);
-      ctx.stroke();
+      const flash = hitFlashFor(ship.ownerId);
+      if (flash > 0) {
+        ctx.strokeStyle = `rgba(51, 255, 51, ${0.85 * flash})`;
+        ctx.lineWidth = 2;
+        traceOutline(ctx, hullPts);
+        ctx.stroke();
+      }
     } else {
       ctx.fillStyle = '#1a1a1c';
       ctx.strokeStyle = COLORS.CRT_GLOW;
@@ -1201,6 +1230,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       for (const seat of state.seats) {
         const rs = seat.ship;
         if (!rs || seat.ownerId === ship.ownerId) continue;
+        noteHealth(rs.ownerId, rs.health);
         const label = seatLabels[seat.ownerId];
         // Reveal IS the sim's alpha (src/sim/stealth.ts — one
         // geometry for canvas, bots, seekers, and star systems):
@@ -1241,10 +1271,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
           const S = rs.size * SPRITE_SCALE;
           ctx.drawImage(rsSprite, -S / 2, -S / 2, S, S);
           ctx.restore();
-          ctx.strokeStyle = label ? label.color : COLORS.CRT_GLOW;
-          ctx.lineWidth = 1.5;
-          traceOutline(ctx, hullOutlineFor(rs.line, rs.typeTier, rs.size));
-          ctx.stroke();
+          const rFlash = hitFlashFor(rs.ownerId);
+          if (rFlash > 0) {
+            ctx.save();
+            ctx.globalAlpha = (isStealthShip(rs) ? reveal : 1) * rFlash * 0.9;
+            ctx.strokeStyle = label ? label.color : COLORS.CRT_GLOW;
+            ctx.lineWidth = 2;
+            traceOutline(ctx, hullOutlineFor(rs.line, rs.typeTier, rs.size));
+            ctx.stroke();
+            ctx.restore();
+          }
         } else {
           ctx.fillStyle = '#1a1a1c';
           ctx.strokeStyle = ghost ? 'rgba(150, 215, 255, 0.9)' : (label ? label.color : COLORS.CRT_GLOW);
