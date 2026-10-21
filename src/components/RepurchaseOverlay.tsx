@@ -122,7 +122,7 @@ export const RepurchaseOverlay: React.FC<RepurchaseOverlayProps> = ({
         ) : (
           <button
             onClick={onRepurchase}
-            className="pitted-metal w-full py-3 rounded font-bold text-sm tracking-widest bg-[#33ff33] text-black shadow-[0_0_16px_rgba(51,255,51,0.4)] active:scale-[0.98] touch-manipulation"
+            className="cta-go w-full py-3 rounded font-bold text-sm tracking-widest active:scale-[0.98] touch-manipulation"
           >
             ↻ REPURCHASE SHIP{free ? ' — FREE' : ` — ${price}U`}
           </button>

@@ -235,7 +235,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
     const iAmHost = myPlayerId !== null && room.hostPlayerId === myPlayerId;
     const mySeat = room.seats.find(seat => seat.occupant.playerId !== null && seat.occupant.playerId === myPlayerId) ?? null;
     return (
-      <div className="fixed inset-0 z-[100] overflow-y-auto bg-zinc-950/90 text-[#33ff33] flex justify-center p-3 sm:p-6">
+      <div className="fixed inset-0 z-[100] overflow-y-auto glass-modal text-[#33ff33] flex justify-center p-3 sm:p-6">
       {closeButton}
         <div className="w-full max-w-md md:max-w-3xl flex gap-4 items-start">
         {/* Left margin: field notes (desktop); phones get the same
@@ -316,7 +316,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             iAmHost ? (
               <button
                 onClick={callbacks.onStart}
-                className="pitted-metal w-full py-3.5 rounded font-bold text-sm tracking-widest bg-[#33ff33] text-black shadow-[0_0_16px_rgba(51,255,51,0.45)] active:scale-[0.98] touch-manipulation"
+                className="cta-go w-full py-3.5 rounded font-bold text-sm tracking-widest active:scale-[0.98] touch-manipulation"
               >
                 ▶ START MATCH
               </button>
@@ -357,7 +357,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
 
   /* ------------------------------ ENTRY VIEW ----------------------------- */
   return (
-    <div className="fixed inset-0 z-[100] overflow-y-auto bg-zinc-950/90 text-[#33ff33] flex justify-center p-3 sm:p-6">
+    <div className="fixed inset-0 z-[100] overflow-y-auto glass-modal text-[#33ff33] flex justify-center p-3 sm:p-6">
       {closeButton}
       <div className="w-full max-w-md flex flex-col gap-4">
         <div className="text-center mt-2">
@@ -409,6 +409,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               🎲
             </button>
           </div>
+          <p className="text-[9px] font-mono text-zinc-600 leading-snug">Blank is fine — leave it empty and the server picks a galactic name for you.</p>
           <div>
             <div className="text-[9px] font-mono tracking-[0.25em] text-zinc-500 mb-1.5">STARS IN THE ARENA</div>
             <div className="flex gap-1.5">
@@ -440,10 +441,10 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             onClick={() => callbacks.onCreate(roomName.trim(), starCount, isPrivate, callsign.trim())}
             disabled={busy || !callsignOk}
             className={`w-full py-3 rounded font-bold text-sm tracking-widest touch-manipulation active:scale-[0.98] ${
-              busy || !callsignOk ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' : 'pitted-metal bg-[#33ff33] text-black shadow-[0_0_14px_rgba(51,255,51,0.4)]'
+              busy || !callsignOk ? 'cta-wait' : 'cta-go'
             }`}
           >
-            {busy ? 'CREATING…' : 'CREATE ROOM'}
+            {busy ? 'CREATING…' : !callsignOk ? 'ENTER A CALLSIGN TO CREATE' : 'CREATE ROOM'}
           </button>
         </div>
 
@@ -462,11 +463,11 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             disabled={busy || !callsignOk || joinCode.length < 6}
             className={`w-full py-3 rounded font-bold text-sm tracking-widest touch-manipulation active:scale-[0.98] ${
               busy || !callsignOk || joinCode.length < 6
-                ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
-                : 'pitted-metal bg-pink-600 text-white shadow-[0_0_14px_rgba(219,39,119,0.4)]'
+                ? 'cta-wait'
+                : 'cta-go-pink'
             }`}
           >
-            {busy ? 'JOINING…' : 'JOIN ROOM'}
+            {busy ? 'JOINING…' : !callsignOk ? 'ENTER A CALLSIGN TO JOIN' : joinCode.length < 6 ? 'ENTER THE 6-LETTER CODE' : 'JOIN ROOM'}
           </button>
           <p className="text-[9px] font-mono text-zinc-600 text-center">
             Got a link instead? Open it — the code fills itself in.
