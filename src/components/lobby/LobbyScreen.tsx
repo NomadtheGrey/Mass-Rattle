@@ -4,7 +4,7 @@ import {
   CUE_GLYPHS, ERROR_LABELS, SEAT_CONNECTION_LABELS,
   TeamId, TEAM_ORDER, TEAM_COLORS, TEAM_LABELS, seatTeam,
 } from './lobbyTypes';
-import { randomRoomName } from '../../net/roomNames';
+import { generateUniqueRoomName } from '../../net/roomNames';
 
 /**
  * Lobby front end (UI lane, Phase 2) — built against the frozen wire
@@ -137,6 +137,37 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   const [starCount, setStarCount] = React.useState<2 | 3 | 4>(2);
   const [isPrivate, setIsPrivate] = React.useState(false);
   const [joinCode, setJoinCode] = React.useState(initialCode.toUpperCase().slice(0, 6));
+
+  // DICE POLITENESS (Adam, 2026-10-21: no duplicate names in the
+  // lobby): the entry screen keeps a best-effort set of the names
+  // live rooms already wear (one GET on mount, refreshed when stale)
+  // and the dice rolls against it with the server's OWN uniqueness
+  // generator — a rolled name won't knowingly duplicate a listed
+  // room. Politeness, not the guarantee: private rooms aren't
+  // listed and rooms born after the fetch aren't in the set; the
+  // server's create-time enforcement (name_taken) is the law.
+  const [liveNames, setLiveNames] = React.useState<ReadonlySet<string>>(new Set());
+  const liveNamesFetchedAt = React.useRef(0);
+  const refreshLiveNames = React.useCallback(() => {
+    liveNamesFetchedAt.current = Date.now();
+    fetch('/api/rooms')
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = (await res.json()) as { rooms?: { name?: string }[] };
+        setLiveNames(new Set(
+          (data.rooms || [])
+            .map(r => (typeof r.name === 'string' ? r.name.toLowerCase() : ''))
+            .filter(Boolean),
+        ));
+      })
+      .catch(() => { /* politeness degrades silently; the server enforces */ });
+  }, []);
+  React.useEffect(() => { refreshLiveNames(); }, [refreshLiveNames]);
+  const rollName = React.useCallback(() => {
+    if (Date.now() - liveNamesFetchedAt.current > 20000) refreshLiveNames();
+    const suffix = Math.random().toString(36).slice(2, 5).toUpperCase();
+    setRoomName(generateUniqueRoomName(liveNames, suffix));
+  }, [liveNames, refreshLiveNames]);
 
   const busy = clientState.connection === 'connecting';
   const callsignOk = callsign.trim().length > 0;
@@ -355,7 +386,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             />
             <button
               type="button"
-              onClick={() => setRoomName(randomRoomName())}
+              onClick={rollName}
               title="Roll a random name"
               aria-label="Roll a random room name"
               className="w-11 shrink-0 rounded bg-zinc-900 border border-zinc-700 text-lg touch-manipulation active:scale-95 hover:border-[#33ff33]"
