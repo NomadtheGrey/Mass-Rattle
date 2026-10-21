@@ -26,7 +26,7 @@ import { stepMines, stepProjectiles } from '../sim/projectiles';
 import { stepCme } from '../sim/cme';
 import { computeStandings } from '../sim/standings';
 import { areHostile, areTeammates } from '../sim/teams';
-import { applyDeathLoss, botRepurchaseDue, tryRepurchase } from '../sim/deathEconomy';
+import { applyDeathLoss, botRepurchaseDue, completeRespawn, respawnDue, tryRepurchase } from '../sim/deathEconomy';
 import { appendEventRecords, EventFeedEntry } from '../sim/eventFeed';
 import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, applyDeliveryHeal } from '../starDefense';
 import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, thornDamageFor, aegisAbsorbFor } from '../loadout';
@@ -575,7 +575,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       const idx = prev.seats.findIndex(s => s.ownerId === ownerId);
       if (idx < 0) return prev;
       const seat: SeatSimState = { ...prev.seats[idx] };
-      const bought = tryRepurchase(seat);
+      const bought = tryRepurchase(seat, performance.now());
       if (!bought) return prev;
       const seats = prev.seats.map((s, i) => (i === idx ? seat : s));
       const eventFeed = appendEventRecords(prev.eventFeed, [
@@ -598,7 +598,11 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           ...prev,
           seats,
           eventFeed,
-          ship: bought.ship,
+          // A PAID buy-back serves its death-tax wait first: the
+          // seat record carries the pending arrival and the top
+          // level keeps the wreck stand-in until the frame lands.
+          // The free floor's ship arrives in bought.ship at once.
+          ship: bought.ship ?? prev.ship,
           bankedScrap: seat.bankedScrap,
         };
       }
@@ -1847,9 +1851,15 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         // repurchaseShip callback, below). Runs before the bot
         // drivers so a bought-back ship flies this same frame.
         if (!prev.matchEnd) {
+          // DEATH-TAX ARRIVALS (Adam, 2026-10-21): a paid buy-back's
+          // frame lands when its respawn wait elapses. Payment was
+          // recorded at purchase; arrival itself is silent.
+          for (const seat of simSeats) {
+            if (respawnDue(seat, time)) completeRespawn(seat);
+          }
           for (const seat of simSeats) {
             if (!botRepurchaseDue(seat, time)) continue;
-            const bought = tryRepurchase(seat);
+            const bought = tryRepurchase(seat, time);
             if (bought) {
               feedEntries.push({
                 type: 'repurchase',

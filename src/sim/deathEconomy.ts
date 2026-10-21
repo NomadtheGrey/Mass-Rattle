@@ -64,6 +64,30 @@ export const VALUE_STEP_DOWN_FRACTION = 0.15;
  *  bank starts at 0 and the floor is free), so the timer is the
  *  only wait a bot ever has. */
 export const BOT_REPURCHASE_DELAY_MS = 5000;
+/** DRAFT (Adam, 2026-10-21 — the "death tax"): a PAID repurchase
+ *  also costs TIME — the new frame arrives only after a respawn
+ *  wait, on top of the price. The FREE floor (price 0) skips the
+ *  wait entirely: broke players have paid in poverty already.
+ *  Base wait; the household magnitude is the bots' 5 s. */
+export const RESPAWN_WAIT_BASE_MS = 5000;
+/** DRAFT, UNRULED: each death beyond the first adds this much to
+ *  the wait. Whether the tax grows at all is Adam's open number —
+ *  it is one constant, and 0 flattens it. */
+export const RESPAWN_WAIT_PER_DEATH_MS = 1000;
+/** DRAFT: the wait never exceeds this, however often a seat dies. */
+export const RESPAWN_WAIT_MAX_MS = 10000;
+
+/**
+ * The death-tax wait for a seat's NEXT paid repurchase, from its
+ * lifetime death count (the count AFTER the death being bought
+ * back from — the first buy-back waits the base). Pure.
+ */
+export const respawnWaitMsFor = (deaths: number): number =>
+  Math.min(
+    RESPAWN_WAIT_MAX_MS,
+    RESPAWN_WAIT_BASE_MS +
+      RESPAWN_WAIT_PER_DEATH_MS * Math.max(0, deaths - 1),
+  );
 
 export interface DeathLossResult {
   /** The scrap the death took from the bank (0 at an empty bank). */
@@ -102,33 +126,75 @@ export const repurchasePriceFor = (bank: number, deaths: number): number => {
 };
 
 export interface RepurchaseResult {
-  /** The new starter frame, already placed on the seat record. */
-  ship: Ship;
+  /** The new starter frame, already placed on the seat record —
+   *  or null when a PAID buy-back is serving its death-tax wait
+   *  (the frame arrives at respawnAt; see completeRespawn). */
+  ship: Ship | null;
   /** Scrap actually paid (0 at the zero-value floor). */
   cost: number;
+  /** Loop-clock arrival of a paid frame; absent when the ship
+   *  spawned at once (the free floor never waits). */
+  respawnAt?: number;
 }
 
 /**
- * Buy a shipless seat a new frame, mutating the seat record (the
- * loop's seat copies are working state, mutated in place by
- * convention): deducts the price from the seat's bank, spawns a
- * fresh starter at the seat's star through the assembly placement
- * math, and clears the shipless stamp. Returns null — and mutates
- * nothing — when the seat is not death-economy shipless (it still
- * has a ship, it never lost one, or it is eliminated: a dead star
- * buys no ships).
+ * Place a bought frame on the seat record: a fresh starter at the
+ * seat's star through the assembly placement math, shipless and
+ * pending stamps cleared. Called by tryRepurchase for the free
+ * floor, and by the loop when a paid seat's death-tax wait elapses
+ * (respawnDue). Returns null for an eliminated seat — a dead star
+ * takes no deliveries, even of a ship already paid for.
  */
-export const tryRepurchase = (seat: SeatSimState): RepurchaseResult | null => {
-  if (seat.ship || seat.eliminated || (seat.deaths ?? 0) <= 0) return null;
-  const cost = repurchasePriceFor(seat.bankedScrap, seat.deaths);
-  if (seat.bankedScrap < cost) return null;
-  seat.bankedScrap -= cost;
+export const completeRespawn = (seat: SeatSimState): Ship | null => {
+  if (seat.eliminated) return null;
   const ship = createStarterShip(seat.ownerId, shipSpawnPosition(seat.star), {
     withStarterWeapon: true,
   });
   seat.ship = ship;
   seat.shipLostAt = undefined;
-  return { ship, cost };
+  seat.respawnAt = undefined;
+  seat.respawnWaitMs = undefined;
+  return ship;
+};
+
+/** A paid buy-back's frame is due when the loop clock reaches the
+ *  stamped arrival. The loop ticks this for every seat each frame. */
+export const respawnDue = (seat: SeatSimState, now: number): boolean =>
+  !seat.ship &&
+  !seat.eliminated &&
+  seat.respawnAt !== undefined &&
+  now >= seat.respawnAt;
+
+/**
+ * Buy a shipless seat a new frame, mutating the seat record (the
+ * loop's seat copies are working state, mutated in place by
+ * convention): deducts the price from the seat's bank, then either
+ * spawns the frame at once (the FREE floor: price 0 never waits)
+ * or stamps its arrival after the death-tax wait (a PAID buy-back
+ * costs time on top of scrap — Adam, 2026-10-21). Returns null —
+ * and mutates nothing — when the seat is not death-economy
+ * shipless (it still has a ship, it never lost one, it is
+ * eliminated: a dead star buys no ships) or when a paid buy-back
+ * is already pending (a second intent finds the wait stamped and
+ * refuses — no double charge, structurally).
+ */
+export const tryRepurchase = (
+  seat: SeatSimState,
+  now: number,
+): RepurchaseResult | null => {
+  if (seat.ship || seat.eliminated || (seat.deaths ?? 0) <= 0) return null;
+  if (seat.respawnAt !== undefined) return null;
+  const cost = repurchasePriceFor(seat.bankedScrap, seat.deaths);
+  if (seat.bankedScrap < cost) return null;
+  seat.bankedScrap -= cost;
+  if (cost <= 0) {
+    const ship = completeRespawn(seat);
+    return ship ? { ship, cost } : null;
+  }
+  const waitMs = respawnWaitMsFor(seat.deaths);
+  seat.respawnAt = now + waitMs;
+  seat.respawnWaitMs = waitMs;
+  return { ship: null, cost, respawnAt: seat.respawnAt };
 };
 
 /**
@@ -141,6 +207,7 @@ export const botRepurchaseDue = (seat: SeatSimState, now: number): boolean =>
   seat.controller === 'bot' &&
   !seat.ship &&
   !seat.eliminated &&
+  seat.respawnAt === undefined &&
   (seat.deaths ?? 0) > 0 &&
   seat.shipLostAt !== undefined &&
   now - seat.shipLostAt >= BOT_REPURCHASE_DELAY_MS;
