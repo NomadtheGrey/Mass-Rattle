@@ -2,13 +2,31 @@
   // Mass-Rattle game site, hosted as a Cloudflare Worker serving static
   // assets — same proven shape as BioForge's wrangler.jsonc.
   // The game is a static Vite build: `npm run build` emits dist/, and
-  // Wrangler serves that folder as the site. No server code runs here.
+  // Wrangler serves that folder as the site.
+  // Phase 2 (P2-1) adds a real Worker entry (worker/index.ts) in front
+  // of the assets: /api/* runs the Worker first (room create/list +
+  // WebSocket relay to one Durable Object per room); every other path
+  // serves dist/ exactly as before, so the single-player game is
+  // untouched. This config only deploys on the next `main` merge —
+  // WIP carries it harmlessly.
   // Production builds run from the `main` branch only; the `WIP` branch
   // must have preview/non-production builds OFF in the dashboard, so
   // WIP pushes trigger no build and cost no Workers Builds minutes.
   "name": "massrattle",
   "compatibility_date": "2025-01-01",
+  "main": "worker/index.ts",
   "assets": {
-    "directory": "./dist"
-  }
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOMS", "class_name": "RoomDO" },
+      { "name": "LOBBY_INDEX", "class_name": "LobbyIndexDO" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["RoomDO", "LobbyIndexDO"] }
+  ]
 }

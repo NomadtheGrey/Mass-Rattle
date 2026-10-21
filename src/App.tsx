@@ -10,6 +10,8 @@ import { ResultsOverlay } from './components/ResultsOverlay';
 import { MobileControls } from './components/MobileControls';
 import { useGameLoop } from './hooks/useGameLoop';
 import { inBankWell } from './bank';
+import { LobbyScreen } from './components/lobby/LobbyScreen';
+import { useNetClient, NetSessionContext } from './net/useNetClient';
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -29,6 +31,14 @@ export default function App() {
     observer.observe(containerRef.current);
     return () => observer.disconnect();
   }, []);
+
+  // MULTIPLAYER (Phase 2, UI lane + P2-3b binding): the net session
+  // is created BEFORE the loop so it can be handed in — host/guest
+  // modes live inside useGameLoop behind room guards, and with no
+  // room the loop is exactly the solo game. The lobby overlays the
+  // game; when a room's phase leaves 'lobby' the game screen takes
+  // over, and the session also rides NetSessionContext to the shell.
+  const net = useNetClient();
 
   const {
     state,
@@ -54,7 +64,17 @@ export default function App() {
     setAnalogStick, 
     toggleShop, 
     toggleGauges 
-  } = useGameLoop(dimensions.width, dimensions.height);
+  } = useGameLoop(dimensions.width, dimensions.height, net);
+
+  const [lobbyOpen, setLobbyOpen] = useState(false);
+  useEffect(() => {
+    if (net.room && net.room.phase !== 'lobby') setLobbyOpen(false);
+  }, [net.room]);
+  const urlRoomCode = React.useMemo(
+    () => new URLSearchParams(window.location.search).get('room') || '',
+    []
+  );
+  useEffect(() => { if (urlRoomCode) setLobbyOpen(true); }, [urlRoomCode]);
 
   const shipVelocity = Math.sqrt(state.ship.vel.x ** 2 + state.ship.vel.y ** 2);
   // The bank is the home star's gravity well: HUD affordability and the
@@ -66,7 +86,41 @@ export default function App() {
   }, []);
 
   return (
+    <NetSessionContext.Provider value={net}>
     <div ref={containerRef} className="crt-container w-full h-full flex items-center justify-center p-0 select-none touch-none">
+      {/* Multiplayer door: opens the lobby; in a live room it becomes
+          the room chip (tap to see the room / leave). */}
+      {!lobbyOpen && (
+        <button
+          onClick={() => setLobbyOpen(true)}
+          className="fixed top-2 left-1/2 -translate-x-1/2 z-[95] px-3 py-1.5 rounded-full bg-zinc-900/90 border border-[#33ff33]/60 text-[#33ff33] text-[10px] font-mono font-bold tracking-widest shadow-[0_0_10px_rgba(51,255,51,0.25)] active:scale-95 touch-manipulation"
+        >
+          {net.room ? `🌐 ROOM ${net.room.code} — LOBBY` : '🌐 MULTIPLAYER'}
+        </button>
+      )}
+      {lobbyOpen && (
+        <LobbyScreen
+          clientState={net.clientState}
+          room={net.room}
+          myPlayerId={net.myPlayerId}
+          defaultCallsign={window.localStorage.getItem('mr.callsign') || ''}
+          initialCode={urlRoomCode}
+          reclaimedOwnerId={net.reclaimedOwnerId}
+          notice={net.notice}
+          callbacks={{
+            onCreate: (name, starCount, isPrivate, callsign) => {
+              window.localStorage.setItem('mr.callsign', callsign);
+              net.createRoom(name, starCount, isPrivate, callsign);
+            },
+            onJoin: (code, callsign) => {
+              window.localStorage.setItem('mr.callsign', callsign);
+              net.joinRoom(code, callsign);
+            },
+            onStart: net.startMatch,
+            onLeave: () => { net.leaveRoom(); setLobbyOpen(false); },
+          }}
+        />
+      )}
       <ResultsOverlay 
         isVictory={state.isVictory} 
         isGameOver={state.isGameOver}
@@ -88,6 +142,7 @@ export default function App() {
         shipHealth={state.ship.health}
         maxShipHealth={state.ship.maxHealth}
         enemyIntegrity={state.enemyStar.integrity}
+        enemyTotalInfused={state.enemyStar.totalScrapInfused}
         isShopOpen={state.isShopOpen}
         shipPos={state.ship.pos}
         starPos={state.star.pos}
@@ -170,5 +225,6 @@ export default function App() {
           20%-opacity footer that stood here was stale — it never
           learned FIRE [F] or DECOY [X] — so it was retired. */}
     </div>
+    </NetSessionContext.Provider>
   );
 }
