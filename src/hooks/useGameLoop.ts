@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { GameState, SeatSimState, Star, Vector2D } from '../types';
+import { GameState, SeatSimState, Star, Vector2D, Ship, Scrap } from '../types';
 import { PHYSICS, COLORS } from '../constants';
 import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER } from '../loadout';
 import { inBankWell } from '../bank';
@@ -8,7 +8,14 @@ import { ownerIdForSeat } from '../sim/ownership';
 import { createMatchLayout, DEFAULT_MATCH_SEED } from '../sim/matchInit';
 import { advanceSeatTracking, createSeatSimState, createStarterShip } from '../sim/seatState';
 import { stepBotShip } from '../sim/botDriver';
-import { stepStarBurn, stepShipPhysics } from '../sim/physics';
+import { stepStarBurn, stepShipPhysics, ShipPhysicsInputs } from '../sim/physics';
+import { createMatch } from '../sim/matchAssembly';
+import type { NetSession } from '../net/useNetClient';
+import {
+  SNAPSHOT_EVERY_FRAMES, snapshotDue, localShipInput, remoteShipInput,
+  idleShipInput, acceptGuestPayload, countDroppedActions,
+  projectStateForViewer, ShipFrameInput,
+} from '../net/sessionAdapter';
 import { stepDrones } from '../sim/drones';
 import { stepMines, stepProjectiles } from '../sim/projectiles';
 import { stepCme } from '../sim/cme';
@@ -47,7 +54,7 @@ const walletPay = (carrying: number, banked: number, cost: number, bankAccessibl
   return { carrying: carrying - fromHold, banked: banked - (cost - fromHold) };
 };
 
-export const useGameLoop = (width: number, height: number) => {
+export const useGameLoop = (width: number, height: number, net?: NetSession | null) => {
   // MATCH GEOMETRY (Phase 2, src/sim/matchInit.ts): SP plays the
   // two-star layout at the default seed, whose star offsets relative
   // to the arena center are exactly the shipped (-1500, -500) /
@@ -146,6 +153,45 @@ export const useGameLoop = (width: number, height: number) => {
     fire: false,
     analogStick: null,
   });
+
+  // ---------------------------------------------------------------
+  // NET SESSION (Phase 2, P2-3b): when `net` carries a room, this
+  // loop hosts or guests a multiplayer match (mode gates in the
+  // frame loop + the session effects further down). With no room —
+  // the solo game — every net branch is inert and the frame runs
+  // exactly as shipped. The hook re-creates the session object on
+  // every render, so long-lived closures read it through this ref.
+  // ---------------------------------------------------------------
+  const netRef = useRef<NetSession | null>(null);
+  netRef.current = net ?? null;
+  /** Room code whose match this loop has initialized (host-built,
+   *  guest-applied, or promotion-adopted); null in SP. */
+  const mpRoomRef = useRef<string | null>(null);
+  /** Last RAW host snapshot applied as a guest — the promotion base
+   *  (its seats array is host-oriented; the projection only re-points
+   *  the top-level fields). */
+  const rawSnapshotRef = useRef<GameState | null>(null);
+  const rawSnapshotRoomRef = useRef<string | null>(null);
+  const lastSnapshotVersionRef = useRef(0);
+  /** True once this client has been promoted from guest to host. */
+  const promotedRef = useRef(false);
+  /** Host-side: last consumed guest-input seq per seat ownerId. */
+  const guestSeqSeenRef = useRef<Map<string, number>>(new Map());
+  /** Host-side: per-seat jettison throttle stamps for remote ships
+   *  (the local ship's stamp is state.lastEjectTime, as shipped). */
+  const remoteEjectAtRef = useRef<Map<string, number>>(new Map());
+  /** Guest-side: outgoing input seq + last-sent signature/time. */
+  const guestOutSeqRef = useRef(0);
+  const guestOutSigRef = useRef('');
+  const guestOutAtRef = useRef(0);
+  /** Host-side: frames since match init, for the snapshot cadence. */
+  const hostFramesRef = useRef(0);
+  /** The room code matchEnded was already announced for. */
+  const matchEndSentRef = useRef<string | null>(null);
+  /** Latest committed state, for the host's snapshot emit (kept out
+   *  of the frame updater, which stays side-effect free). */
+  const stateRef = useRef<GameState | null>(null);
+  stateRef.current = state;
 
   const setVirtualControl = useCallback((action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison' | 'fire', active: boolean) => {
     touchInputs.current[action] = active;
@@ -454,30 +500,45 @@ export const useGameLoop = (width: number, height: number) => {
     };
   }, []);
 
-  // Initial scrap
-  useEffect(() => {
-    const initialScrap = [];
-    
+  // OPENING SCRAP FIELD: 15 veins scattered around a center. SP
+  // seeds it around the viewport center (the effect below); a hosted
+  // match seeds the same field around the arena center (0,0 in match
+  // coordinates, the session effects further down) so the first
+  // snapshot carries the field. One builder, two centers — the SP
+  // call passes the shipped center and consumes the shipped
+  // Math.random sequence.
+  const buildScrapField = (center: Vector2D): Scrap[] => {
+    const field: Scrap[] = [];
+
     // Spawn several "Veins" or Belts
     for (let v = 0; v < 15; v++) {
       const vAngle = Math.random() * Math.PI * 2;
       const vDist = 500 + Math.random() * 4000;
       const vCenter = {
-        x: width / 2 + Math.cos(vAngle) * vDist,
-        y: height / 2 + Math.sin(vAngle) * vDist,
+        x: center.x + Math.cos(vAngle) * vDist,
+        y: center.y + Math.sin(vAngle) * vDist,
       };
-      
+
       // Some rare large clusters, mostly smaller pockets
       const rand = Math.random();
       let pocketCount = 1;
       if (rand > 0.92) pocketCount = 12 + Math.floor(Math.random() * 15);
       else if (rand > 0.7) pocketCount = 4 + Math.floor(Math.random() * 6);
       else if (rand > 0.3) pocketCount = 2 + Math.floor(Math.random() * 2);
-      
+
       for (let i = 0; i < pocketCount; i++) {
-        initialScrap.push(spawnScrap(vCenter, pocketCount * 12));
+        field.push(spawnScrap(vCenter, pocketCount * 12));
       }
     }
+    return field;
+  };
+
+  // Initial scrap
+  useEffect(() => {
+    // NET GUARD (P2-3b): in a room — or once a match has been
+    // initialized — the field belongs to the match, not SP seeding.
+    if (netRef.current?.room || mpRoomRef.current) return;
+    const initialScrap = buildScrapField({ x: width / 2, y: height / 2 });
 
     setState(s => {
       // The star is re-anchored to the viewport center (the position
@@ -524,6 +585,111 @@ export const useGameLoop = (width: number, height: number) => {
     });
   }, [width, height, spawnScrap]);
 
+  // HOST MATCH INIT + MIGRATION PROMOTION (P2-3b): this client is
+  // the host of a live room and no match is running yet → build it.
+  // Normal path: createMatch from the room (seed, star count, seat
+  // occupants), the opening field seeded around the arena center,
+  // the top level re-anchored to MY seat (projectStateForViewer),
+  // and one snapshot emitted immediately so guests see the field.
+  // Promotion path: this client was a GUEST in this room and the DO
+  // just elected it host — the contract says promote, never rebuild.
+  // The state the guest already holds is the projection of the raw
+  // snapshot, its seats array is the raw (host-oriented) one, and
+  // the frame projection re-points top-level fields by ownerId, so
+  // hosting resumes from that state as-is; only the cadence restarts
+  // and a fresh snapshot goes out under the new host.
+  useEffect(() => {
+    const session = net;
+    if (!session?.room || !session.isHost) return;
+    const room = session.room;
+    if (room.phase !== 'live' && room.phase !== 'cinematic') return;
+    if (mpRoomRef.current === room.code) return;
+    const myOwnerId = session.mySeat?.ownerId;
+    if (!myOwnerId) return;
+    mpRoomRef.current = room.code;
+    hostFramesRef.current = 0;
+    if (rawSnapshotRoomRef.current === room.code && rawSnapshotRef.current) {
+      promotedRef.current = true;
+      session.sendSnapshot(projectStateForViewer(rawSnapshotRef.current, myOwnerId));
+      return;
+    }
+    const match = createMatch({
+      seed: room.seed,
+      starCount: room.starCount,
+      seats: room.seats.map(s => ({ ownerId: s.ownerId, controller: s.occupant.kind })),
+    });
+    match.scrap = buildScrapField({ x: 0, y: 0 });
+    const mine = projectStateForViewer(match, myOwnerId);
+    setState(mine);
+    session.sendSnapshot(mine);
+  }, [net]);
+
+  // GUEST SNAPSHOT APPLY (P2-3b): a guest never simulates — each new
+  // snapshot version replaces local state with the viewer projection
+  // of the host's state. The RAW snapshot is kept verbatim: it is
+  // the promotion base if the DO elects this client host mid-match.
+  useEffect(() => {
+    const session = net;
+    if (!session?.room || session.isHost) return;
+    if (session.snapshotVersion === lastSnapshotVersionRef.current) return;
+    lastSnapshotVersionRef.current = session.snapshotVersion;
+    const raw = session.snapshotRef.current as GameState | null;
+    if (!raw || !Array.isArray(raw.seats)) return;
+    rawSnapshotRef.current = raw;
+    rawSnapshotRoomRef.current = session.room.code;
+    mpRoomRef.current = session.room.code;
+    const myOwnerId = session.mySeat?.ownerId;
+    if (!myOwnerId) return;
+    setState(projectStateForViewer(raw, myOwnerId));
+  }, [net]);
+
+  // Leaving a room retires the match bookkeeping. Whatever state the
+  // loop holds simply plays on as a solo sandbox (v1: no attempt is
+  // made to restore a pre-room SP state).
+  useEffect(() => {
+    if (net?.room) return;
+    mpRoomRef.current = null;
+    rawSnapshotRef.current = null;
+    rawSnapshotRoomRef.current = null;
+    promotedRef.current = false;
+    matchEndSentRef.current = null;
+    guestSeqSeenRef.current.clear();
+    remoteEjectAtRef.current.clear();
+  }, [net?.room]);
+
+  // MATCH END ANNOUNCE (P2-3b): the protocol defines matchEnded as a
+  // host-authored client message the DO relays verbatim — when the
+  // host sim records the end, announce it once per room, built from
+  // state.matchEnd + the final standings. Per the contract:
+  // critical-mass ends lock input and name the collapsing star (the
+  // winner's) with the cinematic start; last-survivor ends go
+  // straight to results with no lockout. (Guests ALSO see matchEnd
+  // inside snapshots; this wire event is what flips their shell.)
+  useEffect(() => {
+    const session = netRef.current;
+    if (!session?.room || !session.isHost) return;
+    const end = state.matchEnd;
+    if (!end) return;
+    if (matchEndSentRef.current === session.room.code) return;
+    matchEndSentRef.current = session.room.code;
+    const winnerSeat = state.seats.find(s => s.ownerId === end.winnerOwnerId);
+    const critical = end.endReason === 'critical_mass';
+    session.sendHostMessage({
+      type: 'matchEnded',
+      endReason: end.endReason,
+      winnerOwnerId: end.winnerOwnerId,
+      winnerSeat: winnerSeat?.starIndex ?? 0,
+      ...(critical
+        ? {
+            collapsingStarId: `star-${winnerSeat?.starIndex ?? 0}`,
+            cinematicStartedAt: Date.now(),
+          }
+        : {}),
+      inputLockout: critical,
+      standings: state.standings,
+    });
+  }, [state.matchEnd, state.seats, state.standings]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       keys.current.add(e.code);
@@ -559,6 +725,53 @@ export const useGameLoop = (width: number, height: number) => {
   useEffect(() => {
     let frameId: number;
     const loop = (time: number) => {
+      // NET MODE GATES (P2-3b). Solo (no room): both gates are inert
+      // and the frame below runs exactly as shipped.
+      const frameSession = netRef.current;
+      const frameRoom = frameSession?.room ?? null;
+      if (frameSession && frameRoom && !frameSession.isHost && frameRoom.phase !== 'lobby') {
+        // GUEST: the sim does NOT run locally — state arrives via
+        // snapshots (the apply effect above). This frame only
+        // captures + relays input from the same refs the SP input
+        // phase reads: on change, plus a ~100 ms heartbeat so the
+        // host always holds a fresh frame. (No brake source exists
+        // in the SP input set; the field rides as false.)
+        const input = localShipInput(keys.current, touchInputs.current);
+        const fields = {
+          thrust: input.wantsThrust,
+          left: input.rotateLeft,
+          right: input.rotateRight,
+          brake: false,
+          fire: input.wantsFire,
+          jettison: input.wantsJettison,
+          vac: input.vac,
+          stick: input.stick,
+        };
+        const sig = JSON.stringify(fields);
+        if (sig !== guestOutSigRef.current || time - guestOutAtRef.current >= 100) {
+          guestOutSigRef.current = sig;
+          guestOutAtRef.current = time;
+          guestOutSeqRef.current += 1;
+          frameSession.sendInput({ seq: guestOutSeqRef.current, ...fields });
+        }
+        frameId = requestAnimationFrame(loop);
+        return;
+      }
+      if (
+        frameSession && frameRoom && frameSession.isHost &&
+        mpRoomRef.current === frameRoom.code &&
+        (frameRoom.phase === 'live' || frameRoom.phase === 'cinematic')
+      ) {
+        // HOST SNAPSHOT EMIT: one full-state snapshot every
+        // SNAPSHOT_EVERY_FRAMES frames (12 Hz at 60 fps). Emitted
+        // from stateRef — the last committed state — so the updater
+        // below stays side-effect free; the ≤1-frame lag is inside
+        // the cadence's tolerance.
+        hostFramesRef.current += 1;
+        if (snapshotDue(hostFramesRef.current) && stateRef.current) {
+          frameSession.sendSnapshot(stateRef.current);
+        }
+      }
       setState(prev => {
         const next = { ...prev };
         const ship = { ...next.ship };
@@ -569,10 +782,15 @@ export const useGameLoop = (width: number, height: number) => {
         // records around this frame's working copies, so everything
         // below can resolve stars/ships by ownerId through the seats
         // while the top-level fields stay the local seat's view.
-        // seats[0] wraps `ship`/`star`, seats[1] wraps `enemyStar` —
-        // the same objects the rest of the frame (and the returned
-        // state) use. In SP this is exactly two seats; extra seats
-        // (multiplayer matches) carry their own copies.
+        // The local seat wraps `ship`/`star`, the first hostile seat
+        // wraps `enemyStar` — the same objects the rest of the frame
+        // (and the returned state) use. P2-3b: the two seats are
+        // found by ownerId, not by position — a hosted match
+        // re-anchors the top level to the HOST's seat, which is not
+        // necessarily seat 0. In SP (and in createMatch's seat-0
+        // orientation) localIdx is 0 and enemyIdx is 1, and this
+        // mapping is exactly the shipped positional one. Extra seats
+        // carry their own copies.
         const localOwnerId = ship.ownerId;
         const prevSeats: SeatSimState[] =
           prev.seats && prev.seats.length >= 2
@@ -581,13 +799,15 @@ export const useGameLoop = (width: number, height: number) => {
                 createSeatSimState(star, 0, 'human', ship),
                 createSeatSimState(enemyStar, 1, 'bot', null),
               ];
+        const localIdx = prevSeats.findIndex(ps => ps.ownerId === localOwnerId);
+        const enemyIdx = prevSeats.findIndex(ps => ps.ownerId !== localOwnerId);
         const simSeats: SeatSimState[] = prevSeats.map((ps, i) => {
           const seat: SeatSimState = { ...ps };
-          if (i === 0) {
+          if (i === localIdx) {
             seat.ship = ship;
             seat.star = star;
             seat.bankedScrap = prev.bankedScrap;
-          } else if (i === 1) {
+          } else if (i === enemyIdx) {
             seat.ship = ps.ship ? { ...ps.ship } : null;
             seat.star = enemyStar;
           } else {
@@ -598,6 +818,19 @@ export const useGameLoop = (width: number, height: number) => {
           return seat;
         });
         const seatByOwnerId = new Map(simSeats.map(s => [s.ownerId, s]));
+        // HOST CONTROLLER SYNC (P2-3b): while hosting, seat
+        // controllers follow the room — a guest who takes over a bot
+        // seat (or drops, leaving it to the bot) flips the seat's
+        // driver on the next frame.
+        const hosting =
+          !!frameSession && !!frameRoom && frameSession.isHost &&
+          mpRoomRef.current === frameRoom.code;
+        if (hosting && frameRoom) {
+          for (const seat of simSeats) {
+            const roomSeat = frameRoom.seats.find(rs => rs.ownerId === seat.ownerId);
+            if (roomSeat) seat.controller = roomSeat.occupant.kind;
+          }
+        }
         const starByOwnerId = (ownerId: string): Star =>
           seatByOwnerId.get(ownerId)?.star ??
           (ownerId === localOwnerId ? star : enemyStar);
@@ -650,110 +883,311 @@ export const useGameLoop = (width: number, height: number) => {
         // (0 while cargo lasts). Layering: the Deflector pool absorbs
         // first where it already does (it recharges free), the aegis
         // second (it costs cargo), the hull last.
-        const aegisAbsorb = (dmg: number): number => {
-          if (hyId !== 'scrap_aegis' || dmg <= 0) return dmg;
+        // P2-3b: the closure is built by a per-ship factory so a
+        // remote human ship's burn gets the same absorb over ITS
+        // hold; the frame's instance (the local ship's) is built
+        // from it with the shipped arguments, body unchanged.
+        const makeAegisAbsorb = (target: Ship, id: Ship['loadout']['hybrid'], tier: number) => (dmg: number): number => {
+          if (id !== 'scrap_aegis' || dmg <= 0) return dmg;
           let remaining = dmg;
-          let credit = ship.aegisCredit || 0;
+          let credit = target.aegisCredit || 0;
           if (credit > 0) {
             const used = Math.min(credit, remaining);
             credit -= used;
             remaining -= used;
           }
-          const per = aegisAbsorbFor(hyTier);
-          while (remaining > 0 && ship.carrying > 0) {
-            ship.carrying -= 1;
+          const per = aegisAbsorbFor(tier);
+          while (remaining > 0 && target.carrying > 0) {
+            target.carrying -= 1;
             credit += per;
             const used = Math.min(credit, remaining);
             credit -= used;
             remaining -= used;
           }
-          ship.aegisCredit = credit;
+          target.aegisCredit = credit;
           return remaining;
         };
+        const aegisAbsorb = makeAegisAbsorb(ship, hyId, hyTier);
 
-        // 1. Fuel & Inputs
-        const stick = touchInputs.current.analogStick;
-        const stickDist = stick ? Math.sqrt(stick.x * stick.x + stick.y * stick.y) : 0;
-        const stickThrust = stickDist > 0.45;
-        const wantsThrust = keys.current.has('ArrowUp') || keys.current.has('KeyW') || touchInputs.current.thrust || stickThrust;
-        
-        // Cargo Capacity (the line/type cargoBonus rides on top of the
-        // cargo track; the overload ratio applies to the total, as ever)
-        const regularCapacity = PHYSICS.CARGO.BASE_CAPACITY + ship.upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS + typeFor(ship.line, ship.typeTier).cargoBonus;
-        const overloadCapacity = Math.floor(regularCapacity * PHYSICS.CARGO.OVERLOAD_RATIO);
-        const totalCapacity = regularCapacity + overloadCapacity;
+        // PER-SHIP HUMAN FRAME (Phase 2, P2-3b): the ship step
+        // sequence — fuel & inputs, star burn, physics, scrap
+        // collection, jettison, weapon fire — extracted into a
+        // routine parameterized by (ship, input) so EVERY human seat
+        // runs it: the local seat from the device refs, remote seats
+        // (host only) from their relayed payloads. Bot seats never
+        // run it (botDriver, below). The local call passes the
+        // shipped arguments verbatim — the live key/touch refs, the
+        // frame's star pair, the distant-scrap cull, the state-level
+        // eject stamp — and the frame's own defense block above has
+        // already enforced the local ship's invariants, so the local
+        // call skips enforcement; remote ships enforce their own
+        // inside (enforceDefense) with the same helpers. Movement of
+        // the ambient scrap-spawn block (it now runs after the whole
+        // local routine instead of between collection and jettison)
+        // is the only ordering change, and it is inert: the block
+        // reads only ship.pos (post-physics either way) and the scrap
+        // array, which neither jettison nor fire touches.
+        const runHumanShipFrame = (args: {
+          s: Ship;
+          input: ShipFrameInput;
+          physKeys: ReadonlySet<string>;
+          physTouch: ShipPhysicsInputs;
+          ownStar: Star;
+          hostileStar: Star;
+          scrapIn: Scrap[];
+          cullDistant: boolean;
+          enforceDefense: boolean;
+          ejectAt: number | undefined;
+        }): { scrap: Scrap[]; isVacActive: boolean; ejectAt: number | undefined } => {
+          const { input } = args;
+          const s = args.s;
 
-        // Slowdown Penalty (Overload)
-        let speedMult = 1.0;
-        if (ship.carrying > regularCapacity) {
-          const excess = ship.carrying - regularCapacity;
-          speedMult = 1.0 - (excess / overloadCapacity) * PHYSICS.CARGO.SLOWDOWN_PENALTY;
-        }
-
-        if (wantsThrust && ship.fuel > PHYSICS.FUEL_CONSUMPTION) {
-          ship.thrust = true;
-          ship.fuel -= PHYSICS.FUEL_CONSUMPTION;
-        } else {
-          ship.thrust = false;
-          ship.fuel = Math.min(ship.fuel + PHYSICS.FUEL_REGEN, ship.maxFuel);
-        }
-
-        // Auto-refuel from cargo
-        if (ship.fuel < PHYSICS.FUEL_AUTO_CONVERT_THRESHOLD && ship.carrying > 0) {
-          ship.carrying -= 1;
-          ship.fuel += 40; // Buffed conversion
-          next.glitchActive = true;
-          next.lastGlitchTime = time;
-        }
-
-        // Ship Health Regen
-        ship.health = Math.min(ship.health + 0.01, ship.maxHealth);
-
-        // Ship Health Damage from hostile star proximity — the
-        // step lives in src/sim/physics.ts (dedicated split),
-        // called here in the shipped position (after the health
-        // regen, before the physics step).
-        stepStarBurn({ next, ship, simSeats, hyId, hyTier, time, aegisAbsorb });
-        // (The old deep-space drain past 6,000 from the midpoint is
-        // RETIRED: the world wrap below caps the ship at ~3,000, so the
-        // drain could never trigger again. Flagged per Adam's ruling.)
-
-        // 2. Physics (Mass Scaling) — the step lives in
-        // src/sim/physics.ts (dedicated split), called here in the
-        // shipped position with this frame's working copies.
-        const { isVacActive } = stepShipPhysics({
-          ship, simSeats, star, enemyStar,
-          keys: keys.current,
-          touchInputs: touchInputs.current,
-          stick, stickDist, speedMult, thrustFactor, gravFactor, hyId, hyTier,
-        });
-
-        // Scrap Collection, ATTRACTION and CULLING
-        const newScrap = next.scrap.filter(d => {
-          const ddx = ship.pos.x - d.pos.x;
-          const ddy = ship.pos.y - d.pos.y;
-          const dDistSq = ddx * ddx + ddy * ddy;
-          const dDist = Math.sqrt(dDistSq);
-
-          // Cull distant scrap (2500 units) to keep memory clean and allow new spawns
-          if (dDist > 4000) return false;
-
-          const attractLimit = isVacActive ? ship.attractRadius * 1.6 : ship.attractRadius;
-          if (dDist < attractLimit) {
-            let pullForce = PHYSICS.DUST_ATTRACT_FORCE * (1 + ship.upgrades.attractor * 0.6);
-            if (isVacActive) pullForce *= PHYSICS.ACTIVE_VAC_MULTIPLIER;
-            d.pos.x += (ddx / dDist) * pullForce;
-            d.pos.y += (ddy / dDist) * pullForce;
-          }
-
-          if (dDistSq < (PHYSICS.AUTO_COLLECT_RADIUS ** 2)) { 
-            if (ship.carrying < totalCapacity) {
-              ship.carrying += 1;
-              return false;
+          // Defense invariants for ships the frame block did not
+          // already enforce (remote human seats) — the frame's local
+          // block, parameterized by ship.
+          if (args.enforceDefense) {
+            const dId = s.loadout.defense;
+            const dTier = dId ? (s.arsenal[dId] || 0) : 0;
+            const wantMax = 100 + s.hullSteps * HULL_STEP_HEALTH + (dId === 'armor_plating' ? armorHullFor(dTier) : 0);
+            if (s.maxHealth !== wantMax) {
+              if (wantMax > s.maxHealth) s.health += wantMax - s.maxHealth;
+              s.maxHealth = wantMax;
+              if (s.health > wantMax) s.health = wantMax;
+            }
+            if (dId === 'deflector_shield') {
+              const sMax = shieldMaxFor(dTier);
+              if (s.shield === undefined) s.shield = sMax;
+              if (s.shield > sMax) s.shield = sMax;
+              if (time - (s.shieldHitAt || 0) > 2500 && s.shield < sMax) {
+                s.shield = Math.min(sMax, s.shield + shieldRechargePerFrame(dTier));
+              }
+            } else if (s.shield) {
+              s.shield = 0;
             }
           }
-          return true;
+          const sDefId = s.loadout.defense;
+          const sDefTier = sDefId ? (s.arsenal[sDefId] || 0) : 0;
+          const sGravFactor = sDefId === 'grav_dampers' ? gravFactorFor(sDefTier) : 1;
+          const sThrustFactor = sDefId === 'armor_plating' ? armorThrustFactor(sDefTier) : 1;
+          const sHyId = s.loadout.hybrid;
+          const sHyTier = sHyId ? (s.arsenal[sHyId] || 0) : 0;
+          const sAegisAbsorb = makeAegisAbsorb(s, sHyId, sHyTier);
+
+          // 1. Fuel & Inputs
+          const stick = input.stick;
+          const stickDist = stick ? Math.sqrt(stick.x * stick.x + stick.y * stick.y) : 0;
+
+          // Cargo Capacity (the line/type cargoBonus rides on top of the
+          // cargo track; the overload ratio applies to the total, as ever)
+          const regularCapacity = PHYSICS.CARGO.BASE_CAPACITY + s.upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS + typeFor(s.line, s.typeTier).cargoBonus;
+          const overloadCapacity = Math.floor(regularCapacity * PHYSICS.CARGO.OVERLOAD_RATIO);
+          const totalCapacity = regularCapacity + overloadCapacity;
+
+          // Slowdown Penalty (Overload)
+          let speedMult = 1.0;
+          if (s.carrying > regularCapacity) {
+            const excess = s.carrying - regularCapacity;
+            speedMult = 1.0 - (excess / overloadCapacity) * PHYSICS.CARGO.SLOWDOWN_PENALTY;
+          }
+
+          if (input.wantsThrust && s.fuel > PHYSICS.FUEL_CONSUMPTION) {
+            s.thrust = true;
+            s.fuel -= PHYSICS.FUEL_CONSUMPTION;
+          } else {
+            s.thrust = false;
+            s.fuel = Math.min(s.fuel + PHYSICS.FUEL_REGEN, s.maxFuel);
+          }
+
+          // Auto-refuel from cargo
+          if (s.fuel < PHYSICS.FUEL_AUTO_CONVERT_THRESHOLD && s.carrying > 0) {
+            s.carrying -= 1;
+            s.fuel += 40; // Buffed conversion
+            next.glitchActive = true;
+            next.lastGlitchTime = time;
+          }
+
+          // Ship Health Regen
+          s.health = Math.min(s.health + 0.01, s.maxHealth);
+
+          // Ship Health Damage from hostile star proximity — the
+          // step lives in src/sim/physics.ts (dedicated split),
+          // called here in the shipped position (after the health
+          // regen, before the physics step).
+          stepStarBurn({ next, ship: s, simSeats, hyId: sHyId, hyTier: sHyTier, time, aegisAbsorb: sAegisAbsorb });
+          // (The old deep-space drain past 6,000 from the midpoint is
+          // RETIRED: the world wrap below caps the ship at ~3,000, so the
+          // drain could never trigger again. Flagged per Adam's ruling.)
+
+          // 2. Physics (Mass Scaling) — the step lives in
+          // src/sim/physics.ts (dedicated split), called here in the
+          // shipped position with this frame's working copies.
+          const { isVacActive } = stepShipPhysics({
+            ship: s, simSeats, star: args.ownStar, enemyStar: args.hostileStar,
+            keys: args.physKeys,
+            touchInputs: args.physTouch,
+            stick, stickDist, speedMult, thrustFactor: sThrustFactor, gravFactor: sGravFactor, hyId: sHyId, hyTier: sHyTier,
+          });
+
+          // Scrap Collection, ATTRACTION and CULLING
+          const outScrap = args.scrapIn.filter(d => {
+            const ddx = s.pos.x - d.pos.x;
+            const ddy = s.pos.y - d.pos.y;
+            const dDistSq = ddx * ddx + ddy * ddy;
+            const dDist = Math.sqrt(dDistSq);
+
+            // Cull distant scrap (2500 units) to keep memory clean and allow new spawns
+            if (args.cullDistant && dDist > 4000) return false;
+
+            const attractLimit = isVacActive ? s.attractRadius * 1.6 : s.attractRadius;
+            if (dDist < attractLimit) {
+              let pullForce = PHYSICS.DUST_ATTRACT_FORCE * (1 + s.upgrades.attractor * 0.6);
+              if (isVacActive) pullForce *= PHYSICS.ACTIVE_VAC_MULTIPLIER;
+              d.pos.x += (ddx / dDist) * pullForce;
+              d.pos.y += (ddy / dDist) * pullForce;
+            }
+
+            if (dDistSq < (PHYSICS.AUTO_COLLECT_RADIUS ** 2)) {
+              if (s.carrying < totalCapacity) {
+                s.carrying += 1;
+                return false;
+              }
+            }
+            return true;
+          });
+
+          // CARGO JETTISON (live player mechanic — an old banner mislabeled
+          // this 'Enemy Sabotage / legacy'; corrected 2026-10-20): Space or
+          // the mobile JETTISON button throws one carried scrap overboard
+          // as a DeployedCargo pod, kicked along the ship's heading; the
+          // cargo pass flies it to a star — feeding its owner's star, or
+          // damaging a hostile one.
+          let ejectAt = args.ejectAt;
+
+          // Handle Ejection
+          if (input.wantsJettison && s.carrying > 0 && (!ejectAt || time - ejectAt > 100)) {
+            s.carrying -= 1;
+            ejectAt = time;
+
+            // Eject in direction of travel + extra kick
+            const kickDir = s.angle;
+            const kickForce = 8;
+            next.deployedCargo.push({
+              id: Math.random().toString(),
+              pos: { ...s.pos },
+              vel: {
+                x: s.vel.x + Math.cos(kickDir) * kickForce,
+                y: s.vel.y + Math.sin(kickDir) * kickForce,
+              },
+              color: '#f472b6',
+              ownerId: s.ownerId,
+              life: 200, // frames
+            });
+          }
+
+          // SHIP WEAPON FIRE (Slice 4): the equipped weapon shoots down the
+          // ship's nose. Hold F on desktop or the FIRE button on mobile.
+          // Stats and tier scaling: src/loadout.ts WEAPON_STATS.
+          const weaponId = s.loadout.weapon;
+          const wStats = weaponStatsFor(weaponId, weaponId ? (s.arsenal[weaponId] || 0) : 0);
+          if (input.wantsFire && wStats && time >= (s.fireReadyAt || 0)) {
+            const cost = wStats.scrapCost || 0;
+            if (wStats.kind === 'mine') {
+              // Mine Layer: no projectile — mines drop at the ship's tail.
+              // HARD POINTS DO NOT APPLY to mines (Phase 3): a drop lays
+              // the line/type's minesPerDrop instead, each still costing
+              // 1 hold scrap — the drop lays only as many as the hold
+              // affords, fanned across the tail so they don't stack-trip.
+              const perDrop = typeFor(s.line, s.typeTier).minesPerDrop;
+              const dropCount = cost > 0 ? Math.min(perDrop, Math.floor(s.carrying / cost)) : perDrop;
+              if (dropCount > 0) {
+                s.carrying -= dropCount * cost;
+                s.fireReadyAt = time + wStats.cooldownMs;
+                for (let mi = 0; mi < dropCount; mi++) {
+                  const lateral = (mi - (dropCount - 1) / 2) * 16;
+                  (next.mines = next.mines || []).push({
+                    id: Math.random().toString(),
+                    pos: {
+                      x: s.pos.x - Math.cos(s.angle) * mi * 8 - Math.sin(s.angle) * lateral,
+                      y: s.pos.y - Math.sin(s.angle) * mi * 8 + Math.cos(s.angle) * lateral,
+                    },
+                    damage: wStats.damage,
+                    radius: wStats.radius || 115,
+                    ownerId: s.ownerId,
+                  });
+                }
+              }
+            } else {
+              // HARD POINTS (Phase 3): the equipped weapon fires from
+              // every mount the line/type fields. Mount 0 is the nose at
+              // full damage, exactly the pre-progression shot; each extra
+              // mount fires the same pattern from a perpendicular offset
+              // (alternating sides) at EXTRA_MOUNT_DAMAGE of the damage.
+              // Scrap-cost weapons (seekers) pay PER SHOT, extras
+              // included: if the hold runs dry mid-volley, the remaining
+              // mounts simply don't fire.
+              const mounts = typeFor(s.line, s.typeTier).hardPoints;
+              let firedAny = false;
+              for (let m = 0; m < mounts; m++) {
+                if (cost > 0) {
+                  if (s.carrying < cost) break;
+                  s.carrying -= cost;
+                }
+                const dmgScale = m === 0 ? 1 : EXTRA_MOUNT_DAMAGE;
+                const side = m === 0 ? 0 : (m % 2 === 1 ? 1 : -1) * Math.ceil(m / 2);
+                const off = side * s.size * 0.7;
+                const muzzle = {
+                  x: s.pos.x + Math.cos(s.angle) * (s.size + 4) - Math.sin(s.angle) * off,
+                  y: s.pos.y + Math.sin(s.angle) * (s.size + 4) + Math.cos(s.angle) * off,
+                };
+                const pellets = wStats.pellets || 1;
+                for (let pi = 0; pi < pellets; pi++) {
+                  const spreadOffset = pellets > 1 ? (pi / (pellets - 1) - 0.5) * (wStats.spread || 0) : 0;
+                  const a = s.angle + spreadOffset;
+                  next.projectiles.push({
+                    id: Math.random().toString(),
+                    pos: { ...muzzle },
+                    vel: {
+                      x: Math.cos(a) * wStats.speed + s.vel.x * 0.5,
+                      y: Math.sin(a) * wStats.speed + s.vel.y * 0.5,
+                    },
+                    // Legacy view-relative label: 'player' only for
+                    // the local seat's ship (P2-3b).
+                    owner: s.ownerId === localOwnerId ? 'player' : 'enemy',
+                    ownerId: s.ownerId,
+                    life: wStats.life,
+                    damage: wStats.damage * dmgScale,
+                    kind: weaponId || undefined,
+                    pierce: wStats.pierce,
+                    size: wStats.size,
+                    hitIds: wStats.pierce ? [] : undefined,
+                  });
+                }
+                firedAny = true;
+              }
+              if (firedAny) s.fireReadyAt = time + wStats.cooldownMs;
+            }
+          }
+
+          return { scrap: outScrap, isVacActive, ejectAt };
+        };
+
+        // The LOCAL seat's ship runs the routine with the shipped
+        // arguments (see the routine's banner).
+        const localFrame = runHumanShipFrame({
+          s: ship,
+          input: localShipInput(keys.current, touchInputs.current),
+          physKeys: keys.current,
+          physTouch: touchInputs.current,
+          ownStar: star,
+          hostileStar: enemyStar,
+          scrapIn: next.scrap,
+          cullDistant: true,
+          enforceDefense: false,
+          ejectAt: next.lastEjectTime,
         });
+        const isVacActive = localFrame.isVacActive;
+        next.lastEjectTime = localFrame.ejectAt;
+        let newScrap = localFrame.scrap;
 
         if (newScrap.length < 180 && Math.random() < 0.08) {
           // Spawn clusters biased toward player movement or rich veins
@@ -796,115 +1230,62 @@ export const useGameLoop = (width: number, height: number) => {
         let glitch = prev.glitchActive;
         let teamScrap = prev.teamScrap;
 
-        // CARGO JETTISON (live player mechanic — an old banner mislabeled
-        // this 'Enemy Sabotage / legacy'; corrected 2026-10-20): Space or
-        // the mobile JETTISON button throws one carried scrap overboard
-        // as a DeployedCargo pod, kicked along the ship's heading; the
-        // cargo pass flies it to a star — feeding its owner's star, or
-        // damaging a hostile one.
-        const wantsJettison = keys.current.has('Space') || touchInputs.current.jettison;
-        
-        // Handle Ejection
-        if (wantsJettison && ship.carrying > 0 && (!next.lastEjectTime || time - next.lastEjectTime > 100)) {
-          ship.carrying -= 1;
-          next.lastEjectTime = time;
-          
-          // Eject in direction of travel + extra kick
-          const kickDir = ship.angle;
-          const kickForce = 8;
-          next.deployedCargo.push({
-            id: Math.random().toString(),
-            pos: { ...ship.pos },
-            vel: {
-              x: ship.vel.x + Math.cos(kickDir) * kickForce,
-              y: ship.vel.y + Math.sin(kickDir) * kickForce,
-            },
-            color: '#f472b6',
-            ownerId: ship.ownerId,
-            life: 200, // frames
-          });
-        }
-
-        // SHIP WEAPON FIRE (Slice 4): the equipped weapon shoots down the
-        // ship's nose. Hold F on desktop or the FIRE button on mobile.
-        // Stats and tier scaling: src/loadout.ts WEAPON_STATS.
-        const wantsFire = keys.current.has('KeyF') || touchInputs.current.fire;
-        const weaponId = ship.loadout.weapon;
-        const wStats = weaponStatsFor(weaponId, weaponId ? (ship.arsenal[weaponId] || 0) : 0);
-        if (wantsFire && wStats && time >= (ship.fireReadyAt || 0)) {
-          const cost = wStats.scrapCost || 0;
-          if (wStats.kind === 'mine') {
-            // Mine Layer: no projectile — mines drop at the ship's tail.
-            // HARD POINTS DO NOT APPLY to mines (Phase 3): a drop lays
-            // the line/type's minesPerDrop instead, each still costing
-            // 1 hold scrap — the drop lays only as many as the hold
-            // affords, fanned across the tail so they don't stack-trip.
-            const perDrop = typeFor(ship.line, ship.typeTier).minesPerDrop;
-            const dropCount = cost > 0 ? Math.min(perDrop, Math.floor(ship.carrying / cost)) : perDrop;
-            if (dropCount > 0) {
-              ship.carrying -= dropCount * cost;
-              ship.fireReadyAt = time + wStats.cooldownMs;
-              for (let mi = 0; mi < dropCount; mi++) {
-                const lateral = (mi - (dropCount - 1) / 2) * 16;
-                (next.mines = next.mines || []).push({
-                  id: Math.random().toString(),
-                  pos: {
-                    x: ship.pos.x - Math.cos(ship.angle) * mi * 8 - Math.sin(ship.angle) * lateral,
-                    y: ship.pos.y - Math.sin(ship.angle) * mi * 8 + Math.cos(ship.angle) * lateral,
-                  },
-                  damage: wStats.damage,
-                  radius: wStats.radius || 115,
-                  ownerId: ship.ownerId,
-                });
+        // REMOTE HUMAN SEATS (host only, P2-3b): every other human
+        // seat with a ship runs the same routine, driven by its
+        // relayed payload (freshest per seat in the net hook's ref;
+        // the seq gate here drops stale frames and makes the
+        // action counting fire once per payload). Their scrap pass
+        // threads the same array the local pass returned — no
+        // distant cull for them: the cull is the local ship's
+        // shipped field-keeping, already applied above.
+        // ECONOMY ACTION INTENTS (buy/equip/feed/bank/shop) riding
+        // in those payloads are deliberately NOT applied in v1:
+        // per-seat banks/wallets are not sim-wired beyond the local
+        // seat (P2-2b), so a remote seat has no wallet to pay from.
+        // They are counted in the session adapter
+        // (droppedRemoteActionIntents) and dropped — the deferral
+        // is flagged in the P2-3b report.
+        if (hosting && frameSession) {
+          for (const seat of simSeats) {
+            if (seat.controller !== 'human' || seat.ownerId === localOwnerId) continue;
+            const sShip = seat.ship;
+            if (!sShip || seat.eliminated) continue;
+            const payload = frameSession.guestInputsRef.current.get(seat.ownerId);
+            let input = idleShipInput();
+            if (payload) {
+              const lastSeq = guestSeqSeenRef.current.get(seat.ownerId) ?? -1;
+              if (acceptGuestPayload(lastSeq, payload)) {
+                guestSeqSeenRef.current.set(seat.ownerId, payload.seq);
+                countDroppedActions(payload);
               }
+              input = remoteShipInput(payload);
             }
-          } else {
-            // HARD POINTS (Phase 3): the equipped weapon fires from
-            // every mount the line/type fields. Mount 0 is the nose at
-            // full damage, exactly the pre-progression shot; each extra
-            // mount fires the same pattern from a perpendicular offset
-            // (alternating sides) at EXTRA_MOUNT_DAMAGE of the damage.
-            // Scrap-cost weapons (seekers) pay PER SHOT, extras
-            // included: if the hold runs dry mid-volley, the remaining
-            // mounts simply don't fire.
-            const mounts = typeFor(ship.line, ship.typeTier).hardPoints;
-            let firedAny = false;
-            for (let m = 0; m < mounts; m++) {
-              if (cost > 0) {
-                if (ship.carrying < cost) break;
-                ship.carrying -= cost;
-              }
-              const dmgScale = m === 0 ? 1 : EXTRA_MOUNT_DAMAGE;
-              const side = m === 0 ? 0 : (m % 2 === 1 ? 1 : -1) * Math.ceil(m / 2);
-              const off = side * ship.size * 0.7;
-              const muzzle = {
-                x: ship.pos.x + Math.cos(ship.angle) * (ship.size + 4) - Math.sin(ship.angle) * off,
-                y: ship.pos.y + Math.sin(ship.angle) * (ship.size + 4) + Math.cos(ship.angle) * off,
-              };
-              const pellets = wStats.pellets || 1;
-              for (let pi = 0; pi < pellets; pi++) {
-                const spreadOffset = pellets > 1 ? (pi / (pellets - 1) - 0.5) * (wStats.spread || 0) : 0;
-                const a = ship.angle + spreadOffset;
-                next.projectiles.push({
-                  id: Math.random().toString(),
-                  pos: { ...muzzle },
-                  vel: {
-                    x: Math.cos(a) * wStats.speed + ship.vel.x * 0.5,
-                    y: Math.sin(a) * wStats.speed + ship.vel.y * 0.5,
-                  },
-                  owner: 'player',
-                  ownerId: ship.ownerId,
-                  life: wStats.life,
-                  damage: wStats.damage * dmgScale,
-                  kind: weaponId || undefined,
-                  pierce: wStats.pierce,
-                  size: wStats.size,
-                  hitIds: wStats.pierce ? [] : undefined,
-                });
-              }
-              firedAny = true;
+            const physKeys = new Set<string>();
+            if (input.rotateLeft) physKeys.add('ArrowLeft');
+            if (input.rotateRight) physKeys.add('ArrowRight');
+            if (input.vac) physKeys.add('KeyQ');
+            const hostileSeat = simSeats.find(os => os.ownerId !== seat.ownerId);
+            const remoteFrame = runHumanShipFrame({
+              s: sShip,
+              input,
+              physKeys,
+              physTouch: {
+                rotateLeft: input.rotateLeft,
+                rotateRight: input.rotateRight,
+                vac: input.vac,
+                analogStick: input.stick,
+              },
+              ownStar: seat.star,
+              hostileStar: hostileSeat ? hostileSeat.star : enemyStar,
+              scrapIn: newScrap,
+              cullDistant: false,
+              enforceDefense: true,
+              ejectAt: remoteEjectAtRef.current.get(seat.ownerId),
+            });
+            newScrap = remoteFrame.scrap;
+            if (remoteFrame.ejectAt !== undefined) {
+              remoteEjectAtRef.current.set(seat.ownerId, remoteFrame.ejectAt);
             }
-            if (firedAny) ship.fireReadyAt = time + wStats.cooldownMs;
           }
         }
 

@@ -32,6 +32,14 @@ export default function App() {
     return () => observer.disconnect();
   }, []);
 
+  // MULTIPLAYER (Phase 2, UI lane + P2-3b binding): the net session
+  // is created BEFORE the loop so it can be handed in — host/guest
+  // modes live inside useGameLoop behind room guards, and with no
+  // room the loop is exactly the solo game. The lobby overlays the
+  // game; when a room's phase leaves 'lobby' the game screen takes
+  // over, and the session also rides NetSessionContext to the shell.
+  const net = useNetClient();
+
   const {
     state,
     upgrade,
@@ -56,13 +64,8 @@ export default function App() {
     setAnalogStick, 
     toggleShop, 
     toggleGauges 
-  } = useGameLoop(dimensions.width, dimensions.height);
+  } = useGameLoop(dimensions.width, dimensions.height, net);
 
-  // MULTIPLAYER (Phase 2, UI lane): the net session lives beside the
-  // solo loop. The lobby overlays the game; when a room's phase leaves
-  // 'lobby' the game screen takes over, and the session rides
-  // NetSessionContext down to the loop's session adapter (3b binding).
-  const net = useNetClient();
   const [lobbyOpen, setLobbyOpen] = useState(false);
   useEffect(() => {
     if (net.room && net.room.phase !== 'lobby') setLobbyOpen(false);

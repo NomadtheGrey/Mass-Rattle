@@ -47,6 +47,11 @@ export interface NetInputPayload {
   brake: boolean;
   fire: boolean;
   jettison: boolean;
+  /** VAC held (Q/E/R keys or the touch VAC). Added by the loop's
+   *  session adapter (P2-3b): remote ships must be able to VAC, and
+   *  the host reads payload.vac ?? false. Optional so payloads from a
+   *  client that predates the field still parse. */
+  vac?: boolean;
   /** Mobile analog vector when one is driving. */
   stick?: { x: number; y: number } | null;
   /** Discrete intents since the previous frame. */
