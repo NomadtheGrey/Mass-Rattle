@@ -85,15 +85,19 @@ export const PHYSICS = {
     HEAL_PER_SCRAP_PER_MILESTONE: 0.0005,
     HEAL_PER_SCRAP_MAX: 0.005,
     /** Turret ORBIT (Adam, 2026-10-21 — "turrets must rotate
-     *  around their star"): full-revolution period per shell,
-     *  DRAFT. Both rings turn the same way (counterclockwise, the
-     *  angle convention); the outer ring turns slower. A turret's
-     *  angle at any moment is DERIVED from time (base + 2π x
-     *  elapsed / period) and stamped into its record by the loop —
-     *  no orbit state is kept or synced beyond the angle field the
-     *  turret record already carries (src/starDefense.ts). */
-    ORBIT_PERIOD_INNER_MS: 120000,
-    ORBIT_PERIOD_OUTER_MS: 240000,
+     *  around their star"): full-revolution period per shell.
+     *  PINNED (Adam, 2026-10-21, provisional — "sounds good for
+     *  now"): 5 SECONDS per revolution, BOTH rings (the 120 s /
+     *  240 s drafts were rejected as far too slow, and the
+     *  follow-up 15 s / 30 s split was superseded by his single
+     *  figure). Both rings turn the same way (counterclockwise,
+     *  the angle convention). A turret's angle at any moment is
+     *  DERIVED from time (base + 2π x elapsed / period) and
+     *  stamped into its record by the loop — no orbit state is
+     *  kept or synced beyond the angle field the turret record
+     *  already carries (src/starDefense.ts). */
+    ORBIT_PERIOD_INNER_MS: 5000,
+    ORBIT_PERIOD_OUTER_MS: 5000,
     /** Turret FIRING ARC — PINNED (Adam, 2026-10-21): a turret
      *  engages only targets within ±45° of its radial line (star
      *  center through the turret's current position) — a 90°
