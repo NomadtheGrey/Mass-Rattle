@@ -2,7 +2,7 @@ Mass Rattle — Working Notes
 The local customs of this repo: how work lands, how it ships, and who
 does what. The constitution is CODE_MANIFESTO.md (same folder); this
 page is the practice that has grown up around it. Brief and factual.
-Last updated 2026-10-21 (batch merges + build-history step folded in).
+Last updated 2026-10-22 (the ledger + index practice folded in).
 
 Branches & landings
 - ALL work stages on the `WIP` branch. `main` is production and
@@ -56,6 +56,21 @@ Lanes (who owns what)
 - Cross-lane work starts with a claim naming every file the landing
   will touch; shared files (App.tsx, useGameLoop.ts, types.ts,
   protocol.ts) are claimed before they are edited.
+
+The ledger (ReadMeFiles is the shared memory)
+- One system, one home (Adam, 2026-10-22): similarly grouped ideas
+  share ONE document; scattered ideas are never joined into one.
+  The per-system documents are the record of what was ruled — a
+  ruling that lives only in a chat does not live.
+- INDEX.md routes lookups: grep the folder first, then read the
+  ONE document the index names. Nobody reads all the files.
+- The index and OPEN_REGISTER.md carry pointers only; substance
+  lives in the system documents, and a pointer that seems to
+  disagree with its document is the pointer's bug.
+- Every lane keeps the ledger true: whoever finds a document
+  misstating its system fixes it, or strikes it to the lane that
+  holds the pen, in the same breath as finding it. Doc changes
+  land docs-alone (markdown is watch-path-excluded: zero builds).
 
 Game truths a new reader needs
 - Single player is the shipped game and the regression law: every
