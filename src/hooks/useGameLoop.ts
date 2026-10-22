@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { GameState, SeatSimState, Star, Vector2D, Ship, Scrap } from '../types';
 import { PHYSICS, COLORS } from '../constants';
-import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, canMountWeapon, mountableLoadout } from '../loadout';
+import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, canMountWeapon, mountableLoadout , weaponIdForSelectSlot } from '../loadout';
 import { inBankWell } from '../bank';
 import { infuseStar, milestonesForInfused } from '../starGrowth';
 import { ownerIdForSeat, starIdForSeat } from '../sim/ownership';
@@ -465,6 +465,18 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   // is WELL-GATED — progression is bought at the home dock, never in
   // the field — and pays through the combined wallet (hold, then bank).
   // ------------------------------------------------------------------
+  // SELECT WEAPON (CONTROLS.md): keys 1–5 + T (the surface's
+  // binding) call this with the slot index. Selection IS an
+  // equip — it resolves through the fixed registry order and
+  // the owned/installed gates, then runs the ordinary equip
+  // verb, swap fee on change included; on a guest the equip
+  // verb's own intent path carries it to the host. A press on
+  // a greyed cell (unowned, unmountable) selects nothing.
+  const selectWeaponSlot = useCallback((slotIndex: number) => {
+    const itemId = weaponIdForSelectSlot(stateRef.current.ship, slotIndex);
+    if (itemId) equipItem(itemId);
+  }, [equipItem]);
+
   const buyType = useCallback((line?: ShipLine) => {
     if (queueGuestAction({ kind: 'buyType', line })) return;
     setState(prev => {
@@ -2550,6 +2562,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     upgrade,
     buyItem,
     equipItem,
+    selectWeaponSlot,
     buyType,
     buyHullStep,
     buyTurretMount,
