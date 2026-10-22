@@ -248,6 +248,9 @@ export const stepDrones = (ctx: DroneStepContext): DroneStepResult => {
       let closestScrap = null;
       let minDist = Infinity;
       next.scrap.forEach(s => {
+        // WRECK SALVAGE: a value shard banks whole or not at
+        // all — never chase a pile the hold can't take entire.
+        if ((s.value ?? 1) > drone.capacity - drone.carrying) return;
         if (drone.starFleet) {
           const sx = s.pos.x - droneStar.pos.x;
           const sy = s.pos.y - droneStar.pos.y;
@@ -285,7 +288,10 @@ export const stepDrones = (ctx: DroneStepContext): DroneStepResult => {
         drone.pos.y += Math.sin(drone.angle) * droneSpeed;
 
         if (dist < PHYSICS.DRONES.COLLECT_RADIUS) {
-          drone.carrying += 1;
+          // A shard banks its whole value (targeting already
+          // refused piles that cannot fit entire).
+          const piece = next.scrap.find(sp => sp.id === drone.targetId);
+          drone.carrying += piece?.value ?? 1;
           // Remove scrap from world
           next.scrap = next.scrap.filter(s => s.id !== drone.targetId);
           drone.targetId = null;

@@ -28,6 +28,7 @@ import {
   thornDamageFor,
 } from '../loadout';
 import { areHostile } from './teams';
+import { escortSalvageBasis, rollSalvageValue, wreckShardScrap } from './salvage';
 import type {
   GameState,
   Mine,
@@ -306,11 +307,9 @@ export const stepProjectiles = (ctx: ProjectileStepContext): Projectile[] => {
       escort.health -= p.damage !== undefined ? p.damage : PHYSICS.DEFENSE.DAMAGE;
       escort.lastHitByOwnerId = p.ownerId;
       if (escort.health <= 0) {
-        newScrap.push({
-          id: Math.random().toString(),
-          pos: { x: escort.pos.x, y: escort.pos.y },
-          color: COLORS.SCRAP[Math.floor(Math.random() * COLORS.SCRAP.length)],
-        });
+        // WRECK SALVAGE (the flat piece retires): an escort rolls
+        // the ladder against its KIND PRICE alone.
+        newScrap.push(...wreckShardScrap(escort.pos, rollSalvageValue(escortSalvageBasis(escort))));
       }
       if (p.pierce) {
         (p.hitIds = p.hitIds || []).push(escort.id);
