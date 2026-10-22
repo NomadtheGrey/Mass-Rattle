@@ -284,10 +284,14 @@ export const weaponStatsFor = (id: string | null, tier: number): (WeaponStats & 
  * DEFENSE NUMBERS (Slice 6) — one helper per defense, tier-driven, so the
  * game loop never hardcodes an item's behavior. Draft tuning throughout.
  *
- * CME HARDENING note: cmeReductionFor is armed and ready, but nothing
- * consumes it yet — the CME system itself is a separate queued slice.
- * The moment stars start firing CMEs, their damage/knockback to the ship
- * is multiplied by (1 - cmeReductionFor(tier)).
+ * CME HARDENING note: cmeReductionFor is consumed at both CME wash
+ * sites in src/sim/cme.ts (the local ship's defended wash and the
+ * remote seats' wash): the wave's damage/knockback to the ship is
+ * multiplied by (1 - cmeReductionFor(tier)). T5 IS TOTAL IMMUNITY
+ * (PINNED, Adam, 2026-10-21: "ya that can be an invulnerable
+ * thing") — the wave breaks on a T5-hardened ship and does nothing:
+ * no damage, no knockback. The table's cap at 1 is that ruling,
+ * not an arithmetic convenience.
  */
 
 /** Deflector Shield pool: T1 40, +15/tier, T5 100. */
@@ -303,7 +307,9 @@ export const PD_RANGE = 130;
 export const PD_COOLDOWN_MS = 900;
 /** PD zap damage to a drone: T1 9, +3/tier, T5 21. (Bolts are destroyed outright.) */
 export const pdDamageFor = (tier: number): number => 6 + 3 * tier;
-/** CME Hardening: fraction of CME damage/knockback ignored — 20%/tier, T5 immune. */
+/** CME Hardening: fraction of CME damage/knockback ignored — 20%/tier.
+ *  T5 = 1: TOTAL CME immunity (PINNED, Adam, 2026-10-21 — see the
+ *  DEFENSE NUMBERS note above). */
 export const cmeReductionFor = (tier: number): number => Math.min(1, 0.2 * tier);
 /** Decoy Beacon hull (enemy bolts can shoot it down): T1 35, +15/tier. */
 export const decoyHealthFor = (tier: number): number => 20 + 15 * tier;

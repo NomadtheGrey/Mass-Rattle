@@ -191,6 +191,13 @@ export const stepCme = (ctx: CmeStepContext): void => {
         // CME Hardening (finally consuming its table) cuts both the
         // damage and the knockback; Grav Dampers cut knockback too.
         const red = defId === 'cme_hardening' ? cmeReductionFor(defTier) : 0;
+        // T5 IMMUNITY (PINNED, Adam, 2026-10-21: "ya that can be an
+        // invulnerable thing"): at red 1 the wave BREAKS on the
+        // hardened hull and does nothing at all — no damage, no
+        // knockback, not even the shake/glitch tell. The hitId
+        // above stands (the wave has washed this ship once; it
+        // does not wash twice).
+        if (red < 1) {
         let dmg = w.baseDamage * falloff * (1 - red);
         if (ship.shield && ship.shield > 0) {
           const absorbed = Math.min(ship.shield, dmg);
@@ -211,24 +218,39 @@ export const stepCme = (ctx: CmeStepContext): void => {
         next.shakeAmount = Math.max(next.shakeAmount, 6 + 10 * falloff);
         next.glitchActive = true;
         next.lastGlitchTime = time;
+        }
       }
     }
     // Other seats' SHIPS in the wave (P2-2b): plain damage +
-    // knockback, no loadout defenses. Inert in SP (no bot ships
-    // fly); the local ship's wash above keeps its full
-    // hardening/shield/aegis treatment. (TEAMS: the wave's own
-    // seat and its teammates are skipped — hostile teams only.)
+    // knockback, no loadout defenses — with ONE exception since
+    // Adam's T5-immunity ruling (2026-10-21): CME Hardening reads
+    // here too, because immunity is a property of the hardened
+    // hull, not of whose client renders the wash. Shield/aegis
+    // stay local-only (pool/cargo state this wash doesn't carry
+    // for remote ships). Inert in SP (no bot ships fly); the
+    // local ship's wash above keeps its full treatment. (TEAMS:
+    // the wave's own seat and its teammates are skipped — hostile
+    // teams only.)
     for (const seat of simSeats) {
       const bs = seat.ship;
       if (!bs || seat.ownerId === localOwnerId || !areHostile(simSeats, seat.ownerId, w.ownerId)) continue;
       const hitKey = `ship:${seat.ownerId}`;
       if (w.hitIds.includes(hitKey) || !inBand(bs.pos) || !inCone(bs.pos)) continue;
       w.hitIds.push(hitKey);
-      bs.health -= w.baseDamage * falloff;
-      bs.lastHitByOwnerId = w.ownerId;
-      const sv = shoveVec(bs.pos, w.baseKnockback * falloff);
-      bs.pos.x += sv.x;
-      bs.pos.y += sv.y;
+      // CME Hardening reads here too (the wash used to be plain —
+      // a remote T5-hardened ship took the full wave, against the
+      // ruling): the ship's own equipped defense + tier, the same
+      // read the local wash makes. T5 = total immunity (PINNED,
+      // Adam, 2026-10-21): no damage, no knockback, no hit stamp.
+      const bsDefId = bs.loadout.defense;
+      const bsRed = bsDefId === 'cme_hardening' ? cmeReductionFor(bs.arsenal[bsDefId] || 0) : 0;
+      if (bsRed < 1) {
+        bs.health -= w.baseDamage * falloff * (1 - bsRed);
+        bs.lastHitByOwnerId = w.ownerId;
+        const sv = shoveVec(bs.pos, w.baseKnockback * falloff * (1 - bsRed));
+        bs.pos.x += sv.x;
+        bs.pos.y += sv.y;
+      }
     }
     // Drones: the wave washes every drone hostile to its star —
     // in SP, an enemy wave washes player drones and a home wave
