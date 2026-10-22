@@ -18,7 +18,7 @@ import { STAR_DRONE_RESPAWN_FRAMES, starDroneRangeFor, starDroneTargetFor } from
 import { applyDeliveryHeal } from '../starDefense';
 import { areHostile } from './teams';
 import { repairFrame, DRONE_DOCK_HEALTH, DRONE_DOCK_RATE_PER_SEC } from './repair';
-import { AUTO_GUN, DEFENSE_DRONE, DRONE_PRICE, canOrderWorkforce, typeFor } from '../shipProgression';
+import { AUTO_GUN, DEFENSE_DRONE, DRONE_MAX_HEALTH, DRONE_PRICE, canOrderWorkforce, typeFor } from '../shipProgression';
 import type { GameState, Harvester, SeatSimState, Star, Vector2D } from '../types';
 
 export interface DroneStepContext {
@@ -190,8 +190,8 @@ export const stepDrones = (ctx: DroneStepContext): DroneStepResult => {
       drone.pos.y = capitalShip.pos.y;
       drone.vel.x = 0;
       drone.vel.y = 0;
-      repairFrame(drone, capitalShip, 100, DRONE_DOCK_RATE_PER_SEC / 60);
-      if (drone.health >= 100) {
+      repairFrame(drone, capitalShip, DRONE_MAX_HEALTH, DRONE_DOCK_RATE_PER_SEC / 60);
+      if (drone.health >= DRONE_MAX_HEALTH) {
         drone.state = drone.carrying >= drone.capacity ? 'returning' : 'searching';
       }
       return drone;
@@ -402,7 +402,7 @@ export const stepDrones = (ctx: DroneStepContext): DroneStepResult => {
     homeStar.starDroneSeq = seq;
     drones.push({
       id: `${seat.ownerId}-stardrone-${seq}`,
-      health: 100,
+      health: DRONE_MAX_HEALTH,
       pos: {
         x: homeStar.pos.x - Math.sign(homeStar.pos.x) * 100,
         y: homeStar.pos.y - Math.sign(homeStar.pos.y) * 100,

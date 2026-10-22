@@ -237,8 +237,9 @@ export interface DeployedCargo extends Scrap {
 
 export interface Harvester {
   id: string;
-  // Drones gain health with the Arsenal slices: ship weapons need something
-  // to damage. 100 = a fresh drone; destroyed drones drop their cargo as scrap.
+  // The airframe's hull is DRONE_MAX_HEALTH (shipProgression.ts —
+  // Adam's 2½-bolt-shots pin, 2026-10-22); a fresh drone reads it
+  // full. Destroyed drones drop their cargo as scrap.
   health: number;
   pos: Vector2D;
   vel: Vector2D;

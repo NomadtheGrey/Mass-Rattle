@@ -414,6 +414,18 @@ export const switchToll = (s: { lineSwitchesUsed: number; typeTier: TypeTier }):
 export const DRONE_PRICE = 75;
 
 /**
+ * The harvester AIRFRAME's hull (Adam's pin, 2026-10-22:
+ * 'maybe 2½ shots or so from the standard gun' — drafted
+ * exact off the Bolt Cannon's real base damage, 12: 2.5 x 12
+ * = 30, so two bolts leave a drone at 6 and the third kills.
+ * Speed stays their primary armor; the hull only keeps a
+ * drone from disintegrating on first contact. One hull for
+ * the whole airframe — workforce, star fleet, and the
+ * defense mode alike. DRAFT for the pin pass.
+ */
+export const DRONE_MAX_HEALTH = 30;
+
+/**
  * Turret mounts (Arsenal slice 2, 2026-10-21 — Adam's universal
  * turret purchase): every type's autoGuns value is a CAP; a ship
  * buys mounts one at a time up to it and fires what it owns. The

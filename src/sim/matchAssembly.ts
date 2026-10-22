@@ -38,6 +38,7 @@ import { createMatchLayout } from './matchInit';
 import type { MatchStarCount } from './matchInit';
 import { ownerIdForSeat } from './ownership';
 import { createSeatSimState, createStarterShip } from './seatState';
+import { DRONE_MAX_HEALTH } from '../shipProgression';
 
 export interface MatchSeatConfig {
   ownerId: string;
@@ -108,7 +109,7 @@ const createSeatStar = (
 
 const createSeatDrone = (star: Star, starIndex: number): Harvester => ({
   id: `${star.ownerId}-drone-1`,
-  health: 100,
+  health: DRONE_MAX_HEALTH,
   pos: spawnOffsetTowardCenter(star.pos),
   vel: { x: 0, y: 0 },
   angle: 0,

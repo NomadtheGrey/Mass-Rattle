@@ -85,7 +85,9 @@ export const repairFrame = (
  * carry no type/tier table of their own: docked, they repair to
  * FULL at this rate (DRAFT), paid from the ship's hold.
  */
-export const DRONE_DOCK_HEALTH = 50;
+// Half the airframe's hull: hurt past halfway, a harvester
+// goes home to dock (see DRONE_MAX_HEALTH for the hull pin).
+export const DRONE_DOCK_HEALTH = 15;
 export const DRONE_DOCK_RATE_PER_SEC = 10;
 
 /**
