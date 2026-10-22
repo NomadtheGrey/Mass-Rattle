@@ -168,7 +168,7 @@ export const stepEscorts = (ctx: EscortStepContext): EscortShip[] => {
     if (!target) {
       for (const s of seats) {
         const hull = (s as SeatSimState).ship;
-        if (!hull || s.ownerId === escort.ownerId) continue;
+        if (!hull || hull.dockedTo || s.ownerId === escort.ownerId) continue;
         if (!areHostile(seats, s.ownerId, escort.ownerId)) continue;
         if (!isVisibleTo(hull, escort.pos)) continue;
         consider(hull.pos);

@@ -154,6 +154,21 @@ export const stepBotShip = (
   const ownStar = world.stars.find(s => s.ownerId === seat.ownerId);
   if (!ownStar) return EMPTY_RESULT;
 
+  // ALLY DOCKING (src/sim/harbor.ts): a docked bot rides its
+  // host — no steering, no fire, no own-hold repair tick (the
+  // harbor pass heals it from the host's hold). The pass owns
+  // berth validity; this gate only keeps the hull attached.
+  if (ship.dockedTo) {
+    const hostEntry = world.ships.find(s => s.ownerId === ship.dockedTo);
+    if (hostEntry) {
+      ship.pos.x = hostEntry.ship.pos.x;
+      ship.pos.y = hostEntry.ship.pos.y;
+      ship.vel.x = hostEntry.ship.vel.x;
+      ship.vel.y = hostEntry.ship.vel.y;
+    }
+    return EMPTY_RESULT;
+  }
+
   // SCRAP HEALING (RULED, src/sim/repair.ts): the toggle
   // DEFAULTS ON for bots as for captains until the bot
   // program's disposition policy (B1/B2 — Adam's health-graded
@@ -197,6 +212,7 @@ export const stepBotShip = (
     let bestAggro = BOT_DRIVER.AGGRO_RANGE;
     for (const hostile of world.ships) {
       if (hostile.ownerId === seat.ownerId) continue;
+      if (hostile.ship.dockedTo) continue; // docked = out of combat
       if (!areHostile(world.seats, hostile.ownerId, seat.ownerId)) continue;
       if (!isVisibleTo(hostile.ship, ship.pos)) continue;
       const dd = Math.hypot(
@@ -360,6 +376,7 @@ export const stepBotShip = (
     }
     if (!fireTarget) {
       for (const hostile of world.ships) {
+        if (hostile.ship.dockedTo) continue; // docked = out of combat
         if (!areHostile(world.seats, hostile.ownerId, seat.ownerId)) continue;
         // STEALTH (the submarine ruling, consumed offensively in
         // slice 5a): a cloaked hull beyond its reveal band cannot

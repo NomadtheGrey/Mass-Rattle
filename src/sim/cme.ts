@@ -100,7 +100,7 @@ export const stepCme = (ctx: CmeStepContext): void => {
         if (!t) {
           let bd = Infinity;
           for (const os of simSeats) {
-            if (!os.ship || !areHostile(simSeats, os.ownerId, s.ownerId)) continue;
+            if (!os.ship || os.ship.dockedTo || !areHostile(simSeats, os.ownerId, s.ownerId)) continue;
             // SUBMARINE (RULED, Adam, 2026-10-21): turrets and
             // CME alike respect the cloak — a star's CME does not
             // aim at what the star cannot see, the reveal geometry
@@ -186,7 +186,7 @@ export const stepCme = (ctx: CmeStepContext): void => {
         next.decoy = null;
         if (w.dirAngle !== null) return false;
       }
-      if (!w.hitIds.includes('ship') && inBand(ship.pos) && inCone(ship.pos)) {
+      if (!ship.dockedTo && !w.hitIds.includes('ship') && inBand(ship.pos) && inCone(ship.pos)) {
         w.hitIds.push('ship');
         // CME Hardening (finally consuming its table) cuts both the
         // damage and the knockback; Grav Dampers cut knockback too.
@@ -233,7 +233,7 @@ export const stepCme = (ctx: CmeStepContext): void => {
     // teams only.)
     for (const seat of simSeats) {
       const bs = seat.ship;
-      if (!bs || seat.ownerId === localOwnerId || !areHostile(simSeats, seat.ownerId, w.ownerId)) continue;
+      if (!bs || bs.dockedTo || seat.ownerId === localOwnerId || !areHostile(simSeats, seat.ownerId, w.ownerId)) continue;
       const hitKey = `ship:${seat.ownerId}`;
       if (w.hitIds.includes(hitKey) || !inBand(bs.pos) || !inCone(bs.pos)) continue;
       w.hitIds.push(hitKey);

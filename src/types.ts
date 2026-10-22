@@ -42,6 +42,20 @@ export interface Ship extends GameObject {
   repairing?: boolean;
   /** The heal engine's whole-scrap credit (src/sim/repair.ts). */
   repairCredit?: number;
+  /**
+   * ALLY DOCKING (src/sim/harbor.ts): the host ship's ownerId
+   * while this ship rides docked at an allied harbor — out of
+   * combat (cannot fire, cannot be hit), healing from the
+   * host's hold at a multiplied rate up to its OWN cap.
+   * Absent = not docked.
+   */
+  dockedTo?: string;
+  /**
+   * The HARBOR SWITCH (src/sim/harbor.ts): this ship's
+   * consent to host allied guests. Undefined reads as OPEN;
+   * false closes the harbor and spills current guests.
+   */
+  harborOpen?: boolean;
   attractRadius: number;
   /** Seat-scoped ownerId (Phase 2, src/sim/ownership.ts): the seat
    * that owns this entity for the whole match, whoever controls it. */
