@@ -11,10 +11,10 @@ import { stepBotShip } from '../sim/botDriver';
 import { DEBUG_ARMED } from '../debug';
 import { stepStarBurn, stepShipPhysics, ShipPhysicsInputs } from '../sim/physics';
 import { createMatch } from '../sim/matchAssembly';
-import type { NetSession } from '../net/useNetClient';
+import type { NetSession, NetActionIntent } from '../net/useNetClient';
 import {
   SNAPSHOT_EVERY_FRAMES, snapshotDue, localShipInput, remoteShipInput,
-  idleShipInput, acceptGuestPayload, countDroppedActions, consumeRepurchaseIntent,
+  idleShipInput, acceptGuestPayload, countDroppedActions, consumeRepurchaseIntent, consumeEconomyIntents,
   projectStateForViewer, ShipFrameInput,
 } from '../net/sessionAdapter';
 import {
@@ -33,21 +33,14 @@ import { stepCme } from '../sim/cme';
 import { computeStandings } from '../sim/standings';
 import { areHostile, areTeammates } from '../sim/teams';
 import { applyDeathLoss, botRepurchaseDue, completeRespawn, respawnDue, tryRepurchase } from '../sim/deathEconomy';
+import { walletPay, inTeamWell, attractRadiusForShip } from '../sim/seatShop';
+import { stepBotEconomy } from '../sim/botEconomy';
 import { appendEventRecords, EventFeedEntry } from '../sim/eventFeed';
 import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, turretAngleAt, targetInTurretArc, applyDeliveryHeal } from '../starDefense';
 import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, thornDamageFor, aegisAbsorbFor } from '../loadout';
 import { ShipLine, TypeTier, DRONE_MAX_HEALTH, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, DEFENSE_DRONE_PRICE, EXTRA_MOUNT_DAMAGE, AUTO_GUN, autoGunCapFor, effectiveAutoGuns, turretMountPriceFor, ESCORT_KIND_DEFS, escortCapFor, escortKindOf, canOrderWorkforce, healCapPctFor, healRateFor, type EscortKind } from '../shipProgression';
 
-/**
- * SHIP PROGRESSION (Phase 3, src/shipProgression.ts — DRAFT numbers):
- * the ship's effective VAC/attract radius is the attractor track's
- * formula plus the line/type's flat vacBonus. The radius lives on
- * ship.attractRadius (state the canvas draws from), so it is
- * recomputed wherever the track, line, or tier changes: attractor
- * purchases, buyType, switchLine.
- */
-const attractRadiusForShip = (attractorLvl: number, line: ShipLine | null, tier: TypeTier): number =>
-  PHYSICS.BASE_ATTRACT_RADIUS + attractorLvl * 35 + typeFor(line, tier).vacBonus;
+/* attractRadiusForShip moved to src/sim/seatShop.ts (B2) — one text of the law for the local verbs, the bot policy, and guest intent consumption. */
 
 /**
  * Masked device inputs for the collapse-cinematic lockout (P2-4):
@@ -64,38 +57,10 @@ const NO_TOUCH: ShipPhysicsInputs = {
   analogStick: null,
 };
 
-/**
- * COMBINED WALLET — every purchase in the game (base upgrades, Arsenal
- * tiers, loadout swaps) is checked against hold + bank TOGETHER and paid
- * hold-first, then bank. This is what makes prices above the hold's
- * physical capacity (15 scrap at start) reachable at all.
- *
- * BANK ACCESS (Adam, 2026-10-19): the bank IS the home star's gravity
- * well — savings can only be SPENT from inside the well (see src/bank.ts).
- * Outside it, bankAccessible is false and the wallet is the hold alone.
- * Returns null when the accessible wallet cannot cover the cost.
- */
-const walletPay = (carrying: number, banked: number, cost: number, bankAccessible: boolean) => {
-  const accessible = carrying + (bankAccessible ? banked : 0);
-  if (accessible < cost) return null;
-  const fromHold = Math.min(carrying, cost);
-  return { carrying: carrying - fromHold, banked: banked - (cost - fromHold) };
-};
+/* walletPay moved to src/sim/seatShop.ts (B2) — one text of the law for the local verbs, the bot policy, and guest intent consumption. */
 
-/**
- * TEAMS dock gate (Adam's pin, 2026-10-21: "the team works together
- * to build the star"): a seat is AT A DOCK when its ship sits in the
- * bank well (effective radius, P2-4) of ANY star on its own team —
- * its own star included, so SP and all-default matches read exactly
- * the shipped own-well predicate. Feed, bank, shop-open and every
- * progression purchase read this one gate; the bank account and
- * wallet touched are always the acting seat's own — only the DOCK
- * is shared.
- */
-const inTeamWell = (seats: readonly SeatSimState[], ship: Ship): boolean =>
-  seats.some(seat =>
-    (seat.ownerId === ship.ownerId || areTeammates(seats, ship.ownerId, seat.ownerId)) &&
-    inBankWell(ship.pos, seat.star.pos, effectiveRadiusForStar(seat.star)));
+
+/* inTeamWell moved to src/sim/seatShop.ts (B2) — one text of the law for the local verbs, the bot policy, and guest intent consumption. */
 
 export const useGameLoop = (width: number, height: number, net?: NetSession | null) => {
   // MATCH GEOMETRY (Phase 2, src/sim/matchInit.ts): SP plays the
@@ -229,6 +194,22 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   /** Guest-side: outgoing input seq + last-sent signature/time. */
   const guestOutSeqRef = useRef(0);
   const guestOutSigRef = useRef('');
+  // B2 PER-SEAT ECONOMY (guest half): economy verbs on a guest
+  // client queue their NetActionIntent here instead of mutating
+  // the projection; the guest send block below drains the queue
+  // into the next input payload, and the HOST applies each to
+  // the sender's seat through the seat shop (sessionAdapter's
+  // consumeEconomyIntents). queueGuestAction returns true when
+  // it queued (the caller then does nothing else).
+  const guestActionsRef = useRef<NetActionIntent[]>([]);
+  const queueGuestAction = (intent: NetActionIntent): boolean => {
+    const session = netRef.current;
+    if (session?.room && !session.isHost) {
+      guestActionsRef.current.push(intent);
+      return true;
+    }
+    return false;
+  };
   const guestOutAtRef = useRef(0);
   /** Host-side: frames since match init, for the snapshot cadence. */
   const hostFramesRef = useRef(0);
@@ -284,6 +265,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   }, []);
 
   const upgrade = useCallback((type: 'thrust' | 'handling' | 'attractor' | 'fuel' | 'cargo') => {
+    if (queueGuestAction({ kind: 'buyTrack', track: type })) return;
     setState(prev => {
       const baseCost = type === 'thrust' ? PHYSICS.UPGRADE_COSTS.THRUST : 
                        type === 'handling' ? PHYSICS.UPGRADE_COSTS.HANDLING : 
@@ -333,6 +315,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   // the same wallet as the five base upgrades and star feeding.
   // ------------------------------------------------------------------
   const buyItem = useCallback((itemId: string) => {
+    if (queueGuestAction({ kind: 'buyItem', itemId })) return;
     const def = getLoadoutItem(itemId);
     if (!def) return;
     setState(prev => {
@@ -362,6 +345,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   }, []);
 
   const equipItem = useCallback((itemId: string) => {
+    if (queueGuestAction({ kind: 'equipItem', itemId })) return;
     const def = getLoadoutItem(itemId);
     if (!def) return;
     setState(prev => {
@@ -408,6 +392,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   // bank at any team dock, feedCargo delivers to the dock's star.
   // ------------------------------------------------------------------
   const feedCargo = useCallback(() => {
+    if (queueGuestAction({ kind: 'feed' })) return;
     setState(prev => {
       if (prev.ship.carrying <= 0) return prev;
       const amount = prev.ship.carrying;
@@ -439,6 +424,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   }, []);
 
   const depositBank = useCallback(() => {
+    if (queueGuestAction({ kind: 'bankDeposit' })) return;
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // banking happens at home
       if (prev.ship.carrying <= 0) return prev;
@@ -448,6 +434,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   }, []);
 
   const withdrawBank = useCallback(() => {
+    if (queueGuestAction({ kind: 'bankWithdraw' })) return;
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // banking happens at home
       if (prev.bankedScrap <= 0) return prev;
@@ -469,6 +456,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   // the field — and pays through the combined wallet (hold, then bank).
   // ------------------------------------------------------------------
   const buyType = useCallback((line?: ShipLine) => {
+    if (queueGuestAction({ kind: 'buyType', line })) return;
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // types are bought at home
       if (prev.ship.typeTier >= 5) return prev; // top of the ladder (T5 crowns, 2026-10-21)
@@ -504,6 +492,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   }, []);
 
   const buyHullStep = useCallback(() => {
+    if (queueGuestAction({ kind: 'buyHull' })) return;
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // hull work happens at home
       // The type's hullStepCap is the gate: at the cap, growing further
@@ -539,6 +528,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
    * every refit.
    */
   const buyTurretMount = useCallback(() => {
+    if (queueGuestAction({ kind: 'buyTurretMount' })) return;
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // mounts are fitted at home
       if (prev.ship.turretMounts >= autoGunCapFor(prev.ship.line, prev.ship.typeTier)) return prev;
@@ -551,6 +541,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   }, []);
 
   const switchLine = useCallback((line: ShipLine) => {
+    if (queueGuestAction({ kind: 'switchLine', line })) return;
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // refits happen at home
       if (prev.ship.typeTier < 2 || !prev.ship.line || line === prev.ship.line) return prev;
@@ -650,6 +641,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
    * the player rebuilds it here, up to the line/type's dronesFielded.
    */
   const buildDrone = useCallback(() => {
+    if (queueGuestAction({ kind: 'buildDrone' })) return;
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // drones are built at home
       // Harvesters only (Arsenal slice 3): defense-mode drones are
@@ -712,6 +704,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
    * A lost guard is rebuilt here, like a lost harvester.
    */
   const buildDefenseDrone = useCallback(() => {
+    if (queueGuestAction({ kind: 'buildDefenseDrone' })) return;
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // drones are built at home
       const fielded = prev.drones.filter(d => d.owner === 'player' && d.mode === 'defense').length;
@@ -761,6 +754,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
    * converts the ship's hold scrap into hull up to its cap.
    */
   const setRepairing = useCallback((on: boolean) => {
+    if (queueGuestAction({ kind: 'setRepairing', on })) return;
     setState(prev => ({ ...prev, ship: { ...prev.ship, repairing: on } }));
   }, []);
 
@@ -806,6 +800,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   }, []);
 
   const setDeliveryMode = useCallback((mode: 'feed' | 'deposit') => {
+    if (queueGuestAction({ kind: 'setDeliveryMode', mode })) return;
     setState(prev => {
       if (!canOrderWorkforce(prev.ship.line)) return prev;
       const seats = prev.seats.map(seat =>
@@ -827,6 +822,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
    * Prices are the kind defs' DRAFT figures.
    */
   const buildEscort = useCallback((kind: EscortKind) => {
+    if (queueGuestAction({ kind: 'buildEscort', escortKind: kind })) return;
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // escorts are built at home
       const def = ESCORT_KIND_DEFS[kind];
@@ -851,7 +847,14 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
 
   const repurchaseShip = useCallback((ownerId: string) => {
     const session = netRef.current;
-    if (session?.room && !session.isHost) return;
+    if (session?.room && !session.isHost) {
+      // B2 follow-on: the guest's repurchase rides the same
+      // intent channel as every other economy verb — the host
+      // applies it to the SENDER's seat, so queue only when the
+      // seat is the guest's own.
+      if (ownerId === session.mySeat?.ownerId) guestActionsRef.current.push({ kind: 'repurchase' });
+      return;
+    }
     setState(prev => {
       if (prev.matchEnd) return prev;
       const idx = prev.seats.findIndex(s => s.ownerId === ownerId);
@@ -1254,11 +1257,12 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           stick: input.stick,
         };
         const sig = JSON.stringify(fields);
-        if (sig !== guestOutSigRef.current || time - guestOutAtRef.current >= 100) {
+        if (sig !== guestOutSigRef.current || time - guestOutAtRef.current >= 100 || guestActionsRef.current.length > 0) {
           guestOutSigRef.current = sig;
           guestOutAtRef.current = time;
           guestOutSeqRef.current += 1;
-          frameSession.sendInput({ seq: guestOutSeqRef.current, ...fields });
+          const pendingActions = guestActionsRef.current.splice(0);
+          frameSession.sendInput({ seq: guestOutSeqRef.current, ...fields, ...(pendingActions.length ? { actions: pendingActions } : {}) });
         }
         frameId = requestAnimationFrame(loop);
         return;
@@ -1836,6 +1840,16 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
                 if (!prev.matchEnd) {
                   const consumed = consumeRepurchaseIntent(seat, payload, time);
                   if (consumed) feedEntries.push(consumed.record);
+                  // B2 PER-SEAT ECONOMY: the guest's shop intents
+                  // apply to THEIR seat through the seat shop —
+                  // their bank, their wallet, the shared dock.
+                  const econ = consumeEconomyIntents(seat, payload, { seats: simSeats, drones: next.drones, escorts: next.escorts, localOwnerId });
+                  if (econ) {
+                    if (econ.drones) next.drones = econ.drones;
+                    if (econ.escorts) next.escorts = econ.escorts;
+                    if (econ.addDrones.length) next.drones = [...next.drones, ...econ.addDrones];
+                    if (econ.addEscorts.length) next.escorts = [...next.escorts, ...econ.addEscorts];
+                  }
                 }
               }
             }
@@ -2254,6 +2268,24 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           }
         }
 
+        // B2 BOT ECONOMY (src/sim/botEconomy.ts): policy +
+        // purchases for bot seats — real banks, real prices, the
+        // well is the market. Runs before the drivers so a fresh
+        // purchase flies this frame, and this frame's deliveries
+        // split by the mode the policy just set.
+        {
+          const econCtx = { seats: simSeats, drones: next.drones, escorts: next.escorts, localOwnerId };
+          for (const seat of simSeats) {
+            if (seat.controller !== 'bot') continue;
+            const change = stepBotEconomy(seat, econCtx, time);
+            if (change) {
+              if (change.drones) { next.drones = change.drones; econCtx.drones = change.drones; }
+              if (change.escorts) { next.escorts = change.escorts; econCtx.escorts = change.escorts; }
+              if (change.drone) { next.drones = [...next.drones, change.drone]; econCtx.drones = next.drones; }
+            }
+          }
+        }
+
         // BOT SHIP DRIVERS (Phase 2, P2-2b): every bot seat that HAS a
         // ship flies it via src/sim/botDriver.ts — harvest, deliver
         // (through the same infuseStar + delivery heal as drone
@@ -2283,8 +2315,16 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
             if (ix >= 0) newScrap.splice(ix, 1);
           }
           if (botResult.deliverAmount > 0) {
-            infuseStar(seat.star, botResult.deliverAmount);
-            applyDeliveryHeal(seat.star, botResult.deliverAmount);
+            // B2 POLICY SPLIT: a depositing bot BANKS its ship's
+            // load into its own account (no infusion, no heal —
+            // the drone DEPOSIT law); a feeding bot infuses as
+            // bots always have.
+            if (seat.deliveryMode === 'deposit') {
+              seat.bankedScrap += botResult.deliverAmount;
+            } else {
+              infuseStar(seat.star, botResult.deliverAmount);
+              applyDeliveryHeal(seat.star, botResult.deliverAmount);
+            }
           }
           for (const p of botResult.projectiles) next.projectiles.push(p);
         }
