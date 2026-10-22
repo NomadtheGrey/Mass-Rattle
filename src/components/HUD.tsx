@@ -298,7 +298,14 @@ export const HUD: React.FC<HUDProps> = ({
   // effect below announces from the previous frame's set.
   const previewFor = (line: ShipLine | null, tier: TypeTier) => {
     const rec = reconcileSwitch(ship, drones, escorts, line, tier);
-    return { refund: rec.refund, sold: rec.sold };
+    // THE LAST TRIP (Adam's final shape): liquidated harvesters
+    // are not in the instant refund — each banks DRONE_PRICE +
+    // its cargo on arrival, and only if it makes it home (killed
+    // en route, it dies unsold). The en-route figure is computed
+    // from the helper's own marks, so preview and outcome agree.
+    const liq = new Set(rec.liquidateDroneIds);
+    const enRoute = drones.reduce((sum, d) => liq.has(d.id) ? sum + DRONE_PRICE + (d.carrying || 0) : sum, 0);
+    return { refund: rec.refund, sold: rec.sold, enRoute, liquidateIds: rec.liquidateDroneIds };
   };
   type SellPreview = ReturnType<typeof previewFor>;
   const hasSales = (p: SellPreview | undefined): boolean => !!p && (p.sold.weapons.length > 0 || p.sold.drones > 0 || p.sold.defenseDrones > 0 || p.sold.mounts > 0 || p.sold.escorts > 0);
@@ -310,7 +317,12 @@ export const HUD: React.FC<HUDProps> = ({
     if (p.sold.escorts > 0) parts.push(`${p.sold.escorts} ESCORT${p.sold.escorts > 1 ? 'S' : ''}`);
     return parts.join(' · ');
   };
-  const sellTripNote = (p: SellPreview): string => p.sold.drones > 0 ? ' · HARVESTERS BANK AFTER ONE LAST TRIP HOME' : '';
+  const sellMoneyLine = (p: SellPreview): string => {
+    const parts: string[] = [];
+    if (p.refund > 0) parts.push(`+${p.refund}U TO BANK`);
+    if (p.enRoute > 0) parts.push(`+${p.enRoute}U IF THE LAST TRIP${p.sold.drones > 1 ? 'S MAKE' : ' MAKES'} IT HOME`);
+    return parts.join(' · ');
+  };
   const switchPreviews: Partial<Record<ShipLine, SellPreview>> = {};
   const choicePreviews: Partial<Record<ShipLine, SellPreview>> = {};
   for (const ln of Object.keys(SHIP_LINES) as ShipLine[]) {
@@ -476,10 +488,19 @@ export const HUD: React.FC<HUDProps> = ({
     if (manifest && hasSales(manifest)) {
       const weaponVerified = manifest.sold.weapons.length === 0
         || (prev.weapon !== null && manifest.sold.weapons.includes(prev.weapon) && !arsenal[prev.weapon]);
-      const entityDelta = (prev.drones - playerDrones) + (prev.defenseDrones - playerDefenseDrones) + (prev.escorts - escortTotal) + (prev.mounts - turretMounts);
-      const entityTotal = manifest.sold.drones + manifest.sold.defenseDrones + manifest.sold.mounts + manifest.sold.escorts;
-      if (weaponVerified && entityDelta >= entityTotal) {
-        let msg = `💰 SOLD ON THE SWITCH: ${sellSummary(manifest)} — +${manifest.refund}U TO YOUR BANK`;
+      // Instant property verifies by counts falling; liquidated
+      // harvesters verify by their ids STILL FLYING (the last
+      // trip) — they vanish only when they settle at the star.
+      const instantDelta = (prev.defenseDrones - playerDefenseDrones) + (prev.escorts - escortTotal) + (prev.mounts - turretMounts);
+      const instantTotal = manifest.sold.defenseDrones + manifest.sold.mounts + manifest.sold.escorts;
+      const dronesVerified = manifest.sold.drones === 0
+        || (manifest.liquidateIds.length === manifest.sold.drones && manifest.liquidateIds.every(id => drones.some(d => d.id === id)));
+      if (weaponVerified && dronesVerified && instantDelta >= instantTotal) {
+        let msg = `💰 SOLD ON THE SWITCH: ${sellSummary(manifest)}`;
+        if (manifest.refund > 0) msg += ` — +${manifest.refund}U TO YOUR BANK`;
+        if (manifest.enRoute > 0) msg += manifest.sold.drones > 1
+          ? ` · THE HARVESTERS FLY ONE LAST TRIP APIECE: +${manifest.enRoute}U BANKS IF THEY MAKE IT HOME`
+          : ` · THE HARVESTER FLIES ONE LAST TRIP: +${manifest.enRoute}U BANKS IF IT MAKES IT HOME`;
         flashShopNotice(msg);
         if (DEBUG_ARMED) setDevNote(msg);
         announced = true;
@@ -1587,7 +1608,7 @@ export const HUD: React.FC<HUDProps> = ({
                           <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(t2)}</span>
                           <span className="text-[10px] sm:text-xs font-mono font-bold text-pink-400">{price}U</span>
                           {hasSales(choicePreviews[ln]) && (
-                            <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-amber-400">⚠ SELLS: {sellSummary(choicePreviews[ln]!)} (+{choicePreviews[ln]!.refund}U TO BANK){sellTripNote(choicePreviews[ln]!)}</span>
+                            <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-amber-400">⚠ SELLS: {sellSummary(choicePreviews[ln]!)} ({sellMoneyLine(choicePreviews[ln]!)})</span>
                           )}
                         </button>
                       );
@@ -1606,7 +1627,7 @@ export const HUD: React.FC<HUDProps> = ({
                       <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(next)} · HULL CAP {next.hullStepCap}</span>
                       <span className="text-[10px] sm:text-xs font-mono font-bold text-pink-400">{price}U</span>
                       {hasSales(climbPreview ?? undefined) && (
-                        <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-amber-400">⚠ SELLS: {sellSummary(climbPreview!)} (+{climbPreview!.refund}U TO BANK){sellTripNote(climbPreview!)}</span>
+                        <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-amber-400">⚠ SELLS: {sellSummary(climbPreview!)} ({sellMoneyLine(climbPreview!)})</span>
                       )}
                     </button>
                   );
@@ -1635,7 +1656,7 @@ export const HUD: React.FC<HUDProps> = ({
                             className={`flex-1 min-w-[86px] px-2 py-1.5 rounded text-[9px] sm:text-[10px] font-mono font-bold border touch-manipulation active:scale-95 flex flex-col items-center justify-center gap-0.5 ${afford ? 'bg-zinc-900 text-zinc-200 border-zinc-600' : 'bg-zinc-900 text-zinc-500 border-zinc-800 cursor-not-allowed'}`}>
                             <span>⇄ {ln.toUpperCase()} · {switchCost === 0 ? 'FREE' : `${switchCost}U`}</span>
                             {targetSellWarn && (
-                              <span className="text-[7px] sm:text-[8px] text-amber-400 tracking-normal">⚠ SELLS THERE: {sellSummary(targetPreview!)} (+{targetPreview!.refund}U TO BANK){sellTripNote(targetPreview!)}</span>
+                              <span className="text-[7px] sm:text-[8px] text-amber-400 tracking-normal">⚠ SELLS THERE: {sellSummary(targetPreview!)} ({sellMoneyLine(targetPreview!)})</span>
                             )}
                           </button>
                         );
