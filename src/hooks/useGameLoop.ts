@@ -467,26 +467,6 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   // is WELL-GATED — progression is bought at the home dock, never in
   // the field — and pays through the combined wallet (hold, then bank).
   // ------------------------------------------------------------------
-  /**
-   * Sold drones' undelivered cargo becomes loose scrap where
-   * they stood (the drone-death precedent from the death sweep,
-   * same jitter and palette) — never banked: it was never
-   * delivered. (src/switchReconcile.ts decides the drops.)
-   */
-  const expandCargoDrops = (drops: { x: number; y: number; count: number }[]) => {
-    const out: { id: string; pos: { x: number; y: number }; color: string }[] = [];
-    for (const drop of drops) {
-      for (let i = 0; i < drop.count; i++) {
-        out.push({
-          id: Math.random().toString(),
-          pos: { x: drop.x + (Math.random() - 0.5) * 30, y: drop.y + (Math.random() - 0.5) * 30 },
-          color: COLORS.SCRAP[Math.floor(Math.random() * COLORS.SCRAP.length)],
-        });
-      }
-    }
-    return out;
-  };
-
   const buyType = useCallback((line?: ShipLine) => {
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // types are bought at home
@@ -514,7 +494,6 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         ...prev, ship,
         drones: rec.soldDroneIds.length ? prev.drones.filter(d => !rec.soldDroneIds.includes(d.id)) : prev.drones,
         escorts: rec.soldEscortIds.length ? prev.escorts.filter(e => !rec.soldEscortIds.includes(e.id)) : prev.escorts,
-        scrap: rec.cargoDrops.length ? [...prev.scrap, ...expandCargoDrops(rec.cargoDrops)] : prev.scrap,
         bankedScrap: payment.banked + rec.refund,
         glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now(),
       };
@@ -593,7 +572,6 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         ...prev, ship,
         drones: rec.soldDroneIds.length ? prev.drones.filter(d => !rec.soldDroneIds.includes(d.id)) : prev.drones,
         escorts: rec.soldEscortIds.length ? prev.escorts.filter(e => !rec.soldEscortIds.includes(e.id)) : prev.escorts,
-        scrap: rec.cargoDrops.length ? [...prev.scrap, ...expandCargoDrops(rec.cargoDrops)] : prev.scrap,
         bankedScrap: payment.banked + rec.refund,
         glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now(),
       };
