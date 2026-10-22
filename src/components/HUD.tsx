@@ -12,7 +12,7 @@ import { STAGE_LABELS, TEAM_LABELS, TEAM_COLORS } from './lobby/lobbyTypes';
 import type { TeamId } from '../net/protocol';
 import { MechanicsGuide } from './MechanicsGuide';
 import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor, MOUNT_ACCESS, canMountWeapon, weaponClassFor, type WeaponClass } from '../loadout';
-import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, autoGunCapFor, turretMountPriceFor, effectiveAutoGuns, DEFENSE_DRONE_PRICE, ESCORT_KIND_DEFS, ESCORT_KINDS, escortCapFor, escortWingSize, type EscortKind, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
+import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, autoGunCapFor, turretMountPriceFor, effectiveAutoGuns, DEFENSE_DRONE_PRICE, ESCORT_KIND_DEFS, ESCORT_KINDS, escortCapFor, escortWingSize, canOrderWorkforce, type EscortKind, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
 
 // One-line summary of what a type's frame DOES, read off its capability
 // fields — the workshop sells the special in the type's own numbers.
@@ -187,6 +187,8 @@ interface HUDProps {
   escortCounts: { skiff: number; stinger: number; lancer: number };
   starFleetCount: number;
   enemyStarFleetCount: number;
+  deliveryMode: 'feed' | 'deposit';
+  onSetDeliveryMode: (mode: 'feed' | 'deposit') => void;
   onBuildEscort: (kind: EscortKind) => void;
   onDebugGrantScrap?: (amount: number) => void;
   onDebugGrantFed?: (amount: number) => void;
@@ -252,6 +254,8 @@ export const HUD: React.FC<HUDProps> = ({
   escortCounts,
   starFleetCount,
   enemyStarFleetCount,
+  deliveryMode,
+  onSetDeliveryMode,
   onBuildEscort,
   onDebugGrantScrap,
   onDebugGrantFed,
@@ -269,6 +273,10 @@ export const HUD: React.FC<HUDProps> = ({
   // Progression reads come from the ONE table (src/shipProgression.ts):
   // the current type's def, its per-track caps, and the line-switch toll.
   const progType = typeFor(shipLine, typeTier);
+  // WORKFORCE ORDERS gate (shipProgression.canOrderWorkforce): the
+  // hauler line's crown in v1 — the switch surfaces key off this one
+  // read, never the line's name inlined here.
+  const canOrder = canOrderWorkforce(shipLine);
   const caps = capsFor(shipLine, typeTier);
   const switchCost = switchToll({ lineSwitchesUsed, typeTier });
   // Gauge scales follow the ship as upgraded (audit, 2026-10-20): the
@@ -1152,6 +1160,14 @@ export const HUD: React.FC<HUDProps> = ({
           >
             🔧 WORKSHOP
           </button>
+          {canOrder && (
+            <button
+              onClick={() => onSetDeliveryMode(deliveryMode === 'feed' ? 'deposit' : 'feed')}
+              className="hud-panel px-3 py-1.5 rounded border border-indigo-400 font-mono text-[10px] sm:text-[11px] font-bold tracking-wider text-indigo-300 shadow-[0_0_10px_rgba(129,140,248,0.35)]"
+            >
+              🚁 ORDERS: {deliveryMode === 'feed' ? '⭐ FEED' : '🏦 BANK'}
+            </button>
+          )}
         </div>
       )}
 
@@ -1593,6 +1609,39 @@ export const HUD: React.FC<HUDProps> = ({
                     WORKFORCE QUALITY ON THIS FRAME: <span className="text-zinc-200">+{progType.droneSpeedPct}% DRONE SPEED · +{progType.droneCarryBonus} CARRY PER DRONE</span> — THE CREW GETS BETTER AS THE FRAME CLIMBS.
                   </p>
                 )}
+                {/* WORKFORCE ORDERS (Adam, 2026-10-22): the hauler's
+                    standing order to her harvesters, read by the sim
+                    at every delivery (SeatSimState.deliveryMode).
+                    FEED is the old road — loads feed the star.
+                    DEPOSIT banks them at the well instead, and the
+                    copy carries the law in the surface's own words:
+                    banking is not nourishment (no growth, no mending,
+                    no milestone credit until withdrawn and fed by
+                    hand). The star's own fleet is never under orders.
+                    The block keys off canOrderWorkforce — the gate,
+                    not the line's name. */}
+                {canOrder && (
+                  <div className="pitted-metal px-3 py-2 rounded border border-zinc-700 flex flex-col gap-1.5">
+                    <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🚁 WORKFORCE ORDERS — {deliveryMode === 'feed' ? '⭐ FEED THE STAR' : '🏦 DEPOSIT TO BANK'}</span>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button onClick={() => onSetDeliveryMode('feed')}
+                        className={`px-3 py-2 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider touch-manipulation active:scale-[0.98] ${deliveryMode === 'feed' ? 'border-amber-400 text-amber-300 bg-amber-950/30' : 'border-zinc-700 text-zinc-400 bg-zinc-900'}`}>
+                        ⭐ FEED THE STAR
+                      </button>
+                      <button onClick={() => onSetDeliveryMode('deposit')}
+                        className={`px-3 py-2 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider touch-manipulation active:scale-[0.98] ${deliveryMode === 'deposit' ? 'border-[#33ff33] text-[#33ff33] bg-emerald-950/30' : 'border-zinc-700 text-zinc-400 bg-zinc-900'}`}>
+                        🏦 DEPOSIT TO BANK
+                      </button>
+                    </div>
+                    <p className="text-[8px] sm:text-[9px] font-mono text-zinc-400 leading-snug">
+                      {deliveryMode === 'feed'
+                        ? 'YOUR HARVESTERS FLY EVERY LOAD STRAIGHT INTO THE STAR: IT FEEDS HER — GROWTH, MILESTONES, AND A LITTLE MENDING PER LOAD. NOTHING IS BANKED.'
+                        : 'YOUR HARVESTERS BANK EVERY LOAD AT THE WELL INSTEAD. BANKED SCRAP IS NOT FOOD: NO GROWTH, NO MENDING, NO MILESTONE CREDIT — UNTIL YOU WITHDRAW IT AND FEED IT BY HAND.'}
+                    </p>
+                    <p className="text-[8px] sm:text-[9px] font-mono text-zinc-500 leading-snug">THE ORDER STANDS UNTIL YOU CHANGE IT. THE STAR'S OWN FLEET (✦) TAKES NO ORDERS — GLEANERS ALWAYS FEED.</p>
+                  </div>
+                )}
+
                 {progType.defenseDrones > 0 && (() => {
                   const defenseCap = progType.defenseDrones;
                   const full = playerDefenseDrones >= defenseCap;

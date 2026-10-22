@@ -79,6 +79,7 @@ export default function App() {
     buildEscort,
     switchLine,
     buildDrone,
+    setDeliveryMode,
     repurchaseShip,
     feedCargo,
     depositBank, 
@@ -260,6 +261,8 @@ export default function App() {
         onBuildEscort={buildEscort}
         starFleetCount={state.drones.filter(d => d.starFleet && d.ownerId === state.ship.ownerId).length}
         enemyStarFleetCount={state.drones.filter(d => d.starFleet && d.ownerId === (state.seats.find(se => se.starId === state.enemyStar.id)?.ownerId ?? '')).length}
+        deliveryMode={state.seats.find(se => se.ownerId === state.ship.ownerId)?.deliveryMode ?? 'feed'}
+        onSetDeliveryMode={setDeliveryMode}
         onBuyType={buyType}
         onBuyHullStep={buyHullStep}
         onBuyTurretMount={buyTurretMount}
