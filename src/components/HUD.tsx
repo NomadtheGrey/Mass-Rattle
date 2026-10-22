@@ -776,7 +776,7 @@ export const HUD: React.FC<HUDProps> = ({
     <div className={`fixed inset-0 pointer-events-none z-50 flex flex-col md:flex-row p-2 sm:p-4 md:p-6 gap-2 md:gap-4 ${glitch ? 'animate-pulse' : ''} text-[#33ff33]`}>
       
       {/* MOBILE TOP STATUS RIBBON (Cellphones: iPhone & Android) */}
-      <header className="flex md:hidden w-full flex-col gap-1 pointer-events-auto bg-zinc-950/60 backdrop-blur-md p-2 rounded border-2 border-zinc-800 shadow-xl select-none">
+      <header className="flex md:hidden w-full flex-col gap-1 pointer-events-auto bg-[#1b2638]/15 backdrop-blur-md p-2 rounded border-2 border-zinc-800 shadow-xl select-none">
         {/* Top Row: Stars & Bank */}
         <div className="flex items-center justify-between text-[9px] font-mono leading-none">
           <div className="flex items-center gap-2">
@@ -1038,7 +1038,7 @@ export const HUD: React.FC<HUDProps> = ({
               App.tsx and never learned FIRE [F] or DECOY [X]. */}
           {uiOptions.controlsCard && (
           <div className="absolute bottom-0 left-0 pointer-events-auto">
-            <div className="hud-panel border-2 bg-zinc-950/55 shadow-2xl px-3 py-2 min-w-[176px]">
+            <div className="hud-panel border-2 shadow-2xl px-3 py-2 min-w-[176px]">
               <div className="text-[8px] font-mono font-bold tracking-[0.25em] text-zinc-400 mb-1.5">SHIP CONTROLS</div>
               <div className="flex flex-col gap-1">
                 {controlRows.map(row => (
@@ -1054,7 +1054,7 @@ export const HUD: React.FC<HUDProps> = ({
 
           {/* Utility Cluster */}
           <div className="absolute bottom-0 right-0 w-24 flex flex-col gap-2 items-end">
-            <div className="hud-panel w-16 p-2 flex flex-col items-center gap-4 border-2 bg-zinc-950/55 shadow-2xl pointer-events-auto">
+            <div className="hud-panel w-16 p-2 flex flex-col items-center gap-4 border-2 shadow-2xl pointer-events-auto">
               {/* Fuel state — a READOUT, not a button (audit, 2026-10-20):
                   reads the real fuel prop. Its old neighbours — inert
                   JETTISON / FIRE / VAC squares dressed as buttons and
@@ -1075,7 +1075,7 @@ export const HUD: React.FC<HUDProps> = ({
                 GUIDE
               </button>
             </div>
-            <div className="hud-panel w-20 p-2 border-2 bg-zinc-950/55 flex flex-col items-center justify-center gap-1">
+            <div className="hud-panel w-20 p-2 border-2 flex flex-col items-center justify-center gap-1">
               <div className="text-[7px] text-zinc-400 uppercase whitespace-nowrap">S/N: 88-X9-R</div>
               <div className="text-[8px] text-zinc-400">v2.4.0</div>
             </div>
@@ -1278,7 +1278,7 @@ export const HUD: React.FC<HUDProps> = ({
           its own when the stamp ages out. */}
       {shopRefusedAt && Date.now() - shopRefusedAt < 2800 && (
         <div className="fixed top-16 sm:top-20 left-1/2 -translate-x-1/2 z-[70] pointer-events-none">
-          <div className="hud-panel px-3 py-2 sm:px-4 rounded border-2 border-amber-500 bg-zinc-950/95 text-center shadow-[0_0_18px_rgba(245,158,11,0.35)]">
+          <div className="hud-panel px-3 py-2 sm:px-4 rounded border-2 border-amber-500 bg-zinc-950/70 text-center shadow-[0_0_18px_rgba(245,158,11,0.35)]">
             <div className="text-[10px] sm:text-xs font-mono font-bold text-amber-400 tracking-widest">⚠ WORKSHOP LOCKED</div>
             <div className="text-[9px] sm:text-[10px] font-mono text-zinc-300">THE SHOP LIVES AT YOUR STAR — FLY INTO THE WELL (DASHED RING)</div>
           </div>
@@ -1291,7 +1291,7 @@ export const HUD: React.FC<HUDProps> = ({
           phones where the long copy would wrap. */}
       {cmeWarning && (
         <div className="fixed top-16 sm:top-20 left-1/2 -translate-x-1/2 z-[69] pointer-events-none">
-          <div className="hud-panel px-3 py-2 sm:px-4 rounded border-2 border-red-500 bg-zinc-950/95 text-center shadow-[0_0_18px_rgba(239,68,68,0.4)] animate-pulse">
+          <div className="hud-panel px-3 py-2 sm:px-4 rounded border-2 border-red-500 bg-zinc-950/70 text-center shadow-[0_0_18px_rgba(239,68,68,0.4)] animate-pulse">
             <div className="text-[10px] sm:text-xs font-mono font-bold text-red-400 tracking-widest">⚠ CME INCOMING</div>
             <div className="text-[9px] sm:text-[10px] font-mono text-zinc-300">
               <span className="hidden sm:inline">BREAK THE AIM LINE — OR OUTRUN IT AND LET IT DISSIPATE</span>
