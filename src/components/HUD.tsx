@@ -5,7 +5,9 @@ import { milestonesForInfused, progressIntoNextMilestone, nextMilestoneCost, cum
 import { starDroneTargetForMilestones, starDroneRangeForTarget } from '../starFleet';
 import { reconcileSwitch } from '../switchReconcile';
 import { ESCORT_DOCK_PAD } from '../sim/repair';
-import type { Ship, Harvester, EscortShip } from '../types';
+import { harborCapacityFor, harborMultiplierFor, canDockAt, guestsOf, HARBOR_DOCK_RANGE } from '../sim/harbor';
+import { areTeammates } from '../sim/teams';
+import type { Ship, Harvester, EscortShip, SeatSimState } from '../types';
 import { stageStateForInfused, type StarStageState } from '../sim/starStages';
 import { BUILD_HISTORY, LATEST_BUILD } from '../buildHistory';
 import { useUiOptions, setUiOption, resetUiOptions, type UiOptions } from '../uiOptions';
@@ -14,7 +16,7 @@ import type { StarStage } from '../net/protocol';
 import { STAGE_LABELS, TEAM_LABELS, TEAM_COLORS } from './lobby/lobbyTypes';
 import type { TeamId } from '../net/protocol';
 import { MechanicsGuide } from './MechanicsGuide';
-import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor, MOUNT_ACCESS, canMountWeapon, weaponClassFor, type WeaponClass } from '../loadout';
+import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor, MOUNT_ACCESS, canMountWeapon, weaponClassFor, WEAPON_SELECT_ORDER, weaponIdForSelectSlot, type WeaponClass } from '../loadout';
 import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, autoGunCapFor, turretMountPriceFor, effectiveAutoGuns, DEFENSE_DRONE_PRICE, ESCORT_KIND_DEFS, ESCORT_KINDS, escortCapFor, escortWingSize, escortKindOf, canOrderWorkforce, healCapPctFor, healRateFor, type EscortKind, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
 
 // One-line summary of what a type's frame DOES, read off its capability
@@ -193,6 +195,13 @@ interface HUDProps {
   deliveryMode: 'feed' | 'deposit';
   onSetDeliveryMode: (mode: 'feed' | 'deposit') => void;
   onSetRepairing: (on: boolean) => void;
+  seats: SeatSimState[];
+  seatLabels?: Record<string, { callsign: string; color: string }>;
+  onDockToHost: (hostOwnerId: string) => void;
+  onUndock: () => void;
+  onSetHarborOpen: (open: boolean) => void;
+  onUndockGuest: (guestOwnerId: string) => void;
+  onSelectWeaponSlot: (slotIndex: number) => void;
   ship: Ship;
   drones: Harvester[];
   escorts: EscortShip[];
@@ -264,6 +273,13 @@ export const HUD: React.FC<HUDProps> = ({
   deliveryMode,
   onSetDeliveryMode,
   onSetRepairing,
+  seats,
+  seatLabels,
+  onDockToHost,
+  onUndock,
+  onSetHarborOpen,
+  onUndockGuest,
+  onSelectWeaponSlot,
   ship,
   drones,
   escorts,
@@ -355,6 +371,40 @@ export const HUD: React.FC<HUDProps> = ({
   const escortRoadFor = (kind: EscortKind): number => escorts.filter(e => e.ownerId === ship.ownerId && escortKindOf(e) === kind
     && e.health < e.maxHealth * healCapPctFor(e.line, e.typeTier)
     && Math.hypot(e.pos.x - shipPos.x, e.pos.y - shipPos.y) > ship.size + ESCORT_DOCK_PAD).length;
+
+  // ALLY DOCKING reads (Adam, 2026-10-22; src/sim/harbor.ts is
+  // the spec, ALLY_DOCKING.md the record): visibility keys off
+  // TEAM MEMBERSHIP, never mode — a seat with teammates sees
+  // the harbor surfaces in any mode; only a seat with none
+  // (pure 1v1 / true FFA) sees nothing. Names come from the
+  // room's labels where they exist; the sim carries no
+  // callsigns by contract, so a labelless seat is named by
+  // its seat and team — fact, never invention.
+  const hasTeammates = seats.some(x => x.ownerId !== ship.ownerId && !x.eliminated && areTeammates(seats, ship.ownerId, x.ownerId));
+  const nameFor = (ownerId: string): string => {
+    const label = seatLabels?.[ownerId];
+    if (label) return label.callsign;
+    const st = seats.find(x => x.ownerId === ownerId);
+    return st ? `SEAT ${st.starIndex + 1} · ${st.teamId.toUpperCase()}` : 'ALLY';
+  };
+  const harborCap = harborCapacityFor(shipLine, typeTier);
+  const harborMult = harborMultiplierFor(shipLine, typeTier);
+  const harborOpen = ship.harborOpen !== false;
+  const myGuests = guestsOf(seats.map(x => x.ship), ship.ownerId);
+  const myHostSeat = ship.dockedTo ? seats.find(x => x.ownerId === ship.dockedTo) : undefined;
+  const myHostMult = myHostSeat?.ship ? harborMultiplierFor(myHostSeat.ship.line, myHostSeat.ship.typeTier) : 1;
+  const dockTarget = (() => {
+    if (ship.dockedTo || !hasTeammates) return null;
+    let best: { ownerId: string; dist: number } | null = null;
+    for (const x of seats) {
+      const hs = x.ship;
+      if (!hs || x.ownerId === ship.ownerId || x.eliminated) continue;
+      if (!canDockAt(seats, ship, hs)) continue;
+      const d = Math.hypot(hs.pos.x - ship.pos.x, hs.pos.y - ship.pos.y);
+      if (d <= hs.size + HARBOR_DOCK_RANGE && (!best || d < best.dist)) best = { ownerId: x.ownerId, dist: d };
+    }
+    return best;
+  })();
   const caps = capsFor(shipLine, typeTier);
   const switchCost = switchToll({ lineSwitchesUsed, typeTier });
   // Gauge scales follow the ship as upgraded (audit, 2026-10-20): the
@@ -590,16 +640,20 @@ export const HUD: React.FC<HUDProps> = ({
     { label: 'FIELD MANUAL', keys: 'ESC', bold: true },
     { label: 'THRUST', keys: 'W · ↑' },
     { label: 'STEER', keys: 'A D · ← →' },
-    { label: 'VAC · HOLD', keys: 'Q E R' },
+    { label: 'VAC · HOLD', keys: 'Q' },
+    { label: 'SELECT WEAPON', keys: '1 – 5 · T' },
     controlsWeapon
       ? { label: 'FIRE · HOLD', keys: `F — ${controlsWeapon.name.toUpperCase()}` }
       : { label: 'FIRE · HOLD', keys: 'F — NO WEAPON', dim: true },
     { label: 'EJECT PULSE', keys: 'SPACE' },
+    { label: 'DUMP ALL', keys: 'J' },
     ...(loadout.defense === 'decoy_beacon'
-      ? [{ label: 'DEPLOY DECOY', keys: 'X' } as { label: string; keys: string; dim?: boolean; bold?: boolean }]
+      ? [{ label: 'DEPLOY DECOY', keys: 'E' } as { label: string; keys: string; dim?: boolean; bold?: boolean }]
       : []),
-    { label: 'SHOP', keys: 'TAB · U — AT HOME STAR' },
-    { label: 'UPGRADES', keys: '1 – 5' },
+    { label: 'REPAIR', keys: 'R' },
+    { label: 'TARGET', keys: 'TAB · CLICK' },
+    { label: 'SHOP', keys: 'U — AT HOME STAR' },
+    { label: 'UPGRADES', keys: 'SHIFT + 1 – 5' },
   ];
 
   // Minimap logic
@@ -1297,8 +1351,36 @@ export const HUD: React.FC<HUDProps> = ({
             onClick={onDeployDecoy}
             className="hud-panel px-3 py-1.5 rounded border border-pink-500 font-mono text-[10px] sm:text-[11px] font-bold tracking-wider text-pink-400 shadow-[0_0_10px_rgba(219,39,119,0.35)]"
           >
-            📡 DEPLOY DECOY [X]
+            📡 DEPLOY DECOY [E]
           </button>
+        </div>
+      )}
+
+      {/* DOCK PILL / DOCKED CHIP (Ally Docking): the top of the
+          pill stack — mutually exclusive (you cannot seek a
+          berth while you ride one). The pill names the nearest
+          open harbor the sim's own gate accepts; the chip names
+          your host, your posture aboard (your repair toggle is
+          still yours), and the door out. */}
+      {(dockTarget || ship.dockedTo) && (
+        <div className={`fixed ${loadout.defense === 'decoy_beacon' && !decoyActive ? 'bottom-[176px] sm:bottom-[148px]' : 'bottom-[140px] sm:bottom-[112px]'} left-1/2 -translate-x-1/2 z-[56] pointer-events-auto`}>
+          {ship.dockedTo ? (
+            <div className="hud-panel px-3 py-1.5 rounded border border-sky-400 flex items-center gap-2">
+              <span className="font-mono text-[10px] sm:text-[11px] font-bold tracking-wider text-sky-300">
+                ⚓ DOCKED AT {myHostSeat ? nameFor(myHostSeat.ownerId) : 'HOST'} — {repairingOn ? `REPAIRING ×${myHostMult.toFixed(2)}` : 'PASSENGER'}
+              </span>
+              <button onClick={onUndock} className="font-mono text-[10px] sm:text-[11px] font-bold tracking-wider text-zinc-300 border border-zinc-600 rounded px-1.5 py-0.5 active:scale-95">
+                UNDOCK
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => dockTarget && onDockToHost(dockTarget.ownerId)}
+              className="hud-panel px-3 py-1.5 rounded border border-sky-400 font-mono text-[10px] sm:text-[11px] font-bold tracking-wider text-sky-300 shadow-[0_0_10px_rgba(56,189,248,0.3)]"
+            >
+              ⚓ DOCK AT {dockTarget ? nameFor(dockTarget.ownerId) : ''}
+            </button>
+          )}
         </div>
       )}
 
@@ -1382,11 +1464,44 @@ export const HUD: React.FC<HUDProps> = ({
                 {def ? `${def.icon} ${def.name}` : '— EMPTY —'}
               </div>
               {isDecoy && (
-                <div className="text-[7px] sm:text-[8px] font-mono text-pink-300 whitespace-nowrap">{decoyActive ? 'BEACON LIVE' : 'PRESS X / PILL'}</div>
+                <div className="text-[7px] sm:text-[8px] font-mono text-pink-300 whitespace-nowrap">{decoyActive ? 'BEACON LIVE' : 'PRESS E / PILL'}</div>
               )}
             </div>
           );
         })}
+        <div className="w-px bg-zinc-800 mx-0.5" />
+        {/* WEAPON SELECTOR (Adam's settled map; CONTROLS.md): the
+            strip IS the map. Six chips in the fixed registry
+            order — digits 1-5 and T — each a live button (this
+            strip is the phone's selector too: tap = select).
+            The grey law is the press's own gate
+            (weaponIdForSelectSlot): unowned ghosts, owned-but-
+            unmountable reads NO MOUNT, the selected chip carries
+            F's verb by content (FIRE / LAY / CHARGE). */}
+        {WEAPON_SELECT_ORDER.map((wid, i) => {
+          const wdef = getLoadoutItem(wid);
+          const owned = (arsenal[wid] || 0) > 0;
+          const selectable = weaponIdForSelectSlot(ship, i) !== null;
+          const selected = loadout.weapon === wid;
+          const verb = wid === 'mine_layer' ? 'LAY' : wid === 'rail_lance' ? 'CHARGE' : 'FIRE';
+          return (
+            <button key={wid} onClick={() => onSelectWeaponSlot(i)}
+              className={`hud-panel px-1.5 py-0.5 rounded border text-center min-w-[44px] pointer-events-auto touch-manipulation active:scale-95 ${selected ? 'border-[#33ff33] shadow-[0_0_8px_rgba(51,255,51,0.35)]' : selectable ? 'border-zinc-700' : 'border-zinc-800 opacity-45'}`}>
+              <div className="text-[8px] sm:text-[9px] font-mono text-zinc-300 tracking-widest whitespace-nowrap">{i < 5 ? i + 1 : 'T'} · {wdef?.icon ?? '?'}</div>
+              <div className={`text-[7px] sm:text-[8px] font-mono font-bold uppercase leading-tight whitespace-nowrap ${selected ? 'text-[#33ff33]' : selectable ? 'text-zinc-300' : 'text-zinc-500'}`}>
+                {selected ? `F · ${verb}` : owned ? (selectable ? 'READY' : 'NO MOUNT') : '—'}
+              </div>
+            </button>
+          );
+        })}
+        {/* ABILITY — the signature slot's ghost seat (CONTROLS.md):
+            C is reserved and shown dormant until signatures land,
+            so no system steals the key and the map never lies
+            about a verb that doesn't exist yet. */}
+        <div className="hud-panel px-1.5 py-0.5 rounded border border-zinc-800 text-center min-w-[56px] opacity-50">
+          <div className="text-[8px] sm:text-[9px] font-mono text-zinc-500 tracking-widest whitespace-nowrap">C · ABILITY</div>
+          <div className="text-[8px] sm:text-[10px] font-mono font-bold uppercase leading-tight whitespace-nowrap text-zinc-500">✦ DORMANT</div>
+        </div>
       </div>
 
       {/* Workshop Overlay (Responsive for both Mobile and Desktop) */}
@@ -1770,6 +1885,44 @@ export const HUD: React.FC<HUDProps> = ({
                   </p>
                   <p className="text-[8px] sm:text-[9px] font-mono text-zinc-500 leading-snug">CREWS WORK FROM THE HOLD ONLY (1 SCRAP = 2 HP) — NEVER THE BANK — AND YOUR GUNS STAY UP WHILE THEY WORK. THE CAP IS THE FRAME'S LAW: {progType.name} PATCHES TO {repairCeilingPct}% OF MAX HULL.</p>
                 </div>
+
+                {/* ALLY DOCKING — THE HARBOR (Adam, 2026-10-22;
+                    src/sim/harbor.ts): a capital hull's berth for
+                    allied captains. Renders only for a hosting
+                    hull WITH teammates — the eligibility reads off
+                    team membership, never mode. The switch is
+                    consent (the host's hold pays); the manifest
+                    names each guest's posture aboard (their repair
+                    toggle stays theirs) with the door out. */}
+                {harborCap > 0 && hasTeammates && (
+                <div className="pitted-metal px-3 py-2 rounded border border-zinc-700 flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-[10px] sm:text-xs font-bold uppercase text-sky-300">⚓ HARBOR — {harborOpen ? 'OPEN' : 'CLOSED'}</span>
+                    <span className="text-[9px] sm:text-[10px] font-mono text-zinc-400">×{harborMult.toFixed(2)} REPAIR · {myGuests.length}/{harborCap} BERTHED</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button onClick={() => onSetHarborOpen(true)}
+                      className={`px-3 py-2 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider touch-manipulation active:scale-[0.98] ${harborOpen ? 'border-sky-400 text-sky-300 bg-sky-950/30' : 'border-zinc-700 text-zinc-400 bg-zinc-900'}`}>
+                      ⚓ HARBOR OPEN
+                    </button>
+                    <button onClick={() => onSetHarborOpen(false)}
+                      className={`px-3 py-2 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider touch-manipulation active:scale-[0.98] ${!harborOpen ? 'border-red-400 text-red-300 bg-red-950/30' : 'border-zinc-700 text-zinc-400 bg-zinc-900'}`}>
+                      HARBOR CLOSED
+                    </button>
+                  </div>
+                  {myGuests.map(g => (
+                    <div key={g.ownerId} className="flex items-center justify-between gap-2">
+                      <span className="text-[9px] sm:text-[10px] font-mono text-zinc-300">
+                        ⚓ {nameFor(g.ownerId)} — {g.repairing !== false ? <span className="text-emerald-400">REPAIRING</span> : <span className="text-zinc-500">PASSENGER</span>}
+                      </span>
+                      <button onClick={() => onUndockGuest(g.ownerId)} className="font-mono text-[9px] sm:text-[10px] font-bold tracking-wider text-zinc-300 border border-zinc-600 rounded px-1.5 py-0.5 active:scale-95">
+                        UNDOCK
+                      </button>
+                    </div>
+                  ))}
+                  <p className="text-[8px] sm:text-[9px] font-mono text-zinc-500 leading-snug">A GUEST RIDES YOUR HULL — OUT OF THE FIGHT, UNTOUCHABLE — AND MENDS FROM YOUR HOLD AT THEIR OWN REPAIR CAP, YOUR ×{harborMult.toFixed(2)} ON THEIR RATE. CLOSING THE HARBOR SPILLS BERTH GUESTS GENTLY AT THEIR CURRENT HEALTH. THE HARBOR IS CONSENT, NOT A COURTESY: YOUR HOLD PAYS.</p>
+                </div>
+                )}
 
                 {/* CREW — THE DEFENSE PAIR (Arsenal slice 3, 2026-10-21):
                     the hauler's couple of guard drones. The block exists

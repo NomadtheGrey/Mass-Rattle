@@ -38,6 +38,8 @@ import { EXTRA_MOUNT_DAMAGE, typeFor, healCapPctFor, healRateFor } from '../ship
 import { isVisibleTo } from './stealth';
 import { repairFrame } from './repair';
 import { areHostile, type TeamSeatLike } from './teams';
+import { milestonesForInfused } from '../starGrowth';
+import { canDockAt, HARBOR_DOCK_RANGE } from './harbor';
 import type {
   Harvester,
   Projectile,
@@ -83,6 +85,29 @@ export const BOT_DRIVER = {
   AVOID_MARGIN: 190,
   /** Hard keep-out beyond a hostile star's surface. */
   KEEP_OUT: 26,
+  /** B1 FALLBACK (DRAFT): at or below this hull fraction, with a
+   *  hostile engaging, the bot retreats under its home turrets —
+   *  or to an allied harbor when its disposition favors repair. */
+  FALLBACK_HEALTH_PCT: 0.35,
+  /** B1 DEFEND (DRAFT): a hostile ship this close to the home
+   *  star (or engaging the seat's drones) is intercepted. */
+  DEFEND_RANGE: 900,
+  /** B1 DEFEND (DRAFT): the defender never chases beyond this
+   *  distance from the home star. */
+  DEFEND_LEASH: 1200,
+  /** B1 DEFEND (DRAFT): a hostile ship this close to one of the
+   *  seat's drones counts as engaging its units. */
+  DEFEND_UNIT_RANGE: 500,
+  /** B1 SEARCH (DRAFT, Amendment 4): after losing its target the
+   *  defender patrols the DEFEND–LEASH ring this long (ms of loop
+   *  clock) before returning to the ladder. */
+  SEARCH_MS: 30000,
+  /** B1 catch-up bias (DRAFT): trailing the field's best star by
+   *  at least this many milestones bars VOLUNTARY hunt/siege. */
+  CATCHUP_MILESTONES: 2,
+  /** Repair disposition: how often (ms of loop clock) a bot
+   *  re-rolls whether it bothers to heal. DRAFT. */
+  DISPOSITION_WINDOW_MS: 5000,
 };
 
 export interface BotWorldView {
@@ -139,6 +164,58 @@ const angleLerp = (from: number, to: number, maxStep: number): number => {
   return from + Math.sign(diff) * Math.min(Math.abs(diff), maxStep);
 };
 
+/** Deterministic per-seat hash — a pilot's identity, stable
+ *  across frames, migrations, and drop-ins. */
+const seatHash = (ownerId: string): number => {
+  let h = 2166136261;
+  for (let i = 0; i < ownerId.length; i++) {
+    h = Math.imul(h ^ ownerId.charCodeAt(i), 16777619);
+  }
+  return h >>> 0;
+};
+
+/**
+ * REPAIR DISPOSITION (Adam's ruling via DAMAGE_CONTROL.md): the
+ * chance a bot chooses to heal at a given hull fraction —
+ * ≈5% at 95% health, ≈80% at 20% — with a straight DRAFT curve
+ * between the anchors and a shallow rise below the low anchor.
+ */
+export const healChanceFor = (healthPct: number): number => {
+  if (healthPct >= 0.95) return 0.05;
+  if (healthPct <= 0.2) return Math.min(0.9, 0.8 + (0.2 - healthPct) * 0.5);
+  return 0.05 + (0.95 - healthPct);
+};
+
+/**
+ * Write the bot's repair toggle for this disposition window.
+ * "Various ship pilots are of various recklessness" (Adam):
+ * each seat's hash shifts its chance ±0.15, and the roll is
+ * deterministic per (seat, window) — a mood, re-rolled every
+ * DISPOSITION_WINDOW_MS of loop clock, never stored posture.
+ */
+export const applyBotRepairDisposition = (seat: SeatSimState, time: number): void => {
+  const ship = seat.ship;
+  if (!ship) return;
+  const hash = seatHash(seat.ownerId);
+  const variance = ((hash % 31) - 15) / 100;
+  const pct = ship.health / Math.max(1, ship.maxHealth);
+  const p = Math.min(0.95, Math.max(0.02, healChanceFor(pct) + variance));
+  const window = Math.floor(time / BOT_DRIVER.DISPOSITION_WINDOW_MS);
+  const x = Math.sin(hash * 0.0137 + window * 1.917) * 43758.5453;
+  ship.repairing = (x - Math.floor(x)) < p;
+};
+
+/**
+ * SEARCH memory (B1 Amendment 4): pilot state, deliberately NOT
+ * match state — keyed by seat, held by the driver, forgotten on
+ * migration or restart like a socket grace. The posture ladder
+ * itself stays stateless per frame; this only remembers that a
+ * defender recently lost its target and owes the ring a patrol.
+ */
+interface BotSearchMemory { startedAt: number; until: number; fromAngle: number; dir: 1 | -1 }
+const searchBySeat = new Map<string, BotSearchMemory>();
+const lastPostureBySeat = new Map<string, string>();
+
 /**
  * Advance one bot seat's ship by one frame step. `dtFrames` scales
  * the movement integration (the loop passes 1; it exists so tests and
@@ -153,6 +230,38 @@ export const stepBotShip = (
   if (!ship || seat.eliminated) return EMPTY_RESULT;
   const ownStar = world.stars.find(s => s.ownerId === seat.ownerId);
   if (!ownStar) return EMPTY_RESULT;
+
+  // REPAIR DISPOSITION (B1): the pilot's health-graded choice
+  // to heal, written before anything reads the toggle — the
+  // harbor pass reads it for docked bots exactly as the tick
+  // below reads it for free-flying ones.
+  applyBotRepairDisposition(seat, world.time);
+
+  // ALLY DOCKING (src/sim/harbor.ts): a docked bot rides its
+  // host — no steering, no fire, no own-hold repair tick (the
+  // harbor pass heals it from the host's hold). The pass owns
+  // berth validity; this gate keeps the hull attached — and
+  // lets it go when the recovery is done: healed to its cap
+  // ("return at the cap"), or patched past the fallback line
+  // with the host's hold dry and nothing left to gain.
+  if (ship.dockedTo) {
+    const hostEntry = world.ships.find(s => s.ownerId === ship.dockedTo);
+    const cap = ship.maxHealth * healCapPctFor(ship.line, ship.typeTier);
+    const healedOut = ship.health >= cap - 1e-6;
+    const hostDry = !!hostEntry && hostEntry.ship.carrying <= 0 &&
+      ship.health / Math.max(1, ship.maxHealth) > BOT_DRIVER.FALLBACK_HEALTH_PCT;
+    if (healedOut || hostDry) {
+      ship.dockedTo = undefined;
+    } else {
+      if (hostEntry) {
+        ship.pos.x = hostEntry.ship.pos.x;
+        ship.pos.y = hostEntry.ship.pos.y;
+        ship.vel.x = hostEntry.ship.vel.x;
+        ship.vel.y = hostEntry.ship.vel.y;
+      }
+      return EMPTY_RESULT;
+    }
+  }
 
   // SCRAP HEALING (RULED, src/sim/repair.ts): the toggle
   // DEFAULTS ON for bots as for captains until the bot
@@ -173,58 +282,175 @@ export const stepBotShip = (
   const capacity = holdCapacityFor(ship);
 
   // --- Decide the destination -------------------------------------
-  // OFFENSE (Arsenal slice 5a, 2026-10-21 — Adam's offensive-bots
-  // item, and the engine the carrier wing's escorts share): the
-  // harvest loop is now the DEFAULT posture, not the only one.
-  //   hunt  — a targetable hostile ship within AGGRO_RANGE is the
-  //           objective: pursue it, hold at firing range, engage.
-  //   siege — empty hold, nothing to hunt, no scrap within
-  //           SCAN_RANGE: close on the nearest hostile star and
-  //           hold at SIEGE_STANDOFF off its surface, firing in.
-  // Targeting is STEALTH-AWARE (the submarine ruling): a cloaked
-  // minelayer beyond its reveal band is never acquired — every
-  // acquisition below goes through isVisibleTo.
+  // B1 POSTURES (RULED, ReadMeFiles/BOTS.md): flight judgment,
+  // derived per frame — a human drop-in inherits a ship, never a
+  // posture. The ladder, in order:
+  //   return   — a full hold goes home (the delivery is also the
+  //              fallback route: home is where the turrets are).
+  //   fallback — hull <= FALLBACK_HEALTH_PCT with a hostile
+  //              engaging: retreat under the home turrets, or to
+  //              an allied harbor when the disposition favors
+  //              repair (ALLY_DOCKING.md — falling back to dock).
+  //   defend   — a hostile threatens the home star (DEFEND_RANGE,
+  //              the star itself may be the stealth observer) or
+  //              engages the seat's drones: intercept the threat
+  //              NEAREST THE STAR, never past the leash.
+  //   search   — Amendment 4: a defender that lost its target
+  //              patrols the DEFEND-LEASH ring before returning.
+  //   hunt     — the 5a offense engine (AGGRO_RANGE). A seat
+  //              trailing the field's best star by >=
+  //              CATCHUP_MILESTONES takes no VOLUNTARY hunt or
+  //              siege; Amendment 3 keeps the REACTIVE hunt: a
+  //              hostile in its territory, on its units, or
+  //              point-blank on the bot itself is still hunted.
+  //   siege / harvest — the 5a defaults.
+  // All acquisition runs through isVisibleTo (STEALTH.md).
   const full = ship.carrying >= capacity;
   let target: { x: number; y: number } | null = null;
   let targetScrap: Scrap | null = null;
-  let objective: 'harvest' | 'return' | 'hunt' | 'siege' = 'harvest';
+  let objective: 'harvest' | 'return' | 'hunt' | 'siege' | 'fallback' | 'defend' | 'search' = 'harvest';
   let huntShip: Ship | null = null;
   let siegeStar: Star | null = null;
+
+  // Hunt scan (5a): nearest targetable hostile ship inside aggro.
+  let bestAggro = BOT_DRIVER.AGGRO_RANGE;
+  for (const hostile of world.ships) {
+    if (hostile.ownerId === seat.ownerId) continue;
+    if (hostile.ship.dockedTo) continue; // docked = out of combat
+    if (!areHostile(world.seats, hostile.ownerId, seat.ownerId)) continue;
+    if (!isVisibleTo(hostile.ship, ship.pos)) continue;
+    const dd = Math.hypot(
+      hostile.ship.pos.x - ship.pos.x,
+      hostile.ship.pos.y - ship.pos.y,
+    );
+    if (dd < bestAggro) {
+      bestAggro = dd;
+      huntShip = hostile.ship;
+    }
+  }
+
+  // DEFEND reads: the seat's drones (any hostile on them is
+  // engaging the seat's units) and the threats to the home star.
+  const myDrones = world.drones.filter(d => d.ownerId === seat.ownerId && d.state !== 'docked');
+  const engagesMyUnits = (h: Ship): boolean => myDrones.some(d =>
+    Math.hypot(d.pos.x - h.pos.x, d.pos.y - h.pos.y) <= BOT_DRIVER.DEFEND_UNIT_RANGE);
+  let defendShip: Ship | null = null;
+  let defendShipStarDist = Infinity;
+  for (const hostile of world.ships) {
+    if (hostile.ownerId === seat.ownerId) continue;
+    if (hostile.ship.dockedTo) continue;
+    if (!areHostile(world.seats, hostile.ownerId, seat.ownerId)) continue;
+    const starDist = Math.hypot(
+      hostile.ship.pos.x - ownStar.pos.x,
+      hostile.ship.pos.y - ownStar.pos.y,
+    );
+    const nearStar = starDist <= BOT_DRIVER.DEFEND_RANGE && isVisibleTo(hostile.ship, ownStar.pos);
+    const onMyUnits = engagesMyUnits(hostile.ship) && isVisibleTo(hostile.ship, ship.pos);
+    if (!nearStar && !onMyUnits) continue;
+    if (starDist < defendShipStarDist) {
+      defendShipStarDist = starDist;
+      defendShip = hostile.ship;
+    }
+  }
+
+  // Catch-up bias + the reactive exception (Amendments to B1).
+  const myMilestones = milestonesForInfused(ownStar.totalScrapInfused);
+  const bestMilestones = Math.max(...world.stars.map(s => milestonesForInfused(s.totalScrapInfused)));
+  const trailing = bestMilestones - myMilestones >= BOT_DRIVER.CATCHUP_MILESTONES;
+  const reactive = !!huntShip && (
+    Math.hypot(huntShip.pos.x - ownStar.pos.x, huntShip.pos.y - ownStar.pos.y) <= BOT_DRIVER.DEFEND_RANGE ||
+    engagesMyUnits(huntShip) ||
+    bestAggro <= 300
+  );
+
+  const healthPct = ship.health / Math.max(1, ship.maxHealth);
+  let searchEntry = searchBySeat.get(seat.ownerId);
+  if (searchEntry && world.time >= searchEntry.until) {
+    searchBySeat.delete(seat.ownerId);
+    searchEntry = undefined;
+  }
+
   if (full) {
     objective = 'return';
-  } else {
-    // Hunt scan: nearest targetable hostile ship inside aggro.
-    let bestAggro = BOT_DRIVER.AGGRO_RANGE;
-    for (const hostile of world.ships) {
-      if (hostile.ownerId === seat.ownerId) continue;
-      if (!areHostile(world.seats, hostile.ownerId, seat.ownerId)) continue;
-      if (!isVisibleTo(hostile.ship, ship.pos)) continue;
-      const dd = Math.hypot(
-        hostile.ship.pos.x - ship.pos.x,
-        hostile.ship.pos.y - ship.pos.y,
-      );
-      if (dd < bestAggro) {
-        bestAggro = dd;
-        huntShip = hostile.ship;
-      }
-    }
-    if (huntShip) {
-      objective = 'hunt';
-      // Hold at firing range: inside it, coast and shoot.
-      target = bestAggro > BOT_DRIVER.FIRE_RANGE * 0.8 ? huntShip.pos : null;
-    } else {
-      // Harvest scan (nearest scrap, as ever).
-      let bestD = Infinity;
-      for (const s of world.scrap) {
-        const dd = Math.hypot(s.pos.x - ship.pos.x, s.pos.y - ship.pos.y);
-        if (dd < bestD) {
-          bestD = dd;
-          targetScrap = s;
+  } else if (healthPct <= BOT_DRIVER.FALLBACK_HEALTH_PCT && huntShip) {
+    objective = 'fallback';
+    let harbor: Ship | null = null;
+    if (ship.repairing !== false) {
+      const pseudoSeats = world.seats.map(s => ({
+        ownerId: s.ownerId,
+        teamId: (s as TeamSeatLike).teamId,
+        ship: world.ships.find(w => w.ownerId === s.ownerId)?.ship ?? null,
+      }));
+      let bestHarbor = Infinity;
+      for (const entry of world.ships) {
+        if (entry.ownerId === seat.ownerId) continue;
+        if (!canDockAt(pseudoSeats as unknown as SeatSimState[], ship, entry.ship)) continue;
+        const dd = Math.hypot(entry.ship.pos.x - ship.pos.x, entry.ship.pos.y - ship.pos.y);
+        if (dd < bestHarbor) {
+          bestHarbor = dd;
+          harbor = entry.ship;
         }
       }
-      if (ship.carrying === 0 && (!targetScrap || bestD > BOT_DRIVER.SCAN_RANGE)) {
-        // Siege scan: nearest hostile star.
-        let bestStar = Infinity;
+      if (harbor && bestHarbor <= harbor.size + HARBOR_DOCK_RANGE) {
+        // Berth: the harbor pass owns the hull from here; the
+        // docked gate at the top of this driver lets it go when
+        // the recovery is done.
+        ship.dockedTo = harbor.ownerId;
+        return result;
+      }
+      if (harbor) target = harbor.pos;
+    }
+    if (!harbor) target = ownStar.pos; // under the turrets
+  } else if (defendShip) {
+    objective = 'defend';
+    huntShip = defendShip;
+    searchBySeat.delete(seat.ownerId);
+    const myStarDist = Math.hypot(ship.pos.x - ownStar.pos.x, ship.pos.y - ownStar.pos.y);
+    if (myStarDist > BOT_DRIVER.DEFEND_LEASH) {
+      target = ownStar.pos; // the leash: come home first
+    } else {
+      const dd = Math.hypot(defendShip.pos.x - ship.pos.x, defendShip.pos.y - ship.pos.y);
+      target = dd > BOT_DRIVER.FIRE_RANGE * 0.8 ? defendShip.pos : null;
+    }
+  } else if (searchEntry || lastPostureBySeat.get(seat.ownerId) === 'defend') {
+    // SEARCH (Amendment 4): patrol the ring between DEFEND_RANGE
+    // and the leash for SEARCH_MS after losing the target.
+    if (!searchEntry) {
+      searchEntry = {
+        startedAt: world.time,
+        until: world.time + BOT_DRIVER.SEARCH_MS,
+        fromAngle: Math.atan2(ship.pos.y - ownStar.pos.y, ship.pos.x - ownStar.pos.x),
+        dir: seatHash(seat.ownerId) % 2 === 0 ? 1 : -1,
+      };
+      searchBySeat.set(seat.ownerId, searchEntry);
+    }
+    objective = 'search';
+    const sweep = (world.time - searchEntry.startedAt) / BOT_DRIVER.SEARCH_MS;
+    const ang = searchEntry.fromAngle + searchEntry.dir * sweep * Math.PI;
+    const ring = ownStar.size + (BOT_DRIVER.DEFEND_RANGE + BOT_DRIVER.DEFEND_LEASH) / 2;
+    target = {
+      x: ownStar.pos.x + Math.cos(ang) * ring,
+      y: ownStar.pos.y + Math.sin(ang) * ring,
+    };
+  } else if (huntShip && (!trailing || reactive)) {
+    objective = 'hunt';
+    // Hold at firing range: inside it, coast and shoot.
+    target = bestAggro > BOT_DRIVER.FIRE_RANGE * 0.8 ? huntShip.pos : null;
+  } else {
+    // Harvest scan (nearest scrap, as ever).
+    let bestD = Infinity;
+    for (const s of world.scrap) {
+      const dd = Math.hypot(s.pos.x - ship.pos.x, s.pos.y - ship.pos.y);
+      if (dd < bestD) {
+        bestD = dd;
+        targetScrap = s;
+      }
+    }
+    if (ship.carrying === 0 && (!targetScrap || bestD > BOT_DRIVER.SCAN_RANGE)) {
+      // Siege scan: nearest hostile star — VOLUNTARY, so the
+      // catch-up bias bars it for a trailing seat.
+      let bestStar = Infinity;
+      if (!trailing) {
         for (const s of world.stars) {
           if (!areHostile(world.seats, s.ownerId, seat.ownerId)) continue;
           const dd = Math.hypot(s.pos.x - ship.pos.x, s.pos.y - ship.pos.y);
@@ -233,31 +459,32 @@ export const stepBotShip = (
             siegeStar = s;
           }
         }
-        if (siegeStar) {
-          objective = 'siege';
-          targetScrap = null;
-          // Destination: the stand-off point on the star's rim
-          // facing the bot — steered to ALWAYS, not only from
-          // outside: a coast-only hold overshoots on arrival
-          // momentum (friction alone carries ~200 units) and dips
-          // into the burn before settling. Steering to the point
-          // makes the bot brake and correct around it instead.
-          const a = Math.atan2(
-            ship.pos.y - siegeStar.pos.y,
-            ship.pos.x - siegeStar.pos.x,
-          );
-          target = {
-            x: siegeStar.pos.x + Math.cos(a) * (siegeStar.size + BOT_DRIVER.SIEGE_STANDOFF),
-            y: siegeStar.pos.y + Math.sin(a) * (siegeStar.size + BOT_DRIVER.SIEGE_STANDOFF),
-          };
-        } else if (targetScrap) {
-          target = targetScrap.pos;
-        }
+      }
+      if (siegeStar) {
+        objective = 'siege';
+        targetScrap = null;
+        // Destination: the stand-off point on the star's rim
+        // facing the bot — steered to ALWAYS, not only from
+        // outside: a coast-only hold overshoots on arrival
+        // momentum (friction alone carries ~200 units) and dips
+        // into the burn before settling. Steering to the point
+        // makes the bot brake and correct around it instead.
+        const a = Math.atan2(
+          ship.pos.y - siegeStar.pos.y,
+          ship.pos.x - siegeStar.pos.x,
+        );
+        target = {
+          x: siegeStar.pos.x + Math.cos(a) * (siegeStar.size + BOT_DRIVER.SIEGE_STANDOFF),
+          y: siegeStar.pos.y + Math.sin(a) * (siegeStar.size + BOT_DRIVER.SIEGE_STANDOFF),
+        };
       } else if (targetScrap) {
         target = targetScrap.pos;
       }
+    } else if (targetScrap) {
+      target = targetScrap.pos;
     }
   }
+  lastPostureBySeat.set(seat.ownerId, objective);
   const returning = full || (objective === 'harvest' && !targetScrap && ship.carrying > 0);
   if (returning) {
     objective = 'return';
@@ -360,6 +587,7 @@ export const stepBotShip = (
     }
     if (!fireTarget) {
       for (const hostile of world.ships) {
+        if (hostile.ship.dockedTo) continue; // docked = out of combat
         if (!areHostile(world.seats, hostile.ownerId, seat.ownerId)) continue;
         // STEALTH (the submarine ruling, consumed offensively in
         // slice 5a): a cloaked hull beyond its reveal band cannot

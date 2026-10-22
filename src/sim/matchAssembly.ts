@@ -160,6 +160,7 @@ export const createMatch = (config: CreateMatchConfig): GameState => {
     eventFeed: [],
     matchEnd: null,
     scrap: [],
+    wrecks: [],
     deployedCargo: [],
     projectiles: [],
     mines: [],

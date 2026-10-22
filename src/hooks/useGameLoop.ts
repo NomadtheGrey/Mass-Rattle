@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { GameState, SeatSimState, Star, Vector2D, Ship, Scrap } from '../types';
 import { PHYSICS, COLORS } from '../constants';
-import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, canMountWeapon, mountableLoadout } from '../loadout';
+import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, canMountWeapon, mountableLoadout , weaponIdForSelectSlot } from '../loadout';
 import { inBankWell } from '../bank';
 import { infuseStar, milestonesForInfused } from '../starGrowth';
 import { ownerIdForSeat, starIdForSeat } from '../sim/ownership';
@@ -11,10 +11,10 @@ import { stepBotShip } from '../sim/botDriver';
 import { DEBUG_ARMED } from '../debug';
 import { stepStarBurn, stepShipPhysics, ShipPhysicsInputs } from '../sim/physics';
 import { createMatch } from '../sim/matchAssembly';
-import type { NetSession } from '../net/useNetClient';
+import type { NetSession, NetActionIntent } from '../net/useNetClient';
 import {
   SNAPSHOT_EVERY_FRAMES, snapshotDue, localShipInput, remoteShipInput,
-  idleShipInput, acceptGuestPayload, countDroppedActions, consumeRepurchaseIntent,
+  idleShipInput, acceptGuestPayload, countDroppedActions, consumeRepurchaseIntent, consumeEconomyIntents, consumeTargetIntents,
   projectStateForViewer, ShipFrameInput,
 } from '../net/sessionAdapter';
 import {
@@ -24,6 +24,7 @@ import {
 } from '../sim/starStages';
 import { stepDrones } from '../sim/drones';
 import { repairFrame } from '../sim/repair';
+import { stepHarbors, canDockAt, HARBOR_DOCK_RANGE } from '../sim/harbor';
 import { reconcileSwitch } from '../switchReconcile';
 import { stepEscorts } from '../sim/escorts';
 import { stepMines, stepProjectiles } from '../sim/projectiles';
@@ -32,21 +33,24 @@ import { stepCme } from '../sim/cme';
 import { computeStandings } from '../sim/standings';
 import { areHostile, areTeammates } from '../sim/teams';
 import { applyDeathLoss, botRepurchaseDue, completeRespawn, respawnDue, tryRepurchase } from '../sim/deathEconomy';
+import { walletPay, inTeamWell, attractRadiusForShip } from '../sim/seatShop';
+import { stepBotEconomy } from '../sim/botEconomy';
+import { isValidTarget, nextTargetId, stepTargetLocks } from '../sim/targeting';
+import {
+  WRECK_DRIFT_DECAY,
+  WRECK_MARKER_MS,
+  cargoDropScrap,
+  droneSalvageBasis,
+  rollSalvageValue,
+  shipSalvageBasis,
+  wreckShardScrap,
+} from '../sim/salvage';
 import { appendEventRecords, EventFeedEntry } from '../sim/eventFeed';
 import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, turretAngleAt, targetInTurretArc, applyDeliveryHeal } from '../starDefense';
 import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, thornDamageFor, aegisAbsorbFor } from '../loadout';
 import { ShipLine, TypeTier, DRONE_MAX_HEALTH, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, DEFENSE_DRONE_PRICE, EXTRA_MOUNT_DAMAGE, AUTO_GUN, autoGunCapFor, effectiveAutoGuns, turretMountPriceFor, ESCORT_KIND_DEFS, escortCapFor, escortKindOf, canOrderWorkforce, healCapPctFor, healRateFor, type EscortKind } from '../shipProgression';
 
-/**
- * SHIP PROGRESSION (Phase 3, src/shipProgression.ts — DRAFT numbers):
- * the ship's effective VAC/attract radius is the attractor track's
- * formula plus the line/type's flat vacBonus. The radius lives on
- * ship.attractRadius (state the canvas draws from), so it is
- * recomputed wherever the track, line, or tier changes: attractor
- * purchases, buyType, switchLine.
- */
-const attractRadiusForShip = (attractorLvl: number, line: ShipLine | null, tier: TypeTier): number =>
-  PHYSICS.BASE_ATTRACT_RADIUS + attractorLvl * 35 + typeFor(line, tier).vacBonus;
+/* attractRadiusForShip moved to src/sim/seatShop.ts (B2) — one text of the law for the local verbs, the bot policy, and guest intent consumption. */
 
 /**
  * Masked device inputs for the collapse-cinematic lockout (P2-4):
@@ -63,38 +67,10 @@ const NO_TOUCH: ShipPhysicsInputs = {
   analogStick: null,
 };
 
-/**
- * COMBINED WALLET — every purchase in the game (base upgrades, Arsenal
- * tiers, loadout swaps) is checked against hold + bank TOGETHER and paid
- * hold-first, then bank. This is what makes prices above the hold's
- * physical capacity (15 scrap at start) reachable at all.
- *
- * BANK ACCESS (Adam, 2026-10-19): the bank IS the home star's gravity
- * well — savings can only be SPENT from inside the well (see src/bank.ts).
- * Outside it, bankAccessible is false and the wallet is the hold alone.
- * Returns null when the accessible wallet cannot cover the cost.
- */
-const walletPay = (carrying: number, banked: number, cost: number, bankAccessible: boolean) => {
-  const accessible = carrying + (bankAccessible ? banked : 0);
-  if (accessible < cost) return null;
-  const fromHold = Math.min(carrying, cost);
-  return { carrying: carrying - fromHold, banked: banked - (cost - fromHold) };
-};
+/* walletPay moved to src/sim/seatShop.ts (B2) — one text of the law for the local verbs, the bot policy, and guest intent consumption. */
 
-/**
- * TEAMS dock gate (Adam's pin, 2026-10-21: "the team works together
- * to build the star"): a seat is AT A DOCK when its ship sits in the
- * bank well (effective radius, P2-4) of ANY star on its own team —
- * its own star included, so SP and all-default matches read exactly
- * the shipped own-well predicate. Feed, bank, shop-open and every
- * progression purchase read this one gate; the bank account and
- * wallet touched are always the acting seat's own — only the DOCK
- * is shared.
- */
-const inTeamWell = (seats: readonly SeatSimState[], ship: Ship): boolean =>
-  seats.some(seat =>
-    (seat.ownerId === ship.ownerId || areTeammates(seats, ship.ownerId, seat.ownerId)) &&
-    inBankWell(ship.pos, seat.star.pos, effectiveRadiusForStar(seat.star)));
+
+/* inTeamWell moved to src/sim/seatShop.ts (B2) — one text of the law for the local verbs, the bot policy, and guest intent consumption. */
 
 export const useGameLoop = (width: number, height: number, net?: NetSession | null) => {
   // MATCH GEOMETRY (Phase 2, src/sim/matchInit.ts): SP plays the
@@ -158,6 +134,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     eventFeed: [],
     matchEnd: null,
     scrap: [],
+    wrecks: [],
     deployedCargo: [],
     projectiles: [],
     mines: [],
@@ -187,6 +164,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     rotateRight: boolean;
     vac: boolean;
     jettison: boolean;
+    jettisonAll: boolean;
     fire: boolean;
     analogStick: { x: number; y: number } | null;
   }>({
@@ -195,6 +173,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     rotateRight: false,
     vac: false,
     jettison: false,
+    jettisonAll: false,
     fire: false,
     analogStick: null,
   });
@@ -228,6 +207,22 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   /** Guest-side: outgoing input seq + last-sent signature/time. */
   const guestOutSeqRef = useRef(0);
   const guestOutSigRef = useRef('');
+  // B2 PER-SEAT ECONOMY (guest half): economy verbs on a guest
+  // client queue their NetActionIntent here instead of mutating
+  // the projection; the guest send block below drains the queue
+  // into the next input payload, and the HOST applies each to
+  // the sender's seat through the seat shop (sessionAdapter's
+  // consumeEconomyIntents). queueGuestAction returns true when
+  // it queued (the caller then does nothing else).
+  const guestActionsRef = useRef<NetActionIntent[]>([]);
+  const queueGuestAction = (intent: NetActionIntent): boolean => {
+    const session = netRef.current;
+    if (session?.room && !session.isHost) {
+      guestActionsRef.current.push(intent);
+      return true;
+    }
+    return false;
+  };
   const guestOutAtRef = useRef(0);
   /** Host-side: frames since match init, for the snapshot cadence. */
   const hostFramesRef = useRef(0);
@@ -243,7 +238,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   const stateRef = useRef<GameState | null>(null);
   stateRef.current = state;
 
-  const setVirtualControl = useCallback((action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison' | 'fire', active: boolean) => {
+  const setVirtualControl = useCallback((action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison' | 'jettisonAll' | 'fire', active: boolean) => {
     touchInputs.current[action] = active;
   }, []);
 
@@ -283,6 +278,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   }, []);
 
   const upgrade = useCallback((type: 'thrust' | 'handling' | 'attractor' | 'fuel' | 'cargo') => {
+    if (queueGuestAction({ kind: 'buyTrack', track: type })) return;
     setState(prev => {
       const baseCost = type === 'thrust' ? PHYSICS.UPGRADE_COSTS.THRUST : 
                        type === 'handling' ? PHYSICS.UPGRADE_COSTS.HANDLING : 
@@ -332,6 +328,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   // the same wallet as the five base upgrades and star feeding.
   // ------------------------------------------------------------------
   const buyItem = useCallback((itemId: string) => {
+    if (queueGuestAction({ kind: 'buyItem', itemId })) return;
     const def = getLoadoutItem(itemId);
     if (!def) return;
     setState(prev => {
@@ -361,6 +358,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   }, []);
 
   const equipItem = useCallback((itemId: string) => {
+    if (queueGuestAction({ kind: 'equipItem', itemId })) return;
     const def = getLoadoutItem(itemId);
     if (!def) return;
     setState(prev => {
@@ -407,6 +405,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   // bank at any team dock, feedCargo delivers to the dock's star.
   // ------------------------------------------------------------------
   const feedCargo = useCallback(() => {
+    if (queueGuestAction({ kind: 'feed' })) return;
     setState(prev => {
       if (prev.ship.carrying <= 0) return prev;
       const amount = prev.ship.carrying;
@@ -438,6 +437,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   }, []);
 
   const depositBank = useCallback(() => {
+    if (queueGuestAction({ kind: 'bankDeposit' })) return;
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // banking happens at home
       if (prev.ship.carrying <= 0) return prev;
@@ -447,6 +447,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   }, []);
 
   const withdrawBank = useCallback(() => {
+    if (queueGuestAction({ kind: 'bankWithdraw' })) return;
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // banking happens at home
       if (prev.bankedScrap <= 0) return prev;
@@ -467,7 +468,49 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   // is WELL-GATED — progression is bought at the home dock, never in
   // the field — and pays through the combined wallet (hold, then bank).
   // ------------------------------------------------------------------
+  // SELECT WEAPON (CONTROLS.md): keys 1–5 + T (the surface's
+  // binding) call this with the slot index. Selection IS an
+  // equip — it resolves through the fixed registry order and
+  // the owned/installed gates, then runs the ordinary equip
+  // verb, swap fee on change included; on a guest the equip
+  // verb's own intent path carries it to the host. A press on
+  // a greyed cell (unowned, unmountable) selects nothing.
+  const selectWeaponSlot = useCallback((slotIndex: number) => {
+    const itemId = weaponIdForSelectSlot(stateRef.current.ship, slotIndex);
+    if (itemId) equipItem(itemId);
+  }, [equipItem]);
+
+  // TARGET LOCKS (CONTROLS.md follow-on): Tab cycles the lock,
+  // click/tap sets it — both verbs are thin hands over the one
+  // lock law (src/sim/targeting.ts). On a guest they ride the
+  // intent channel and the host applies them to the sender's
+  // seat; the lock itself rides the ship in state, so every
+  // client (and tomorrow the Lightning Lock) reads one truth.
+  const cycleTarget = useCallback(() => {
+    if (queueGuestAction({ kind: 'cycleTarget' })) return;
+    setState(prev => {
+      const nextId = nextTargetId(prev.seats, prev.ship);
+      if ((prev.ship.targetId ?? null) === nextId) return prev;
+      return { ...prev, ship: { ...prev.ship, targetId: nextId ?? undefined } };
+    });
+  }, []);
+
+  // Set a specific lock (click/tap), or clear it: anything that
+  // is not a valid target right now — empty space, a teammate,
+  // a cloaked hull, null — clears instead of sticking.
+  const setTarget = useCallback((targetOwnerId: string | null) => {
+    if (queueGuestAction({ kind: 'setTarget', targetOwnerId: targetOwnerId ?? undefined })) return;
+    setState(prev => {
+      const nextId = targetOwnerId && isValidTarget(prev.seats, prev.ship, targetOwnerId)
+        ? targetOwnerId
+        : undefined;
+      if (prev.ship.targetId === nextId) return prev;
+      return { ...prev, ship: { ...prev.ship, targetId: nextId } };
+    });
+  }, []);
+
   const buyType = useCallback((line?: ShipLine) => {
+    if (queueGuestAction({ kind: 'buyType', line })) return;
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // types are bought at home
       if (prev.ship.typeTier >= 5) return prev; // top of the ladder (T5 crowns, 2026-10-21)
@@ -503,6 +546,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   }, []);
 
   const buyHullStep = useCallback(() => {
+    if (queueGuestAction({ kind: 'buyHull' })) return;
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // hull work happens at home
       // The type's hullStepCap is the gate: at the cap, growing further
@@ -538,6 +582,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
    * every refit.
    */
   const buyTurretMount = useCallback(() => {
+    if (queueGuestAction({ kind: 'buyTurretMount' })) return;
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // mounts are fitted at home
       if (prev.ship.turretMounts >= autoGunCapFor(prev.ship.line, prev.ship.typeTier)) return prev;
@@ -550,6 +595,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   }, []);
 
   const switchLine = useCallback((line: ShipLine) => {
+    if (queueGuestAction({ kind: 'switchLine', line })) return;
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // refits happen at home
       if (prev.ship.typeTier < 2 || !prev.ship.line || line === prev.ship.line) return prev;
@@ -649,6 +695,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
    * the player rebuilds it here, up to the line/type's dronesFielded.
    */
   const buildDrone = useCallback(() => {
+    if (queueGuestAction({ kind: 'buildDrone' })) return;
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // drones are built at home
       // Harvesters only (Arsenal slice 3): defense-mode drones are
@@ -711,6 +758,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
    * A lost guard is rebuilt here, like a lost harvester.
    */
   const buildDefenseDrone = useCallback(() => {
+    if (queueGuestAction({ kind: 'buildDefenseDrone' })) return;
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // drones are built at home
       const fielded = prev.drones.filter(d => d.owner === 'player' && d.mode === 'defense').length;
@@ -760,10 +808,53 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
    * converts the ship's hold scrap into hull up to its cap.
    */
   const setRepairing = useCallback((on: boolean) => {
+    if (queueGuestAction({ kind: 'setRepairing', on })) return;
     setState(prev => ({ ...prev, ship: { ...prev.ship, repairing: on } }));
   }, []);
 
+  /**
+   * ALLY DOCKING verbs (src/sim/harbor.ts): berth at an allied
+   * harbor in reach (canDockAt is the one gate — teammates,
+   * hosting line, open harbor, capacity), leave a berth, work
+   * your own HARBOR switch, or undock one of your guests
+   * (gently — they keep their current health; the pass spills
+   * the rest when a harbor closes or a host dies).
+   */
+  const dockToHost = useCallback((hostOwnerId: string) => {
+    setState(prev => {
+      const hostSeat = prev.seats.find(s => s.ownerId === hostOwnerId);
+      const host = hostSeat?.ship;
+      if (!host || prev.ship.dockedTo) return prev;
+      if (!canDockAt(prev.seats, prev.ship, host)) return prev;
+      const d = Math.hypot(prev.ship.pos.x - host.pos.x, prev.ship.pos.y - host.pos.y);
+      if (d > host.size + HARBOR_DOCK_RANGE) return prev;
+      return { ...prev, ship: { ...prev.ship, dockedTo: hostOwnerId } };
+    });
+  }, []);
+
+  const undock = useCallback(() => {
+    setState(prev => (prev.ship.dockedTo
+      ? { ...prev, ship: { ...prev.ship, dockedTo: undefined } }
+      : prev));
+  }, []);
+
+  const setHarborOpen = useCallback((open: boolean) => {
+    setState(prev => ({ ...prev, ship: { ...prev.ship, harborOpen: open } }));
+  }, []);
+
+  const undockGuest = useCallback((guestOwnerId: string) => {
+    setState(prev => {
+      const seats = prev.seats.map(seat => {
+        const gs = seat.ship;
+        if (!gs || seat.ownerId !== guestOwnerId || gs.dockedTo !== prev.ship.ownerId) return seat;
+        return { ...seat, ship: { ...gs, dockedTo: undefined } };
+      });
+      return { ...prev, seats };
+    });
+  }, []);
+
   const setDeliveryMode = useCallback((mode: 'feed' | 'deposit') => {
+    if (queueGuestAction({ kind: 'setDeliveryMode', mode })) return;
     setState(prev => {
       if (!canOrderWorkforce(prev.ship.line)) return prev;
       const seats = prev.seats.map(seat =>
@@ -785,6 +876,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
    * Prices are the kind defs' DRAFT figures.
    */
   const buildEscort = useCallback((kind: EscortKind) => {
+    if (queueGuestAction({ kind: 'buildEscort', escortKind: kind })) return;
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // escorts are built at home
       const def = ESCORT_KIND_DEFS[kind];
@@ -809,7 +901,14 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
 
   const repurchaseShip = useCallback((ownerId: string) => {
     const session = netRef.current;
-    if (session?.room && !session.isHost) return;
+    if (session?.room && !session.isHost) {
+      // B2 follow-on: the guest's repurchase rides the same
+      // intent channel as every other economy verb — the host
+      // applies it to the SENDER's seat, so queue only when the
+      // seat is the guest's own.
+      if (ownerId === session.mySeat?.ownerId) guestActionsRef.current.push({ kind: 'repurchase' });
+      return;
+    }
     setState(prev => {
       if (prev.matchEnd) return prev;
       const idx = prev.seats.findIndex(s => s.ownerId === ownerId);
@@ -1124,16 +1223,35 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       keys.current.add(e.code);
       
-      // Upgrade Hotkeys
-      if (e.code === 'Digit1') upgrade('thrust');
-      if (e.code === 'Digit2') upgrade('handling');
-      if (e.code === 'Digit3') upgrade('attractor');
-      if (e.code === 'Digit4') upgrade('fuel');
-      if (e.code === 'Digit5') upgrade('cargo');
+      // THE SETTLED KEY MAP (Adam, 2026-10-22; CONTROLS.md is
+      // the spec of record): digits SELECT weapons in the fixed
+      // registry order (selection IS an equip — swap fee on
+      // change); the same digits SHIFTED buy the standard
+      // upgrade tracks (Shift is the buying layer). T is the
+      // sixth weapon's only key. E deploys the item (X is
+      // retired); R toggles Damage Control; U alone works the
+      // workshop — Tab's toggle duty retired with its
+      // reassignment to TARGET CYCLE — the lock state has since
+      // landed (ship.targetId; the sim validates and clears it),
+      // so Tab cycles it below. SPACE
+      // IS NEVER FIRE: it is the scrap key (jettison), owned by
+      // the adapter; this handler must never claim it.
+      const slotDigits = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'];
+      const slotIdx = slotDigits.indexOf(e.code);
+      if (slotIdx >= 0) {
+        if (e.shiftKey) {
+          const tracks = ['thrust', 'handling', 'attractor', 'fuel', 'cargo'] as const;
+          upgrade(tracks[slotIdx]);
+        } else {
+          selectWeaponSlot(slotIdx);
+        }
+      }
+      if (e.code === 'KeyT') selectWeaponSlot(5);
       if (e.code === 'KeyG') toggleGauges();
-      if (e.code === 'KeyX') deployDecoy();
-      if (e.code === 'KeyU' || e.code === 'Tab') {
-        if (e.code === 'Tab') e.preventDefault();
+      if (e.code === 'KeyE') deployDecoy();
+      if (e.code === 'KeyR') setRepairing(stateRef.current.ship.repairing === false);
+      if (e.code === 'Tab') { e.preventDefault(); cycleTarget(); }
+      if (e.code === 'KeyU') {
         setState(prev => {
           // Same shop-well gate as toggleShop (Adam's pin, 2026-10-19).
           if (!prev.isShopOpen && !inTeamWell(prev.seats, prev.ship)) {
@@ -1173,7 +1291,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       window.removeEventListener('blur', releaseAllInputs);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [upgrade, deployDecoy]);
+  }, [upgrade, deployDecoy, selectWeaponSlot, setRepairing, toggleGauges, cycleTarget]);
 
   useEffect(() => {
     let frameId: number;
@@ -1208,15 +1326,17 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           brake: false,
           fire: input.wantsFire,
           jettison: input.wantsJettison,
+          jettisonAll: input.wantsJettisonAll,
           vac: input.vac,
           stick: input.stick,
         };
         const sig = JSON.stringify(fields);
-        if (sig !== guestOutSigRef.current || time - guestOutAtRef.current >= 100) {
+        if (sig !== guestOutSigRef.current || time - guestOutAtRef.current >= 100 || guestActionsRef.current.length > 0) {
           guestOutSigRef.current = sig;
           guestOutAtRef.current = time;
           guestOutSeqRef.current += 1;
-          frameSession.sendInput({ seq: guestOutSeqRef.current, ...fields });
+          const pendingActions = guestActionsRef.current.splice(0);
+          frameSession.sendInput({ seq: guestOutSeqRef.current, ...fields, ...(pendingActions.length ? { actions: pendingActions } : {}) });
         }
         frameId = requestAnimationFrame(loop);
         return;
@@ -1367,7 +1487,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         // loaded ship heals at its hull's rate up to its
         // type/tier cap whenever the mode stands; at the cap or
         // on an empty hold the engine simply idles.
-        if (ship.repairing !== false) {
+        if (ship.repairing !== false && !ship.dockedTo) {
           const ceiling = ship.maxHealth * healCapPctFor(ship.line, ship.typeTier);
           repairFrame(ship, ship, ceiling, healRateFor(ship.line, ship.typeTier) / 60);
         }
@@ -1554,8 +1674,13 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
             }
 
             if (dDistSq < (PHYSICS.AUTO_COLLECT_RADIUS ** 2)) {
-              if (s.carrying < totalCapacity) {
-                s.carrying += 1;
+              // WRECK SALVAGE: a value shard is a pile — it banks
+              // whole when the hold has room for all of it, and
+              // stays on the field when it doesn't (plain scrap
+              // is worth 1, exactly as shipped).
+              const pieceValue = d.value ?? 1;
+              if (s.carrying + pieceValue <= totalCapacity) {
+                s.carrying += pieceValue;
                 return false;
               }
             }
@@ -1591,12 +1716,40 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
             });
           }
 
+          // DUMP ALL (J — CARGO_AND_JETTISON.md, RULED): the
+          // whole hold overboard BEHIND the ship in one kicked,
+          // spread cloud — the escape verb (instant overload
+          // shed, and a scrap cloud in the pursuer's face). The
+          // same pods under the same cargo law as the single
+          // throw; the shared throttle stamp keeps the two
+          // verbs from stacking inside one press window.
+          if (input.wantsJettisonAll && s.carrying > 0 && (!ejectAt || time - ejectAt > 100)) {
+            ejectAt = time;
+            const load = s.carrying;
+            s.carrying = 0;
+            for (let pi = 0; pi < load; pi++) {
+              const kickDir = s.angle + Math.PI + (Math.random() - 0.5) * 0.7;
+              const kickForce = 6 + Math.random() * 4;
+              next.deployedCargo.push({
+                id: Math.random().toString(),
+                pos: { ...s.pos },
+                vel: {
+                  x: s.vel.x + Math.cos(kickDir) * kickForce,
+                  y: s.vel.y + Math.sin(kickDir) * kickForce,
+                },
+                color: '#f472b6',
+                ownerId: s.ownerId,
+                life: 200, // frames
+              });
+            }
+          }
+
           // SHIP WEAPON FIRE (Slice 4): the equipped weapon shoots down the
           // ship's nose. Hold F on desktop or the FIRE button on mobile.
           // Stats and tier scaling: src/loadout.ts WEAPON_STATS.
           const weaponId = s.loadout.weapon;
           const wStats = weaponStatsFor(weaponId, weaponId ? (s.arsenal[weaponId] || 0) : 0);
-          if (input.wantsFire && wStats && time >= (s.fireReadyAt || 0)) {
+          if (!s.dockedTo && input.wantsFire && wStats && time >= (s.fireReadyAt || 0)) {
             const cost = wStats.scrapCost || 0;
             if (wStats.kind === 'mine') {
               // Mine Layer: no projectile — mines drop at the ship's tail.
@@ -1712,6 +1865,18 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         const isVacActive = localFrame.isVacActive;
         next.lastEjectTime = localFrame.ejectAt;
         let newScrap = localFrame.scrap;
+        // WRECK SALVAGE: shards drift gently apart from the
+        // destruction point (velocity decays per frame), and
+        // tombstones stand only until their expiresAt — both on
+        // the sim's own clock, applied once here.
+        for (const piece of newScrap) {
+          if (!piece.vel) continue;
+          piece.pos.x += piece.vel.x;
+          piece.pos.y += piece.vel.y;
+          piece.vel.x *= WRECK_DRIFT_DECAY;
+          piece.vel.y *= WRECK_DRIFT_DECAY;
+        }
+        next.wrecks = (next.wrecks ?? []).filter(w => time < w.expiresAt);
 
         if (newScrap.length < 180 && Math.random() < 0.08) {
           // Spawn clusters biased toward player movement or rich veins
@@ -1794,6 +1959,17 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
                 if (!prev.matchEnd) {
                   const consumed = consumeRepurchaseIntent(seat, payload, time);
                   if (consumed) feedEntries.push(consumed.record);
+                  // B2 PER-SEAT ECONOMY: the guest's shop intents
+                  // apply to THEIR seat through the seat shop —
+                  // their bank, their wallet, the shared dock.
+                  consumeTargetIntents(seat, payload, simSeats);
+                  const econ = consumeEconomyIntents(seat, payload, { seats: simSeats, drones: next.drones, escorts: next.escorts, localOwnerId });
+                  if (econ) {
+                    if (econ.drones) next.drones = econ.drones;
+                    if (econ.escorts) next.escorts = econ.escorts;
+                    if (econ.addDrones.length) next.drones = [...next.drones, ...econ.addDrones];
+                    if (econ.addEscorts.length) next.escorts = [...next.escorts, ...econ.addEscorts];
+                  }
                 }
               }
             }
@@ -1944,6 +2120,12 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           if (next.decoy.lifeFrames <= 0) next.decoy = null;
         }
 
+        // ALLY DOCKING (src/sim/harbor.ts): docked guests ride
+        // their hosts and heal from the hosts' holds BEFORE
+        // weapons resolve, so this frame's positions and the
+        // cannot-be-hit reads all see the berth as it stands.
+        stepHarbors(simSeats);
+
         // MINES — the step lives in src/sim/projectiles.ts
         // (dedicated split), called here in the shipped position.
         next.mines = stepMines({ next, simSeats, time });
@@ -2002,7 +2184,8 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         // with drones too — that's their job). The count is
         // effectiveAutoGuns: the type's CAP bounded by mounts OWNED —
         // an unbought cap fires nothing.
-        const autoGunCount = effectiveAutoGuns(ship);
+        // ALLY DOCKING: a docked ship cannot fire — mounts too.
+        const autoGunCount = ship.dockedTo ? 0 : effectiveAutoGuns(ship);
         if (!localSeatDead && autoGunCount > 0) {
           let gunTarget: Vector2D | null = null;
           let gunBestD = AUTO_GUN.range;
@@ -2081,13 +2264,14 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         // the event feed only; drops and shake are exactly as shipped.)
         next.drones = next.drones.filter(d => {
           if (d.health > 0) return true;
-          for (let di = 0; di < d.carrying + 1; di++) {
-            newScrap.push({
-              id: Math.random().toString(),
-              pos: { x: d.pos.x + (Math.random() - 0.5) * 30, y: d.pos.y + (Math.random() - 0.5) * 30 },
-              color: COLORS.SCRAP[Math.floor(Math.random() * COLORS.SCRAP.length)],
-            });
-          }
+          // WRECK SALVAGE (the flat +1 retires): the hold drops
+          // WHOLE as plain pieces, and the airframe rolls the
+          // ladder against its purchase price (75; a defense-mode
+          // drone 100; a star-fleet gleaner the same 75). A
+          // liquidating drone killed on its last trip dies under
+          // this same law — no sale settles.
+          newScrap.push(...cargoDropScrap(d.pos, d.carrying));
+          newScrap.push(...wreckShardScrap(d.pos, rollSalvageValue(droneSalvageBasis(d))));
           const killerOwnerId =
             d.lastHitByOwnerId && d.lastHitByOwnerId !== d.ownerId
               ? d.lastHitByOwnerId
@@ -2138,6 +2322,27 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
             victimKind: 'ship',
             at: time,
           });
+          // WRECK SALVAGE: the hull relinquishes its CARGO WHOLE
+          // and rolls the ladder against its INVESTED VALUE (the
+          // destroyed set only — shipSalvageBasis). The shards
+          // carry the tombstone's id; the marker stands in
+          // next.wrecks for WRECK_MARKER_MS, dressing only. No
+          // killer ownership: the field is the prize, and the
+          // respawn timer is the owner's handicap.
+          if (bs.carrying > 0) newScrap.push(...cargoDropScrap(bs.pos, bs.carrying));
+          const rolled = rollSalvageValue(shipSalvageBasis(bs));
+          if (rolled > 0) {
+            const wreckId = Math.random().toString();
+            newScrap.push(...wreckShardScrap(bs.pos, rolled, wreckId));
+            (next.wrecks ??= []).push({
+              id: wreckId,
+              pos: { ...bs.pos },
+              bornAt: time,
+              expiresAt: time + WRECK_MARKER_MS,
+              seed: Math.random(),
+              value: rolled,
+            });
+          }
           const cascade = applyDeathLoss(seat.bankedScrap, seat.deaths ?? 0);
           seat.bankedScrap = cascade.bankAfter;
           seat.deaths = cascade.deathsAfter;
@@ -2155,6 +2360,11 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
             ship.thrust = false;
           }
         }
+
+        // TARGET LOCKS (src/sim/targeting.ts): a lock whose
+        // target left validity this frame — died, docked,
+        // cloaked, changed sides — clears where it stands.
+        stepTargetLocks(simSeats);
 
         // BOT AUTO-REPURCHASE (P2-5): a bot-driven seat buys its
         // frame back on the delay timer (deathEconomy), so a match
@@ -2205,6 +2415,24 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           }
         }
 
+        // B2 BOT ECONOMY (src/sim/botEconomy.ts): policy +
+        // purchases for bot seats — real banks, real prices, the
+        // well is the market. Runs before the drivers so a fresh
+        // purchase flies this frame, and this frame's deliveries
+        // split by the mode the policy just set.
+        {
+          const econCtx = { seats: simSeats, drones: next.drones, escorts: next.escorts, localOwnerId };
+          for (const seat of simSeats) {
+            if (seat.controller !== 'bot') continue;
+            const change = stepBotEconomy(seat, econCtx, time);
+            if (change) {
+              if (change.drones) { next.drones = change.drones; econCtx.drones = change.drones; }
+              if (change.escorts) { next.escorts = change.escorts; econCtx.escorts = change.escorts; }
+              if (change.drone) { next.drones = [...next.drones, change.drone]; econCtx.drones = next.drones; }
+            }
+          }
+        }
+
         // BOT SHIP DRIVERS (Phase 2, P2-2b): every bot seat that HAS a
         // ship flies it via src/sim/botDriver.ts — harvest, deliver
         // (through the same infuseStar + delivery heal as drone
@@ -2234,8 +2462,16 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
             if (ix >= 0) newScrap.splice(ix, 1);
           }
           if (botResult.deliverAmount > 0) {
-            infuseStar(seat.star, botResult.deliverAmount);
-            applyDeliveryHeal(seat.star, botResult.deliverAmount);
+            // B2 POLICY SPLIT: a depositing bot BANKS its ship's
+            // load into its own account (no infusion, no heal —
+            // the drone DEPOSIT law); a feeding bot infuses as
+            // bots always have.
+            if (seat.deliveryMode === 'deposit') {
+              seat.bankedScrap += botResult.deliverAmount;
+            } else {
+              infuseStar(seat.star, botResult.deliverAmount);
+              applyDeliveryHeal(seat.star, botResult.deliverAmount);
+            }
           }
           for (const p of botResult.projectiles) next.projectiles.push(p);
         }
@@ -2412,6 +2648,9 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     upgrade,
     buyItem,
     equipItem,
+    selectWeaponSlot,
+    cycleTarget,
+    setTarget,
     buyType,
     buyHullStep,
     buyTurretMount,
@@ -2420,6 +2659,10 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     buildDefenseDrone,
     setDeliveryMode,
     setRepairing,
+    dockToHost,
+    undock,
+    setHarborOpen,
+    undockGuest,
     buildEscort,
     debugGrantScrap,
     debugGrantFed,

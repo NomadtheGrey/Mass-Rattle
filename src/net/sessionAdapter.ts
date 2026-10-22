@@ -9,11 +9,20 @@
  * UI lane's NetInputPayload (imported as a type only).
  */
 
-import type { GameState, SeatSimState } from '../types';
+import type { EscortShip, GameState, Harvester, SeatSimState } from '../types';
 import type { NetInputPayload } from './useNetClient';
 import { tryRepurchase } from '../sim/deathEconomy';
 import { starIdForSeat } from '../sim/ownership';
+import { isValidTarget, nextTargetId } from '../sim/targeting';
 import type { EventFeedEntry } from '../sim/eventFeed';
+import {
+  seatBuyTrack, seatBuyItem, seatEquipItem, seatBuyType, seatBuyHullStep,
+  seatBuyTurretMount, seatSwitchLine, seatBuildDrone, seatBuildDefenseDrone,
+  seatBuildEscort, seatFeedCargo, seatDepositBank, seatWithdrawBank,
+  seatSetDeliveryMode, seatSetRepairing,
+  type SeatShopCtx, type SeatShopChange, type UpgradeTrack,
+} from '../sim/seatShop';
+import type { ShipLine, EscortKind } from '../shipProgression';
 
 /** Host snapshot cadence: one full-state snapshot every 5 frames —
  *  12 Hz at the sim's 60 fps (design draft §1, DRAFT rate). */
@@ -36,6 +45,8 @@ export interface ShipFrameInput {
   wantsThrust: boolean;
   wantsFire: boolean;
   wantsJettison: boolean;
+  /** DUMP ALL (J): the whole hold overboard behind the ship. */
+  wantsJettisonAll: boolean;
   rotateLeft: boolean;
   rotateRight: boolean;
   vac: boolean;
@@ -51,6 +62,7 @@ export interface TouchInputLike {
   rotateRight: boolean;
   vac: boolean;
   jettison: boolean;
+  jettisonAll?: boolean;
   fire: boolean;
   analogStick: { x: number; y: number } | null;
 }
@@ -62,7 +74,8 @@ const stickDistOf = (stick: { x: number; y: number } | null): number =>
  * The LOCAL seat's input, resolved from the same key set + touch ref
  * the shipped SP input phase reads — the expressions are the frame's
  * own (ArrowUp/KeyW/thrust/stick for thrust, KeyF for fire, Space for
- * jettison, Q/E/R for VAC), so the local ship's routine receives
+ * jettison, Q for VAC — E and R left the VAC read when the
+ * settled key map (CONTROLS.md) made them ITEM and REPAIR), so the local ship's routine receives
  * exactly what the inline code computed.
  */
 export const localShipInput = (
@@ -76,11 +89,12 @@ export const localShipInput = (
       keys.has('ArrowUp') || keys.has('KeyW') || touch.thrust || stickThrust,
     wantsFire: keys.has('KeyF') || touch.fire,
     wantsJettison: keys.has('Space') || touch.jettison,
+    wantsJettisonAll: keys.has('KeyJ') || !!touch.jettisonAll,
     rotateLeft:
       keys.has('ArrowLeft') || keys.has('KeyA') || touch.rotateLeft,
     rotateRight:
       keys.has('ArrowRight') || keys.has('KeyD') || touch.rotateRight,
-    vac: keys.has('KeyQ') || keys.has('KeyE') || keys.has('KeyR') || touch.vac,
+    vac: keys.has('KeyQ') || touch.vac,
     stick,
   };
 };
@@ -97,6 +111,7 @@ export const remoteShipInput = (payload: NetInputPayload): ShipFrameInput => {
     wantsThrust: payload.thrust || stickThrust,
     wantsFire: payload.fire,
     wantsJettison: payload.jettison,
+    wantsJettisonAll: payload.jettisonAll ?? false,
     rotateLeft: payload.left,
     rotateRight: payload.right,
     vac: payload.vac ?? false,
@@ -111,6 +126,7 @@ export const idleShipInput = (): ShipFrameInput => ({
   wantsThrust: false,
   wantsFire: false,
   wantsJettison: false,
+  wantsJettisonAll: false,
   rotateLeft: false,
   rotateRight: false,
   vac: false,
@@ -135,22 +151,136 @@ export const acceptGuestPayload = (
 /* ------------------------------------------------------------------ */
 
 /**
- * Economy ACTION intents (buy/equip/feed/bank/shop) from remote
- * seats are NOT applied in v1: per-seat banks/wallets are not
- * sim-wired beyond the local seat (P2-2b), so a remote seat has no
- * wallet for the host to pay from. The intents are counted here —
- * module-level and greppable — so the deferral is measured, not
- * silent, until the per-seat economy lands.
+ * Economy ACTION intents from remote seats were NOT applied in
+ * v1: per-seat banks/wallets were not sim-wired beyond the local
+ * seat (P2-2b). B2 LANDED the per-seat economy (2026-10-22):
+ * consumeEconomyIntents (below) applies the economy kinds to the
+ * sender's seat through the seat shop, and 'repurchase' has been
+ * consumed since the P2-5 follow-on. What remains counted here
+ * is what is still genuinely unapplied — 'decoy' (a combat verb,
+ * not economy) and 'toggleShop' (the guest's own UI state) —
+ * module-level and greppable, so the remainder is measured, not
+ * silent.
  */
 export let droppedRemoteActionIntents = 0;
 
+const CONSUMED_ACTION_KINDS = new Set([
+  'repurchase',
+  'buyTrack', 'buyItem', 'equipItem', 'buyType', 'buyHull',
+  'buyTurretMount', 'switchLine', 'buildDrone', 'buildDefenseDrone',
+  'buildEscort', 'bankDeposit', 'bankWithdraw', 'feed',
+  'setDeliveryMode', 'setRepairing',
+  'cycleTarget', 'setTarget',
+]);
+
+/** Apply a remote seat's TARGET intents (the Controls
+ *  follow-on contract): cycle advances through the lock law's
+ *  seat-order track; set names a specific ship and lands only
+ *  while it is a valid target — anything else (including an
+ *  absent targetOwnerId) clears the lock. Runs inside the same
+ *  seq gate as repurchase and the economy, against the SENDER's
+ *  seat; locks die per-frame by stepTargetLocks in the loop. */
+export const consumeTargetIntents = (
+  seat: SeatSimState,
+  payload: NetInputPayload,
+  seats: SeatSimState[],
+): void => {
+  const actions = payload.actions;
+  if (!actions || actions.length === 0 || !seat.ship) return;
+  for (const action of actions) {
+    if (action.kind === 'cycleTarget') {
+      seat.ship.targetId = nextTargetId(seats, seat.ship) ?? undefined;
+    } else if (action.kind === 'setTarget') {
+      seat.ship.targetId =
+        action.targetOwnerId && isValidTarget(seats, seat.ship, action.targetOwnerId)
+          ? action.targetOwnerId
+          : undefined;
+    }
+  }
+};
+
 export const countDroppedActions = (payload: NetInputPayload): number => {
-  // 'repurchase' is NOT counted: since the P2-5 follow-on it is
-  // consumed (consumeRepurchaseIntent, below), not dropped. Every
-  // other economy kind remains counted + dropped, unchanged.
-  const n = (payload.actions ?? []).filter(a => a.kind !== 'repurchase').length;
+  // Consumed kinds are NOT counted (see the set above). The
+  // remainder — decoy, toggleShop, anything unknown — is.
+  const n = (payload.actions ?? []).filter(a => !CONSUMED_ACTION_KINDS.has(a.kind)).length;
   droppedRemoteActionIntents += n;
   return n;
+};
+
+/* ------------------------------------------------------------------ */
+/* Guest economy consumption (B2 per-seat economy follow-on)           */
+/* ------------------------------------------------------------------ */
+
+export interface GuestEconomyResult {
+  /** Replacement arrays when a reconcile changed them. */
+  drones?: Harvester[];
+  escorts?: EscortShip[];
+  /** Newly built units for the caller to append. */
+  addDrones: Harvester[];
+  addEscorts: EscortShip[];
+}
+
+const SHIP_LINES: ShipLine[] = ['fighter', 'minelayer', 'hauler', 'drone', 'cruiser'];
+const UPGRADE_TRACKS: UpgradeTrack[] = ['thrust', 'handling', 'attractor', 'fuel', 'cargo'];
+const ESCORT_KINDS: EscortKind[] = ['skiff', 'stinger', 'lancer'];
+
+/**
+ * Apply a guest payload's economy intents to the SENDER's seat,
+ * in order, through the seat shop (src/sim/seatShop.ts) — the
+ * sender buys through the host against their OWN seat bank
+ * under the same wallet rules as anyone (hold first, then bank;
+ * the well is the market). Refusals are silent and total per
+ * intent (an unaffordable buy changes nothing and does not
+ * block the rest of the payload). Exactly-once is structural,
+ * as with repurchase: the caller runs this inside the seq gate.
+ * Returns null when the payload carries no economy intent.
+ */
+export const consumeEconomyIntents = (
+  seat: SeatSimState,
+  payload: NetInputPayload,
+  ctx: SeatShopCtx,
+): GuestEconomyResult | null => {
+  const actions = (payload.actions ?? []).filter(a => a.kind !== 'repurchase');
+  if (!actions.length) return null;
+  const out: GuestEconomyResult = { addDrones: [], addEscorts: [] };
+  let applied = false;
+  const adopt = (change: SeatShopChange | null): void => {
+    if (!change) return;
+    applied = true;
+    if (change.drones) { out.drones = change.drones; ctx.drones = change.drones; }
+    if (change.escorts) { out.escorts = change.escorts; ctx.escorts = change.escorts; }
+    if (change.drone) { out.addDrones.push(change.drone); ctx.drones = [...ctx.drones, change.drone]; }
+    if (change.escort) { out.addEscorts.push(change.escort); ctx.escorts = [...ctx.escorts, change.escort]; }
+  };
+  for (const a of actions) {
+    switch (a.kind) {
+      case 'buyTrack':
+        if (UPGRADE_TRACKS.includes(a.track as UpgradeTrack)) adopt(seatBuyTrack(seat, ctx, a.track as UpgradeTrack));
+        break;
+      case 'buyItem': adopt(seatBuyItem(seat, ctx, a.itemId)); break;
+      case 'equipItem': adopt(seatEquipItem(seat, ctx, a.itemId)); break;
+      case 'buyType':
+        adopt(seatBuyType(seat, ctx, a.line && SHIP_LINES.includes(a.line as ShipLine) ? (a.line as ShipLine) : undefined));
+        break;
+      case 'buyHull': adopt(seatBuyHullStep(seat, ctx)); break;
+      case 'buyTurretMount': adopt(seatBuyTurretMount(seat, ctx)); break;
+      case 'switchLine':
+        if (SHIP_LINES.includes(a.line as ShipLine)) adopt(seatSwitchLine(seat, ctx, a.line as ShipLine));
+        break;
+      case 'buildDrone': adopt(seatBuildDrone(seat, ctx)); break;
+      case 'buildDefenseDrone': adopt(seatBuildDefenseDrone(seat, ctx)); break;
+      case 'buildEscort':
+        if (ESCORT_KINDS.includes(a.escortKind as EscortKind)) adopt(seatBuildEscort(seat, ctx, a.escortKind as EscortKind));
+        break;
+      case 'bankDeposit': adopt(seatDepositBank(seat, ctx)); break;
+      case 'bankWithdraw': adopt(seatWithdrawBank(seat, ctx)); break;
+      case 'feed': adopt(seatFeedCargo(seat, ctx)); break;
+      case 'setDeliveryMode': if (seatSetDeliveryMode(seat, a.mode)) applied = true; break;
+      case 'setRepairing': if (seatSetRepairing(seat, a.on)) applied = true; break;
+      default: break; // decoy / toggleShop / unknown: not economy
+    }
+  }
+  return applied ? out : null;
 };
 
 /* ------------------------------------------------------------------ */

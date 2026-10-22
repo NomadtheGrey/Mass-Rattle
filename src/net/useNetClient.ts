@@ -43,11 +43,21 @@ export type NetActionIntent =
   | { kind: 'buyTurretMount' }
   | { kind: 'switchLine'; line: string }
   | { kind: 'buildDrone' }
+  /** B2 per-seat economy follow-on (BackGround): the remaining
+   * shop verbs and the seat-flag riders the verbs' own comments
+   * promised to this channel — the host applies each to the
+   * SENDER's seat through the seat shop (src/sim/seatShop.ts). */
+  | { kind: 'buildDefenseDrone' }
+  | { kind: 'buildEscort'; escortKind: string }
+  | { kind: 'setDeliveryMode'; mode: 'feed' | 'deposit' }
+  | { kind: 'setRepairing'; on: boolean }
   /** P2-5 death economy: BARE — the host derives the seat from the
    * relay's fromOwnerId and prices it host-side from the seat's
    * ledger (repurchasePriceFor). Added by the UI lane on BackGround's
    * flag, exactly as the sim landed it. */
-  | { kind: 'repurchase' };
+  | { kind: 'repurchase' }
+  | { kind: 'cycleTarget' }
+  | { kind: 'setTarget'; targetOwnerId?: string };
 
 export interface NetInputPayload {
   /** Sender-local, monotonic; the host drops stale frames. */
@@ -63,6 +73,10 @@ export interface NetInputPayload {
    *  the host reads payload.vac ?? false. Optional so payloads from a
    *  client that predates the field still parse. */
   vac?: boolean;
+  /** DUMP ALL held (J key or the DUMP touch tile) — the mass
+   *  jettison beside the single throw. Optional for the same
+   *  reason as vac: older payloads predate the field. */
+  jettisonAll?: boolean;
   /** Mobile analog vector when one is driving. */
   stick?: { x: number; y: number } | null;
   /** Discrete intents since the previous frame. */

@@ -42,6 +42,9 @@ export interface StarBurnContext {
  */
 export const stepStarBurn = (ctx: StarBurnContext): void => {
   const { next, ship, simSeats, hyId, hyTier, time, aegisAbsorb } = ctx;
+  // ALLY DOCKING: a docked ship is out of combat — attached
+  // to its host, it takes no burn (src/sim/harbor.ts).
+  if (ship.dockedTo) return;
   // Ship Health Damage from hostile star proximity (P2-2b: any
   // star whose ownerId isn't the ship's — in SP that is exactly
   // the enemy star, with exactly the shipped math). TEAMS: the

@@ -42,6 +42,25 @@ export interface Ship extends GameObject {
   repairing?: boolean;
   /** The heal engine's whole-scrap credit (src/sim/repair.ts). */
   repairCredit?: number;
+  /**
+   * ALLY DOCKING (src/sim/harbor.ts): the host ship's ownerId
+   * while this ship rides docked at an allied harbor — out of
+   * combat (cannot fire, cannot be hit), healing from the
+   * host's hold at a multiplied rate up to its OWN cap.
+   * Absent = not docked.
+   */
+  dockedTo?: string;
+  /** TARGET LOCK (src/sim/targeting.ts): the ownerId of the
+   *  hostile capital ship this ship holds a lock on — set by
+   *  Tab's cycle or click/tap, cleared by the lock law the
+   *  frame it leaves validity. The Lightning Lock's read. */
+  targetId?: string;
+  /**
+   * The HARBOR SWITCH (src/sim/harbor.ts): this ship's
+   * consent to host allied guests. Undefined reads as OPEN;
+   * false closes the harbor and spills current guests.
+   */
+  harborOpen?: boolean;
   attractRadius: number;
   /** Seat-scoped ownerId (Phase 2, src/sim/ownership.ts): the seat
    * that owns this entity for the whole match, whoever controls it. */
@@ -225,6 +244,32 @@ export interface Scrap {
   pos: Vector2D;
   color: string;
   id: string;
+  /** WRECK SALVAGE (ReadMeFiles/WRECK_SALVAGE.md): a shard is a
+   *  pile worth this many units when collected whole; plain
+   *  scrap (no value) is worth 1. */
+  value?: number;
+  /** The tombstone this shard scattered from (capital wrecks
+   *  only) — dressing linkage for the canvas; a dangling id
+   *  (marker expired) renders cold, never an error. */
+  wreckId?: string;
+  /** Wreck shards drift gently apart (decays per frame). */
+  vel?: Vector2D;
+}
+
+/**
+ * WRECK MARKER (ReadMeFiles/WRECK_SALVAGE.md, settled UI ↔
+ * BackGround): one tombstone per CAPITAL-ship death, on the
+ * sim's own clock. `value` (the rolled salvage total) dresses
+ * the marker's scale only; lifetime lives here sim-side.
+ * Harvester deaths stay unmarked.
+ */
+export interface WreckMarker {
+  id: string;
+  pos: Vector2D;
+  bornAt: number;
+  expiresAt: number;
+  seed: number;
+  value: number;
 }
 
 export interface DeployedCargo extends Scrap {
@@ -416,6 +461,9 @@ export interface GameState {
    * is reached; null while the match is undecided. */
   matchEnd: MatchEndState | null;
   scrap: Scrap[];
+  /** Wreck tombstones (WRECK SALVAGE): one per capital-ship
+   *  death, pruned at expiresAt by the loop. */
+  wrecks: WreckMarker[];
   deployedCargo: DeployedCargo[];
   projectiles: Projectile[];
   /** Proximity mines laid by the player (Mine Layer weapon). */

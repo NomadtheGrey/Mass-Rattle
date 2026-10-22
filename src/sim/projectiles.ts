@@ -28,6 +28,7 @@ import {
   thornDamageFor,
 } from '../loadout';
 import { areHostile } from './teams';
+import { escortSalvageBasis, rollSalvageValue, wreckShardScrap } from './salvage';
 import type {
   GameState,
   Mine,
@@ -210,7 +211,7 @@ export const stepProjectiles = (ctx: ProjectileStepContext): Projectile[] => {
     // the bot-ship pass after this one)
     const sdx = ship.pos.x - p.pos.x;
     const sdy = ship.pos.y - p.pos.y;
-    if (areHostile(simSeats, p.ownerId, ship.ownerId) && Math.sqrt(sdx * sdx + sdy * sdy) < ship.size) {
+    if (!ship.dockedTo && areHostile(simSeats, p.ownerId, ship.ownerId) && Math.sqrt(sdx * sdx + sdy * sdy) < ship.size) {
       // MIRROR SAIL (Phase 1b): the bolt never lands — the sail
       // throws it back the way it came, as a player projectile with
       // tier-scaled damage ("defense that is offense"), keeping
@@ -279,7 +280,7 @@ export const stepProjectiles = (ctx: ProjectileStepContext): Projectile[] => {
     // reduced to 0 is removed by the bot-ship death pass below.
     for (const seat of simSeats) {
       const bs = seat.ship;
-      if (!bs || seat.ownerId === localOwnerId || !areHostile(simSeats, p.ownerId, seat.ownerId)) continue;
+      if (!bs || bs.dockedTo || seat.ownerId === localOwnerId || !areHostile(simSeats, p.ownerId, seat.ownerId)) continue;
       if ((p.hitIds || []).includes(seat.ownerId)) continue;
       if (Math.hypot(bs.pos.x - p.pos.x, bs.pos.y - p.pos.y) >= bs.size) continue;
       bs.health -= p.damage !== undefined ? p.damage : PHYSICS.DEFENSE.DAMAGE;
@@ -306,11 +307,9 @@ export const stepProjectiles = (ctx: ProjectileStepContext): Projectile[] => {
       escort.health -= p.damage !== undefined ? p.damage : PHYSICS.DEFENSE.DAMAGE;
       escort.lastHitByOwnerId = p.ownerId;
       if (escort.health <= 0) {
-        newScrap.push({
-          id: Math.random().toString(),
-          pos: { x: escort.pos.x, y: escort.pos.y },
-          color: COLORS.SCRAP[Math.floor(Math.random() * COLORS.SCRAP.length)],
-        });
+        // WRECK SALVAGE (the flat piece retires): an escort rolls
+        // the ladder against its KIND PRICE alone.
+        newScrap.push(...wreckShardScrap(escort.pos, rollSalvageValue(escortSalvageBasis(escort))));
       }
       if (p.pierce) {
         (p.hitIds = p.hitIds || []).push(escort.id);

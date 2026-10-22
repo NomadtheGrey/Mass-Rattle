@@ -81,6 +81,12 @@ export default function App() {
     buildDrone,
     setDeliveryMode,
     setRepairing,
+    dockToHost,
+    undock,
+    setHarborOpen,
+    undockGuest,
+    selectWeaponSlot,
+    setTarget,
     repurchaseShip,
     feedCargo,
     depositBank, 
@@ -265,6 +271,13 @@ export default function App() {
         deliveryMode={state.seats.find(se => se.ownerId === state.ship.ownerId)?.deliveryMode ?? 'feed'}
         onSetDeliveryMode={setDeliveryMode}
         onSetRepairing={setRepairing}
+        seats={state.seats}
+        seatLabels={seatLabels}
+        onDockToHost={dockToHost}
+        onUndock={undock}
+        onSetHarborOpen={setHarborOpen}
+        onUndockGuest={undockGuest}
+        onSelectWeaponSlot={selectWeaponSlot}
         ship={state.ship}
         drones={state.drones}
         escorts={state.escorts}
@@ -307,7 +320,7 @@ export default function App() {
         <div className="absolute inset-0 z-0">
           <div className="w-full h-full relative bg-[#050505]">
             <div className="absolute inset-0 grid-bg opacity-20 pointer-events-none" />
-            <GameCanvas state={state} width={dimensions.width} height={dimensions.height} seatLabels={seatLabels} />
+            <GameCanvas state={state} width={dimensions.width} height={dimensions.height} seatLabels={seatLabels} onSetTarget={setTarget} />
           </div>
         </div>
 
