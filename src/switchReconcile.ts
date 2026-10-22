@@ -53,7 +53,8 @@ export interface SwitchSellResult {
   /** Workforce harvesters marked for the LAST TRIP. */
   liquidateDroneIds: string[];
   soldEscortIds: string[];
-  /** Total refund (sale prices + sold cargo at face), for the bank. */
+  /** Instant refund, for the bank (the workforce share is not
+   * here — it settles at the star, on each drone's last trip). */
   refund: number;
   /** A manifest for the surface: what sold, in plain counts. */
   sold: { weapons: string[]; drones: number; defenseDrones: number; mounts: number; escorts: number };
