@@ -291,8 +291,20 @@ export interface SeatSimState {
   star: Star;
   /** This seat's banked scrap. Only the local seat's bank is wired to
    * the workshop economy in P2-2b; bot seats bank nothing (their drone
-   * and ship deliveries infuse their star directly). */
+   * and ship deliveries infuse their star directly). A seat under a
+   * DEPOSIT workforce order banks its workforce's loads here instead
+   * (WORKFORCE ORDERS, 2026-10-22, below). */
   bankedScrap: number;
+  /** WORKFORCE ORDERS (Adam, 2026-10-22): the captain's standing
+   * order for her workforce's deliveries — 'feed' (loads infuse the
+   * star; the game's original behavior) or 'deposit' (loads bank
+   * into this seat's bankedScrap at the well; no infusion, no
+   * delivery heal, no teamScrap accrual — banking is not
+   * nourishment). A HAULER-line capability in v1 (the order is her
+   * workforce crown's third face — canOrderWorkforce in
+   * shipProgression.ts); the STAR FLEET is never under orders and
+   * always feeds. Default 'feed'. */
+  deliveryMode: 'feed' | 'deposit';
   /** Mirror of star.totalScrapInfused, refreshed by the loop each
    * frame — the star's field is the single source of truth. */
   fedTotal: number;

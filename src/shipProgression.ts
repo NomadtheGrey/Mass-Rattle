@@ -481,6 +481,19 @@ export const DEFENSE_DRONE = {
 };
 
 // ---------------------------------------------------------------------
+// WORKFORCE ORDERS (Adam, 2026-10-22): the captain's standing order
+// for her workforce's deliveries — FEED the star, or DEPOSIT the
+// loads into her bank at the well (SeatSimState.deliveryMode; the
+// delivery read lives in src/sim/drones.ts). In v1 the order is
+// the HAULER line's crown capability: her workforce already owns
+// number (the deep ladder) and quality (the speed/carry axis) —
+// orders are its third face, and every other line's workforce
+// stays feed-only. The gate is this one function so widening the
+// order to other lines later is a table change, not a rebuild.
+export const canOrderWorkforce = (line: ShipLine | null): boolean =>
+  line === 'hauler';
+
+// ---------------------------------------------------------------------
 // THE CARRIER WING (Arsenal slice 5b, 2026-10-21 — the program's
 // summit, Adam's vision): the drone line's escorts are REAL little
 // ships flown by the offense engine (slice 5a's acquisition + fire

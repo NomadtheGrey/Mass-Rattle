@@ -242,15 +242,26 @@ export const stepDrones = (ctx: DroneStepContext): DroneStepResult => {
 
       if (dist < droneStar.size + PHYSICS.DRONES.DEPOSIT_RADIUS) {
         const amount = drone.carrying;
-        // Every star grows through the SAME rising milestone
-        // system (starGrowth.ts) — no per-delivery creep — and
-        // gets the SAME symmetric delivery heal (starDefense.ts).
-        // The local seat's deliveries also feed teamScrap, the
-        // SP fed counter the HUD reads.
-        infuseStar(droneStar, amount);
-        applyDeliveryHeal(droneStar, amount);
-        if (drone.ownerId === localOwnerId) {
-          teamScrap += amount;
+        // WORKFORCE ORDERS (Adam, 2026-10-22): under a DEPOSIT
+        // order the load BANKS into the seat's balance instead of
+        // feeding — no infusion, no delivery heal, no teamScrap
+        // (banking is not nourishment, and the fed counter stays
+        // truthful). The STAR FLEET is never under orders: the
+        // star's own gleaners always feed her.
+        const ownerSeat = seatByOwnerId.get(drone.ownerId);
+        if (!drone.starFleet && ownerSeat?.deliveryMode === 'deposit') {
+          ownerSeat.bankedScrap += amount;
+        } else {
+          // Every star grows through the SAME rising milestone
+          // system (starGrowth.ts) — no per-delivery creep — and
+          // gets the SAME symmetric delivery heal (starDefense.ts).
+          // The local seat's deliveries also feed teamScrap, the
+          // SP fed counter the HUD reads.
+          infuseStar(droneStar, amount);
+          applyDeliveryHeal(droneStar, amount);
+          if (drone.ownerId === localOwnerId) {
+            teamScrap += amount;
+          }
         }
         drone.carrying = 0;
         drone.state = 'searching';

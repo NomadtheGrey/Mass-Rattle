@@ -82,6 +82,7 @@ export const createSeatSimState = (
   ship,
   star,
   bankedScrap: 0,
+  deliveryMode: 'feed',
   fedTotal: star.totalScrapInfused,
   kills: 0,
   deaths: 0,

@@ -33,7 +33,7 @@ import { applyDeathLoss, botRepurchaseDue, completeRespawn, respawnDue, tryRepur
 import { appendEventRecords, EventFeedEntry } from '../sim/eventFeed';
 import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, turretAngleAt, targetInTurretArc, applyDeliveryHeal } from '../starDefense';
 import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, thornDamageFor, aegisAbsorbFor } from '../loadout';
-import { ShipLine, TypeTier, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, DEFENSE_DRONE_PRICE, EXTRA_MOUNT_DAMAGE, AUTO_GUN, autoGunCapFor, effectiveAutoGuns, turretMountPriceFor, ESCORT_KIND_DEFS, escortCapFor, escortKindOf, type EscortKind } from '../shipProgression';
+import { ShipLine, TypeTier, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, DEFENSE_DRONE_PRICE, EXTRA_MOUNT_DAMAGE, AUTO_GUN, autoGunCapFor, effectiveAutoGuns, turretMountPriceFor, ESCORT_KIND_DEFS, escortCapFor, escortKindOf, canOrderWorkforce, type EscortKind } from '../shipProgression';
 
 /**
  * SHIP PROGRESSION (Phase 3, src/shipProgression.ts — DRAFT numbers):
@@ -703,6 +703,27 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         health: 100,
       };
       return { ...prev, ship, bankedScrap: payment.banked, drones: [...prev.drones, drone], glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
+    });
+  }, []);
+
+  /**
+   * WORKFORCE ORDERS (Adam, 2026-10-22): set the captain's standing
+   * delivery order for her workforce — 'feed' or 'deposit' (see
+   * SeatSimState.deliveryMode). The order is the HAULER line's
+   * crown capability in v1 (canOrderWorkforce); any other hull's
+   * call is refused silently, like the arsenal's mount gates. The
+   * mode lives on the seat record, so it syncs as seat state; a
+   * GUEST captain's switch-throwing rides the per-seat economy
+   * follow-on with the other guest economy verbs — this verb is
+   * the local/host path, and the B2 bot policy will set the same
+   * field for bot haulers.
+   */
+  const setDeliveryMode = useCallback((mode: 'feed' | 'deposit') => {
+    setState(prev => {
+      if (!canOrderWorkforce(prev.ship.line)) return prev;
+      const seats = prev.seats.map(seat =>
+        seat.ownerId === prev.ship.ownerId ? { ...seat, deliveryMode: mode } : seat);
+      return { ...prev, seats };
     });
   }, []);
 
@@ -1854,6 +1875,14 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         const droneStep = stepDrones({ next, seatByOwnerId, star, enemyStar, localOwnerId, teamScrap });
         next.drones = droneStep.drones;
         teamScrap = droneStep.teamScrap;
+        // WORKFORCE ORDERS (2026-10-22): a DEPOSIT order banks the
+        // workforce's loads on the SEAT record inside the drone
+        // step; the local seat's bank is the top-level wallet, so
+        // carry the seat's post-step bank back up — the next frame's
+        // seat rebuild seeds the seat FROM the top level, and
+        // without this the deposit would silently un-bank.
+        const localSeatAfterDrones = seatByOwnerId.get(localOwnerId);
+        if (localSeatAfterDrones) next.bankedScrap = localSeatAfterDrones.bankedScrap;
 
         // Decoy lifetime (Slice 6)
         if (next.decoy) {
@@ -2333,6 +2362,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     switchLine,
     buildDrone,
     buildDefenseDrone,
+    setDeliveryMode,
     buildEscort,
     debugGrantScrap,
     debugGrantFed,
