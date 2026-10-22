@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { GameState } from '../types';
+import { GameState, type WreckMarker } from '../types';
 import { COLORS, PHYSICS } from '../constants';
 import { BANK_WELL_MARGIN } from '../bank';
 import { shieldMaxFor, PD_RANGE } from '../loadout';
@@ -456,10 +456,106 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       ctx.restore();
     });
 
-    // DRAW SCRAP
+    // WRECK SALVAGE (Adam, 2026-10-22; the settled marker
+    // contract — sim: src/sim/salvage.ts): a capital death leaves
+    // a TOMBSTONE (state.wrecks) and a scatter of value-carrying
+    // SHARDS (scrap with value). The tombstone draws the
+    // non-collectible dressing — a broken hull remnant hashed
+    // from the wreck's seed (every client draws the same
+    // wreck), scaled by its rolled value, cooling from ember
+    // to cold metal across bornAt -> expiresAt, turning very
+    // slowly. Shards draw jagged, spin off their own id hash,
+    // and cool by THEIR marker's age; a shard whose marker has
+    // expired (dangling wreckId) or that never had one (drone /
+    // escort salvage piles) renders cold — plain metal, never
+    // an error. Plain cargo (no value) draws exactly as before.
+    // Ages read performance.now(), the clock every stamp in
+    // this canvas already uses (CME charges, hit flashes).
+    const wreckById: Map<string, WreckMarker> = new Map((state.wrecks || []).map(w => [w.id, w] as [string, WreckMarker]));
+    const nowMs = performance.now();
+    const wreckHash = (seed: number, i: number): number => {
+      const x = Math.sin(seed * 12743.13 + i * 311.7) * 43758.5453;
+      return x - Math.floor(x);
+    };
+    const idHash = (id: string): number => {
+      let h = 0;
+      for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 9973;
+      return (h % 1000) / 1000;
+    };
+    const coolingFill = (age: number): string => {
+      const t = Math.max(0, Math.min(1, age));
+      const r = Math.round(255 + (138 - 255) * t);
+      const g = Math.round(138 + (143 - 138) * t);
+      const b = Math.round(66 + (152 - 66) * t);
+      return `rgb(${r}, ${g}, ${b})`;
+    };
+    for (const w of state.wrecks || []) {
+      const span = Math.max(1, w.expiresAt - w.bornAt);
+      const age = Math.max(0, Math.min(1, (nowMs - w.bornAt) / span));
+      const R = 12 + Math.min(26, w.value * 0.35);
+      const rot = w.seed * Math.PI * 2 + (nowMs - w.bornAt) / 9000;
+      // Ember glow, dying with age.
+      const glow = ctx.createRadialGradient(w.pos.x, w.pos.y, 0, w.pos.x, w.pos.y, R * 1.9);
+      glow.addColorStop(0, `rgba(255, 120, 40, ${(1 - age) * 0.30})`);
+      glow.addColorStop(1, 'rgba(255, 120, 40, 0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(w.pos.x, w.pos.y, R * 1.9, 0, Math.PI * 2);
+      ctx.fill();
+      // The broken remnant: seed-hashed shards in a loose ring.
+      ctx.fillStyle = coolingFill(age);
+      ctx.strokeStyle = 'rgba(20, 22, 26, 0.85)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 6; i++) {
+        const a = rot + (i / 6) * Math.PI * 2 + wreckHash(w.seed, i) * 0.7;
+        const rr = R * (0.35 + wreckHash(w.seed, i + 20) * 0.55);
+        const px = w.pos.x + Math.cos(a) * rr;
+        const py = w.pos.y + Math.sin(a) * rr;
+        const sz = R * (0.22 + wreckHash(w.seed, i + 40) * 0.22);
+        const pa = wreckHash(w.seed, i + 60) * Math.PI * 2 + rot;
+        ctx.beginPath();
+        for (let k = 0; k < 4; k++) {
+          const ka = pa + (k / 4) * Math.PI * 2;
+          const kr = sz * (k % 2 === 0 ? 1 : 0.55);
+          const vx = px + Math.cos(ka) * kr;
+          const vy = py + Math.sin(ka) * kr;
+          if (k === 0) ctx.moveTo(vx, vy); else ctx.lineTo(vx, vy);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+
+    // DRAW SCRAP (+ the salvage shards among it)
     scrap.forEach(d => {
-      ctx.fillStyle = d.color;
-      ctx.fillRect(d.pos.x - 2, d.pos.y - 2, 4, 4);
+      if (!d.value) {
+        ctx.fillStyle = d.color;
+        ctx.fillRect(d.pos.x - 2, d.pos.y - 2, 4, 4);
+        return;
+      }
+      const marker = d.wreckId ? wreckById.get(d.wreckId) : undefined;
+      const age = marker
+        ? Math.max(0, Math.min(1, (nowMs - marker.bornAt) / Math.max(1, marker.expiresAt - marker.bornAt)))
+        : 1; // no monument, or its monument is gone: cold metal
+      const h = idHash(d.id);
+      const r = 2.5 + Math.min(5, (d.value / 25) * 5);
+      const rot = h * Math.PI * 2 + nowMs * 0.0004 * (h > 0.5 ? 1 : -1);
+      const points = 5 + Math.floor(h * 3);
+      ctx.beginPath();
+      for (let k = 0; k < points; k++) {
+        const ka = rot + (k / points) * Math.PI * 2;
+        const kr = r * (0.65 + wreckHash(h * 977, k) * 0.5);
+        const vx = d.pos.x + Math.cos(ka) * kr;
+        const vy = d.pos.y + Math.sin(ka) * kr;
+        if (k === 0) ctx.moveTo(vx, vy); else ctx.lineTo(vx, vy);
+      }
+      ctx.closePath();
+      ctx.fillStyle = coolingFill(age);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(20, 22, 26, 0.8)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
     });
 
     // DRAW MINES: pink diamonds with a blinking core (blink rides the
