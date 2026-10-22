@@ -23,6 +23,7 @@ import {
   physicalSizeForStar,
 } from '../sim/starStages';
 import { stepDrones } from '../sim/drones';
+import { stepEscorts } from '../sim/escorts';
 import { stepMines, stepProjectiles } from '../sim/projectiles';
 import { isStealthShip, isVisibleTo, PERISCOPE_REVEAL_S } from '../sim/stealth';
 import { stepCme } from '../sim/cme';
@@ -32,7 +33,7 @@ import { applyDeathLoss, botRepurchaseDue, completeRespawn, respawnDue, tryRepur
 import { appendEventRecords, EventFeedEntry } from '../sim/eventFeed';
 import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, turretAngleAt, targetInTurretArc, applyDeliveryHeal } from '../starDefense';
 import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, thornDamageFor, aegisAbsorbFor } from '../loadout';
-import { ShipLine, TypeTier, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, DEFENSE_DRONE_PRICE, EXTRA_MOUNT_DAMAGE, AUTO_GUN, autoGunCapFor, effectiveAutoGuns, turretMountPriceFor } from '../shipProgression';
+import { ShipLine, TypeTier, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, DEFENSE_DRONE_PRICE, EXTRA_MOUNT_DAMAGE, AUTO_GUN, autoGunCapFor, effectiveAutoGuns, turretMountPriceFor, ESCORT_KIND_DEFS, escortCapFor, escortKindOf, type EscortKind } from '../shipProgression';
 
 /**
  * SHIP PROGRESSION (Phase 3, src/shipProgression.ts — DRAFT numbers):
@@ -161,6 +162,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     decoy: null,
     cmes: [],
     drones: [],
+    escorts: [],
     starOrbit: 0,
     enemyStarOrbit: 0,
     teamScrap: 0,
@@ -701,6 +703,41 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         health: 100,
       };
       return { ...prev, ship, bankedScrap: payment.banked, drones: [...prev.drones, drone], glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
+    });
+  }, []);
+
+  /**
+   * Build ONE carrier-wing escort (Arsenal slice 5b, 2026-10-21):
+   * a real little ship of the given kind, built at the well like a
+   * drone and rebuilt the same way when lost. The CURRENT type's
+   * escortWing composition is the cap (the wing belongs to the
+   * drone line — other hulls field none); the wing itself is a
+   * seat asset that persists through the carrier's death and any
+   * line change, like her drones. The escort flies its kind's hull
+   * from the tables (line/tier stamped at build) with a bolt
+   * cannon at its class's tier; src/sim/escorts.ts flies it.
+   * Prices are the kind defs' DRAFT figures.
+   */
+  const buildEscort = useCallback((kind: EscortKind) => {
+    setState(prev => {
+      if (!inTeamWell(prev.seats, prev.ship)) return prev; // escorts are built at home
+      const def = ESCORT_KIND_DEFS[kind];
+      const fielded = prev.escorts.filter(e => e.ownerId === prev.ship.ownerId && escortKindOf(e) === kind).length;
+      if (fielded >= escortCapFor(prev.ship.line, prev.ship.typeTier, kind)) return prev;
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, def.price, inTeamWell(prev.seats, prev.ship));
+      if (!payment) return prev;
+
+      const ship = { ...prev.ship, carrying: payment.carrying };
+      const escort = {
+        ...createStarterShip(prev.ship.ownerId, { x: prev.ship.pos.x + 50, y: prev.ship.pos.y + 50 }, { withStarterWeapon: true }),
+        // The starter frame's id names its seat — every escort of
+        // the wing needs its OWN (projectile pierce dedupes by id).
+        id: 'escort-' + Math.random().toString(36).substr(2, 9),
+        line: def.line,
+        typeTier: def.typeTier,
+        arsenal: { bolt_cannon: def.typeTier },
+      };
+      return { ...prev, ship, bankedScrap: payment.banked, escorts: [...prev.escorts, escort], glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
     });
   }, []);
 
@@ -2118,6 +2155,13 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           for (const p of botResult.projectiles) next.projectiles.push(p);
         }
 
+        // ESCORT WINGS (Arsenal slice 5b): every seat's wing steps
+        // here — station, leashed engagement, volleys into this
+        // frame's production phase beside the bot drivers' (their
+        // bolts first move next frame, like theirs). Wrecks and
+        // dissolved seats' wings drop out inside the step.
+        next.escorts = stepEscorts({ next, seatByOwnerId, seats: simSeats, time, localOwnerId });
+
         // Update Turrets
         next.starOrbit += 0.01;
         next.enemyStarOrbit += 0.015;
@@ -2289,6 +2333,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     switchLine,
     buildDrone,
     buildDefenseDrone,
+    buildEscort,
     debugGrantScrap,
     debugGrantFed,
     debugJumpTo,

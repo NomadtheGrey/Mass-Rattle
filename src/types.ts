@@ -13,6 +13,16 @@ export interface GameObject {
   size: number;
 }
 
+/**
+ * A carrier-wing escort hull (Arsenal slice 5b): a Ship with its
+ * own id. Seat ships need no id (one per seat — systems key on
+ * ownerId); a wing fields many hulls per seat, so escorts carry
+ * one (projectile pierce dedupes by it, as it does for drones).
+ */
+export interface EscortShip extends Ship {
+  id: string;
+}
+
 export interface Ship extends GameObject {
   angle: number;
   rotationVel: number;
@@ -364,6 +374,15 @@ export interface GameState {
   /** CME wavefronts currently in flight from either star (Slice 7). */
   cmes: CmeWave[];
   drones: Harvester[];
+  /**
+   * Carrier-wing escorts (Arsenal slice 5b): full Ship objects
+   * owned by a seat (ownerId), flown by src/sim/escorts.ts. They
+   * persist through their carrier's death like drones do, anchor
+   * to her star while she is shipless, and are rebuilt at the well
+   * (buildEscort). The local seat's wing and remote seats' wings
+   * share this one list; the snapshot carries it as an entity.
+   */
+  escorts: EscortShip[];
   starOrbit: number;
   enemyStarOrbit: number;
   teamScrap: number;
