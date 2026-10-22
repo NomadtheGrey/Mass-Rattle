@@ -307,6 +307,7 @@ export const HUD: React.FC<HUDProps> = ({
     if (p.sold.escorts > 0) parts.push(`${p.sold.escorts} ESCORT${p.sold.escorts > 1 ? 'S' : ''}`);
     return parts.join(' · ');
   };
+  const sellTripNote = (p: SellPreview): string => p.sold.drones > 0 ? ' · HARVESTERS BANK AFTER ONE LAST TRIP HOME' : '';
   const switchPreviews: Partial<Record<ShipLine, SellPreview>> = {};
   const choicePreviews: Partial<Record<ShipLine, SellPreview>> = {};
   for (const ln of Object.keys(SHIP_LINES) as ShipLine[]) {
@@ -1551,7 +1552,7 @@ export const HUD: React.FC<HUDProps> = ({
                           <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(t2)}</span>
                           <span className="text-[10px] sm:text-xs font-mono font-bold text-pink-400">{price}U</span>
                           {hasSales(choicePreviews[ln]) && (
-                            <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-amber-400">⚠ SELLS: {sellSummary(choicePreviews[ln]!)} (+{choicePreviews[ln]!.refund}U TO BANK)</span>
+                            <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-amber-400">⚠ SELLS: {sellSummary(choicePreviews[ln]!)} (+{choicePreviews[ln]!.refund}U TO BANK){sellTripNote(choicePreviews[ln]!)}</span>
                           )}
                         </button>
                       );
@@ -1570,7 +1571,7 @@ export const HUD: React.FC<HUDProps> = ({
                       <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(next)} · HULL CAP {next.hullStepCap}</span>
                       <span className="text-[10px] sm:text-xs font-mono font-bold text-pink-400">{price}U</span>
                       {hasSales(climbPreview ?? undefined) && (
-                        <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-amber-400">⚠ SELLS: {sellSummary(climbPreview!)} (+{climbPreview!.refund}U TO BANK)</span>
+                        <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-amber-400">⚠ SELLS: {sellSummary(climbPreview!)} (+{climbPreview!.refund}U TO BANK){sellTripNote(climbPreview!)}</span>
                       )}
                     </button>
                   );
@@ -1599,7 +1600,7 @@ export const HUD: React.FC<HUDProps> = ({
                             className={`flex-1 min-w-[86px] px-2 py-1.5 rounded text-[9px] sm:text-[10px] font-mono font-bold border touch-manipulation active:scale-95 flex flex-col items-center justify-center gap-0.5 ${afford ? 'bg-zinc-900 text-zinc-200 border-zinc-600' : 'bg-zinc-900 text-zinc-500 border-zinc-800 cursor-not-allowed'}`}>
                             <span>⇄ {ln.toUpperCase()} · {switchCost === 0 ? 'FREE' : `${switchCost}U`}</span>
                             {targetSellWarn && (
-                              <span className="text-[7px] sm:text-[8px] text-amber-400 tracking-normal">⚠ SELLS THERE: {sellSummary(targetPreview!)} (+{targetPreview!.refund}U TO BANK)</span>
+                              <span className="text-[7px] sm:text-[8px] text-amber-400 tracking-normal">⚠ SELLS THERE: {sellSummary(targetPreview!)} (+{targetPreview!.refund}U TO BANK){sellTripNote(targetPreview!)}</span>
                             )}
                           </button>
                         );
