@@ -258,6 +258,8 @@ export default function App() {
         onDebugJumpTo={debugJumpTo}
         escortCounts={{ skiff: state.escorts.filter(e => e.ownerId === state.ship.ownerId && escortKindOf(e) === 'skiff').length, stinger: state.escorts.filter(e => e.ownerId === state.ship.ownerId && escortKindOf(e) === 'stinger').length, lancer: state.escorts.filter(e => e.ownerId === state.ship.ownerId && escortKindOf(e) === 'lancer').length }}
         onBuildEscort={buildEscort}
+        starFleetCount={state.drones.filter(d => d.starFleet && d.ownerId === state.ship.ownerId).length}
+        enemyStarFleetCount={state.drones.filter(d => d.starFleet && d.ownerId === (state.seats.find(se => se.starId === state.enemyStar.id)?.ownerId ?? '')).length}
         onBuyType={buyType}
         onBuyHullStep={buyHullStep}
         onBuyTurretMount={buyTurretMount}

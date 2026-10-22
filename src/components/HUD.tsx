@@ -2,6 +2,7 @@ import { motion } from 'motion/react';
 import React from 'react';
 import { PHYSICS } from '../constants';
 import { milestonesForInfused, progressIntoNextMilestone, nextMilestoneCost, cumulativeCostForMilestones } from '../starGrowth';
+import { starDroneTargetForMilestones, starDroneRangeForTarget } from '../starFleet';
 import { stageStateForInfused, type StarStageState } from '../sim/starStages';
 import { BUILD_HISTORY, LATEST_BUILD } from '../buildHistory';
 import { useUiOptions, setUiOption, resetUiOptions, type UiOptions } from '../uiOptions';
@@ -184,6 +185,8 @@ interface HUDProps {
   playerDefenseDrones: number;
   onBuildDefenseDrone: () => void;
   escortCounts: { skiff: number; stinger: number; lancer: number };
+  starFleetCount: number;
+  enemyStarFleetCount: number;
   onBuildEscort: (kind: EscortKind) => void;
   onDebugGrantScrap?: (amount: number) => void;
   onDebugGrantFed?: (amount: number) => void;
@@ -247,6 +250,8 @@ export const HUD: React.FC<HUDProps> = ({
   playerDefenseDrones,
   onBuildDefenseDrone,
   escortCounts,
+  starFleetCount,
+  enemyStarFleetCount,
   onBuildEscort,
   onDebugGrantScrap,
   onDebugGrantFed,
@@ -330,6 +335,15 @@ export const HUD: React.FC<HUDProps> = ({
   const stageBandSize = homeField.bandSize;
   const nextStage = homeField.next;
   const enemyField = stageFieldFor(enemyTotalInfused);
+  // STAR FLEET reads (src/starFleet.ts): the star's own harvesters,
+  // grown by her milestones — target and leash are pure reads off
+  // the same totals the field groups above carry; the counts arrive
+  // by prop (App filters state.drones on the starFleet flag). The
+  // fleet is NOT the captain's workforce and never counts there.
+  const homeFleetTarget = starDroneTargetForMilestones(milestonesForInfused(totalScrapInfused));
+  const homeFleetRange = starDroneRangeForTarget(homeFleetTarget);
+  const enemyFleetTarget = starDroneTargetForMilestones(milestonesForInfused(enemyTotalInfused));
+  const enemyFleetRange = starDroneRangeForTarget(enemyFleetTarget);
   const [showSysCfg, setShowSysCfg] = React.useState(false);
   // TESTER KIT feedback line (SysCfg DEV section): the kit's actions
   // confirm in place — the workshop's notice line is not visible
@@ -728,6 +742,11 @@ export const HUD: React.FC<HUDProps> = ({
                   ? `TO ${STAGE_LABELS[nextStage]}: ${stageFedInBand}/${stageBandSize}U FED`
                   : 'CRITICAL MASS — COLLAPSE ENDS THE MATCH'}
               </div>
+              <div className="flex justify-between text-[10px] mt-1.5 pt-1.5 border-t border-zinc-800/70">
+                <span className="text-zinc-300">⭐ STAR FLEET</span>
+                <span className="text-zinc-200 font-bold">{starFleetCount}/{homeFleetTarget} · RANGE {homeFleetRange}U</span>
+              </div>
+              <div className="text-[8px] font-mono text-zinc-500 leading-snug">HER OWN HARVESTERS (✦ ON CANVAS) — THEY FEED HER UNATTENDED AND REGROW WHEN LOST. NOT YOUR WORKFORCE.</div>
             </div>
 
             <div>
@@ -769,6 +788,10 @@ export const HUD: React.FC<HUDProps> = ({
                 {enemyField.next
                   ? `TO ${STAGE_LABELS[enemyField.next]}: ${enemyField.fedInBand}/${enemyField.bandSize}U FED`
                   : 'CRITICAL MASS — COLLAPSE ENDS THE MATCH'}
+              </div>
+              <div className="flex justify-between text-[10px] mt-1.5 pt-1.5 border-t border-red-950/70">
+                <span className="text-zinc-300">⭐ STAR FLEET</span>
+                <span className="text-zinc-200 font-bold">{enemyStarFleetCount}/{enemyFleetTarget} · RANGE {enemyFleetRange}U</span>
               </div>
             </div>
 

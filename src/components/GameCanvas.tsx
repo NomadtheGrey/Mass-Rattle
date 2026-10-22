@@ -597,6 +597,30 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       }
       
       ctx.restore();
+
+      // STAR FLEET BADGE (UI's call on BackGround's flag, 2026-10-22):
+      // fleet drones are the STAR'S gleaners, not the captain's
+      // workforce — but they fly the same harvester body, so they
+      // wear a small gold star above the hull. A badge, not a part:
+      // unrotated, allegiance still reads off the body color, and
+      // the Astronomic star fields name the same mark (✦).
+      if (d.starFleet) {
+        ctx.save();
+        ctx.translate(d.pos.x, d.pos.y - 11);
+        ctx.fillStyle = '#ffd34d';
+        ctx.beginPath();
+        ctx.moveTo(0, -4);
+        ctx.lineTo(1.2, -1.2);
+        ctx.lineTo(4, 0);
+        ctx.lineTo(1.2, 1.2);
+        ctx.lineTo(0, 4);
+        ctx.lineTo(-1.2, 1.2);
+        ctx.lineTo(-4, 0);
+        ctx.lineTo(-1.2, -1.2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
     });
 
     // DRAW PROJECTILES — every weapon draws as itself (UI lane pass,
