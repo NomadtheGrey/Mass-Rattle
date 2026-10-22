@@ -484,7 +484,8 @@ export const HUD: React.FC<HUDProps> = ({
   const homeFleetRange = starDroneRangeForTarget(homeFleetTarget);
   const enemyFleetTarget = starDroneTargetForMilestones(milestonesForInfused(enemyTotalInfused));
   const enemyFleetRange = starDroneRangeForTarget(enemyFleetTarget);
-  const [showSysCfg, setShowSysCfg] = React.useState(false);
+    const [escTab, setEscTab] = React.useState<'guide' | 'options' | 'sys'>('options');
+  const openCabinet = React.useCallback((tab: 'guide' | 'options' | 'sys') => { setEscTab(tab); setShowOptions(true); }, []);
   // TESTER KIT feedback line (SysCfg DEV section): the kit's actions
   // confirm in place — the workshop's notice line is not visible
   // from inside SysCfg, so the section keeps its own.
@@ -498,8 +499,7 @@ export const HUD: React.FC<HUDProps> = ({
   // surfaces only and persist on-device (src/uiOptions.ts).
   const [showOptions, setShowOptions] = React.useState(false);
   const uiOptions = useUiOptions();
-  const [showGuide, setShowGuide] = React.useState(false);
-  // Workshop tabs: the five base ship tracks, then the Arsenal categories.
+    // Workshop tabs: the five base ship tracks, then the Arsenal categories.
   const [shopTab, setShopTab] = React.useState<'ship' | 'bank' | ArsenalCategory>('ship');
   // SHIP FRAME DOOR + WORKSHOP NOTICE (Adam live-test, 2026-10-21):
   // the progression panel's header was a display div wearing the
@@ -583,10 +583,13 @@ export const HUD: React.FC<HUDProps> = ({
 
   const radarActive = isMobileRadarOpen || localRadarOpen;
 
-  // THE MODAL RULE (Adam, 2026-10-20 + 2026-10-21): every modal popup
-  // exits three ways — its corner [X] button, the X key, and ESC —
-  // and one press closes the TOPMOST modal only (build history over
-  // SYSCFG, then SYSCFG, workshop, radar, OPTIONS, the guide).
+  // THE MODAL RULE (Adam, 2026-10-20 + 2026-10-21; cabinet form
+  // 2026-10-22): every modal popup exits three ways — its corner
+  // [X] button, the X key, and ESC — and one press closes the
+  // TOPMOST modal only (build history over the ESC cabinet, then
+  // workshop, radar, the cabinet). The cabinet is the system's
+  // one cabinet: GUIDE / OPTIONS / SYS live as its tabs (Adam's
+  // ruling) — on phone it is their ONLY home.
   // Closing lives in ONE capture-
   // phase listener: it fires before the game loop's own key handling,
   // and stopPropagation seals the key there, so an X pressed over a
@@ -594,10 +597,9 @@ export const HUD: React.FC<HUDProps> = ({
   // and an ESC cannot fall through to anything else. The results
   // screen is deliberately NOT in this chain — it is the match end,
   // a state rather than a popup, and its exit is the restart button.
-  const anyModalOpen = showBuilds || showSysCfg || isShopOpen || radarActive || showOptions || showGuide;
+  const anyModalOpen = showBuilds || isShopOpen || radarActive || showOptions;
   const closeTopmost = React.useCallback(() => {
     if (showBuilds) { setShowBuilds(false); return; }
-    if (showSysCfg) { setShowSysCfg(false); return; }
     if (isShopOpen && onCloseShop) { onCloseShop(); return; }
     if (radarActive) {
       if (onToggleMobileRadar) onToggleMobileRadar();
@@ -605,8 +607,7 @@ export const HUD: React.FC<HUDProps> = ({
       return;
     }
     if (showOptions) { setShowOptions(false); return; }
-    if (showGuide) { setShowGuide(false); }
-  }, [showBuilds, showSysCfg, isShopOpen, onCloseShop, radarActive, onToggleMobileRadar, showOptions, showGuide]);
+  }, [showBuilds, isShopOpen, onCloseShop, radarActive, onToggleMobileRadar, showOptions]);
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const isEsc = e.key === 'Escape';
@@ -621,17 +622,18 @@ export const HUD: React.FC<HUDProps> = ({
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [anyModalOpen, closeTopmost]);
-  // ESC with NOTHING open opens the guide — the guide's door, kept
-  // from the original stack. (Closes never reach this listener: the
-  // capture handler above has already consumed them.)
+  // ESC with NOTHING open opens the cabinet at the GUIDE tab —
+  // the guide's old ESC door, kept: the destination is the same,
+  // the room is the cabinet now. (Closes never reach this
+  // listener: the capture handler above has already consumed them.)
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || anyModalOpen) return;
-      setShowGuide(true);
+      openCabinet('guide');
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [anyModalOpen]);
+  }, [anyModalOpen, openCabinet]);
 
   // CONTROLS CARD rows (desktop, bottom-left of the play area): the whole
   // key set in one readable place. Contextual like the rest of the HUD —
@@ -793,18 +795,6 @@ export const HUD: React.FC<HUDProps> = ({
             <span className="text-cyan-400 font-bold bg-cyan-950/60 px-1 py-0.5 rounded border border-cyan-800">
               FED: {teamScrap}U
             </span>
-            <button
-              onClick={() => setShowSysCfg(true)}
-              className="text-zinc-400 hover:text-white px-1.5 py-0.5 bg-zinc-900 border border-zinc-700 rounded text-[8px]"
-            >
-              SYS
-            </button>
-            <button
-              onClick={() => setShowGuide(true)}
-              className="text-zinc-400 hover:text-white px-1.5 py-0.5 bg-zinc-900 border border-zinc-700 rounded text-[8px]"
-            >
-              GUIDE
-            </button>
           </div>
         </div>
 
@@ -1054,7 +1044,7 @@ export const HUD: React.FC<HUDProps> = ({
 
           {/* Utility Cluster */}
           <div className="absolute bottom-0 right-0 w-24 flex flex-col gap-2 items-end">
-            <div className="hud-panel w-16 p-2 flex flex-col items-center gap-4 border-2 shadow-2xl pointer-events-auto">
+            <div className="hud-panel w-16 p-2 flex flex-col items-center gap-4 border-2 shadow-2xl pointer-events-auto max-md:hidden">
               {/* Fuel state — a READOUT, not a button (audit, 2026-10-20):
                   reads the real fuel prop. Its old neighbours — inert
                   JETTISON / FIRE / VAC squares dressed as buttons and
@@ -1063,13 +1053,13 @@ export const HUD: React.FC<HUDProps> = ({
                 {fuel < maxFuel * 0.2 ? 'FUEL CRIT' : fuel < maxFuel * 0.4 ? 'FUEL LOW' : 'FUEL OK'}
               </div>
               <button 
-                onClick={() => setShowSysCfg(true)}
+                onClick={() => openCabinet('sys')}
                 className="w-10 h-10 pitted-metal flex items-center justify-center text-[#33ff33] hover:text-white hover:bg-zinc-800 transition-colors text-[8px] text-center pointer-events-auto cursor-pointer"
               >
                 SYSCFG
               </button>
               <button 
-                onClick={() => setShowGuide(true)}
+                onClick={() => openCabinet('guide')}
                 className="w-10 h-10 pitted-metal flex items-center justify-center text-[#33ff33] hover:text-white hover:bg-zinc-800 transition-colors text-[8px] text-center pointer-events-auto cursor-pointer"
               >
                 GUIDE
@@ -2146,17 +2136,25 @@ export const HUD: React.FC<HUDProps> = ({
           GUIDE buttons, closes via ESC / X / backdrop. Sits at the
           BOTTOM of the dialog stack (z-105) — workshop, radar, and
           SYSCFG all layer above it and close before it. */}
-      {showGuide && <MechanicsGuide onClose={() => setShowGuide(false)} onOpenOptions={() => setShowOptions(true)} />}
 
       {/* DISPLAY OPTIONS (Adam, 2026-10-21): reference panels only —
           instrumentation always flies. Above the guide (z-108),
           below the workshop; [X] / X / ESC close it back to the
           manual via the modal rule. */}
+      {/* THE ESC CABINET (Adam's ruling, 2026-10-22): GUIDE,
+          OPTIONS, and SYS live as tabs in this one modal — the
+          system's cabinet. On phone it is their ONLY home (the
+          mobile ribbon's SYS/GUIDE pair and the utility cluster
+          stood down); on desktop the utility cluster's buttons
+          remain as extra doors into the tabs. ESC with nothing
+          open lands on the GUIDE tab (the guide's old door,
+          preserved). Build history stacks above it from the SYS
+          tab's LAST BUILD door and closes back into it. */}
       {showOptions && (
         <div className="fixed inset-0 z-[108] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md pointer-events-auto" onClick={() => setShowOptions(false)}>
-          <div className="hud-panel hud-panel-deep w-full max-w-md max-h-[88vh] overflow-y-auto p-4 sm:p-6 border-4 rounded-lg" onClick={e => e.stopPropagation()}>
+          <div className="hud-panel hud-panel-deep w-full max-w-lg max-h-[88vh] overflow-y-auto p-4 sm:p-6 border-4 rounded-lg" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center border-b border-zinc-800 pb-2 mb-3">
-              <span className="text-xs sm:text-sm font-mono font-bold tracking-[0.25em] text-[#33ff33]">⚙ DISPLAY OPTIONS</span>
+              <span className="text-xs sm:text-sm font-mono font-bold tracking-[0.25em] text-[#33ff33]">⚙ SYSTEMS</span>
               <button
                 onClick={() => setShowOptions(false)}
                 className="text-red-500 hover:text-red-400 text-xs font-mono font-bold px-2.5 py-1.5 bg-zinc-900 border border-red-900 rounded touch-manipulation"
@@ -2164,6 +2162,23 @@ export const HUD: React.FC<HUDProps> = ({
                 [X]
               </button>
             </div>
+            <div className="flex gap-2 mb-4">
+              {([['guide', '📖 GUIDE'], ['options', '⚙ OPTIONS'], ['sys', 'SYS']] as const).map(([tab, label]) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setEscTab(tab)}
+                  className={`flex-1 px-2 py-2 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-widest touch-manipulation ${escTab === tab ? 'bg-emerald-950/60 text-[#33ff33] border-emerald-700' : 'bg-zinc-900/60 text-zinc-400 border-zinc-800'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {escTab === 'guide' && (
+              <MechanicsGuide embedded onClose={() => setShowOptions(false)} />
+            )}
+            {escTab === 'options' && (
+              <>
             <div className="flex flex-col gap-2">
               {([
                 { key: 'controlsCard', label: 'SHIP CONTROLS CARD', blurb: 'The key reference — desktop card and the phone HELP legend.' },
@@ -2196,62 +2211,14 @@ export const HUD: React.FC<HUDProps> = ({
                 ALL ON
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* BUILD HISTORY (Adam, 2026-10-21): the last 20 production
-          builds, opened from SYSCFG's LAST BUILD door. Topmost in the
-          modal rule — [X] / X / ESC close it back into SYSCFG. */}
-      {showBuilds && (
-        <div className="fixed inset-0 z-[140] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md pointer-events-auto" onClick={() => setShowBuilds(false)}>
-          <div className="hud-panel hud-panel-deep w-full max-w-lg max-h-[88vh] overflow-y-auto p-4 sm:p-6 border-4 rounded-lg" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center border-b border-zinc-800 pb-2 mb-3">
-              <span className="text-xs sm:text-sm font-mono font-bold tracking-[0.25em] text-[#33ff33]">BUILD HISTORY — LAST {Math.min(20, BUILD_HISTORY.length)}</span>
-              <button
-                onClick={() => setShowBuilds(false)}
-                className="text-red-500 hover:text-red-400 text-xs font-mono font-bold px-2.5 py-1.5 bg-zinc-900 border border-red-900 rounded touch-manipulation"
-              >
-                [X]
-              </button>
-            </div>
-            <div className="flex flex-col gap-3">
-              {BUILD_HISTORY.slice(0, 20).map((b, i) => (
-                <div key={b.ref + b.date} className={i === 0 ? 'border-l-2 border-[#33ff33] pl-3' : 'border-l-2 border-zinc-800 pl-3'}>
-                  <div className="flex justify-between items-baseline gap-2">
-                    <span className="text-[9px] font-mono tracking-[0.2em] text-zinc-400">{b.date}</span>
-                    <span className="text-[9px] font-mono text-zinc-500">{b.ref}</span>
-                  </div>
-                  <div className="text-[11px] sm:text-xs font-mono font-bold text-zinc-100">{b.title}</div>
-                  <div className="text-[10px] font-mono text-zinc-400 leading-snug">{b.detail}</div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-4 pt-3 border-t border-zinc-800 text-[9px] font-mono text-zinc-500 leading-snug">
-              One entry per production build, newest first — the record appends at every merge.
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SYSCFG Popup (Responsive) */}
-      {showSysCfg && (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center p-3 sm:p-4 bg-black/90 backdrop-blur-md pointer-events-auto">
-          <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rusted-frame p-6 sm:p-8 border-4 relative rounded-lg shadow-[0_0_100px_rgba(0,0,0,1)]">
-            <div className="relative z-10">
-              <div className="flex justify-between items-center mb-4 sm:mb-6 border-b-2 border-amber-900/40 pb-2">
-                <div className="flex flex-col">
-                  <h2 className="font-bold text-amber-600 uppercase tracking-widest text-xs sm:text-sm leading-none">System Configuration</h2>
+              </>
+            )}
+            {escTab === 'sys' && (
+              <div>
+                <div className="flex flex-col mb-4 border-b-2 border-amber-900/40 pb-2">
+                  <h3 className="font-bold text-amber-600 uppercase tracking-widest text-xs sm:text-sm leading-none">System Configuration</h3>
                   <span className="text-[9px] sm:text-[10px] text-zinc-500 font-mono mt-1">SCAV-OS VERSION 70.26 [MOBILE & DESKTOP]</span>
                 </div>
-                <button 
-                  onClick={() => setShowSysCfg(false)}
-                  className="text-red-500 hover:text-red-400 text-xs font-mono font-bold px-2.5 py-1.5 bg-zinc-900 border border-red-900 rounded touch-manipulation"
-                >
-                  [X] ABORT
-                </button>
-              </div>
-              
               <div className="space-y-2.5 font-mono text-xs">
                 <div className="flex justify-between border-b border-white/5 pb-1">
                   <span className="text-zinc-400">PLATFORM_RUNTIME:</span>
@@ -2355,18 +2322,56 @@ export const HUD: React.FC<HUDProps> = ({
                 </div>
               </div>
 
-              <div className="mt-6 flex justify-center">
-                <button 
-                  onClick={() => setShowSysCfg(false)}
-                  className="pitted-metal px-8 sm:px-12 py-2.5 text-xs font-bold hover:bg-zinc-800 transition-all uppercase tracking-widest text-amber-500 border border-amber-900/30 hover:border-amber-500 shadow-lg rounded"
-                >
-                  Confirm Diagnostics
-                </button>
+                <div className="mt-6 flex justify-center">
+                  <button
+                    onClick={() => setShowOptions(false)}
+                    className="pitted-metal px-8 sm:px-12 py-2.5 text-xs font-bold hover:bg-zinc-800 transition-all uppercase tracking-widest text-amber-500 border border-amber-900/30 hover:border-amber-500 shadow-lg rounded"
+                  >
+                    Confirm Diagnostics
+                  </button>
+                </div>
               </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* BUILD HISTORY (Adam, 2026-10-21): the last 20 production
+          builds, opened from the cabinet SYS tab's LAST BUILD
+          door. Topmost in the modal rule — [X] / X / ESC close it
+          back into the cabinet. */}
+      {showBuilds && (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md pointer-events-auto" onClick={() => setShowBuilds(false)}>
+          <div className="hud-panel hud-panel-deep w-full max-w-lg max-h-[88vh] overflow-y-auto p-4 sm:p-6 border-4 rounded-lg" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-2 mb-3">
+              <span className="text-xs sm:text-sm font-mono font-bold tracking-[0.25em] text-[#33ff33]">BUILD HISTORY — LAST {Math.min(20, BUILD_HISTORY.length)}</span>
+              <button
+                onClick={() => setShowBuilds(false)}
+                className="text-red-500 hover:text-red-400 text-xs font-mono font-bold px-2.5 py-1.5 bg-zinc-900 border border-red-900 rounded touch-manipulation"
+              >
+                [X]
+              </button>
+            </div>
+            <div className="flex flex-col gap-3">
+              {BUILD_HISTORY.slice(0, 20).map((b, i) => (
+                <div key={b.ref + b.date} className={i === 0 ? 'border-l-2 border-[#33ff33] pl-3' : 'border-l-2 border-zinc-800 pl-3'}>
+                  <div className="flex justify-between items-baseline gap-2">
+                    <span className="text-[9px] font-mono tracking-[0.2em] text-zinc-400">{b.date}</span>
+                    <span className="text-[9px] font-mono text-zinc-500">{b.ref}</span>
+                  </div>
+                  <div className="text-[11px] sm:text-xs font-mono font-bold text-zinc-100">{b.title}</div>
+                  <div className="text-[10px] font-mono text-zinc-400 leading-snug">{b.detail}</div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 pt-3 border-t border-zinc-800 text-[9px] font-mono text-zinc-500 leading-snug">
+              One entry per production build, newest first — the record appends at every merge.
             </div>
           </div>
         </div>
       )}
+
+
     </div>
   );
 };
