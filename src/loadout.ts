@@ -191,6 +191,44 @@ export const weaponClassFor = (itemId: string | null | undefined): WeaponClass |
  * mount this item? Non-weapons are never gated here (returns true)
  * — the gate governs weapons only, via the MOUNT_ACCESS table.
  */
+/**
+ * WEAPON SELECT ORDER (CONTROLS.md, SETTLED by Adam 2026-10-22):
+ * keys 1–5 + T select among OWNED, INSTALLED weapons in this
+ * FIXED registry order — 1 Bolt Cannon · 2 Ion Blaster ·
+ * 3 Mine Layer · 4 Flak Cannon · 5 Rail Lance · 6 (T) Seeker
+ * Torpedoes. The digit names the WEAPON, learned once for a
+ * whole career; the map NEVER renumbers when the arsenal grows
+ * (compaction over owned weapons was considered and rejected).
+ * There is no sixth digit: slot 6's only key is T.
+ */
+export const WEAPON_SELECT_ORDER: readonly string[] = [
+  'bolt_cannon',
+  'ion_blaster',
+  'mine_layer',
+  'flak_cannon',
+  'rail_lance',
+  'seeker_torpedoes',
+];
+
+/**
+ * Resolve a select-slot press to the weapon it names, or null
+ * when the press selects nothing: the slot is out of the map,
+ * the weapon isn't owned, or the hull being flown can't mount
+ * it (the strip greys exactly these — one gate for the grey and
+ * the press). Selection IS an equip (CONTROLS.md): the caller
+ * runs the equip verb, which pays the swap fee on change.
+ */
+export const weaponIdForSelectSlot = (
+  ship: { arsenal: Record<string, number>; line: ShipLine | null; typeTier: TypeTier },
+  slotIndex: number,
+): string | null => {
+  const itemId = WEAPON_SELECT_ORDER[slotIndex];
+  if (!itemId) return null;
+  if ((ship.arsenal[itemId] ?? 0) <= 0) return null;
+  if (!canMountWeapon(ship.line, ship.typeTier, itemId)) return null;
+  return itemId;
+};
+
 export const canMountWeapon = (line: ShipLine | null, typeTier: TypeTier, itemId: string): boolean => {
   const cls = weaponClassFor(itemId);
   if (cls === null) return true;
