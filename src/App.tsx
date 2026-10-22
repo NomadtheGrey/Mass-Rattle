@@ -263,6 +263,9 @@ export default function App() {
         enemyStarFleetCount={state.drones.filter(d => d.starFleet && d.ownerId === (state.seats.find(se => se.starId === state.enemyStar.id)?.ownerId ?? '')).length}
         deliveryMode={state.seats.find(se => se.ownerId === state.ship.ownerId)?.deliveryMode ?? 'feed'}
         onSetDeliveryMode={setDeliveryMode}
+        ship={state.ship}
+        drones={state.drones}
+        escorts={state.escorts}
         onBuyType={buyType}
         onBuyHullStep={buyHullStep}
         onBuyTurretMount={buyTurretMount}

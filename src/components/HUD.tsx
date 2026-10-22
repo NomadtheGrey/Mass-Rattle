@@ -3,6 +3,8 @@ import React from 'react';
 import { PHYSICS } from '../constants';
 import { milestonesForInfused, progressIntoNextMilestone, nextMilestoneCost, cumulativeCostForMilestones } from '../starGrowth';
 import { starDroneTargetForMilestones, starDroneRangeForTarget } from '../starFleet';
+import { reconcileSwitch } from '../switchReconcile';
+import type { Ship, Harvester, EscortShip } from '../types';
 import { stageStateForInfused, type StarStageState } from '../sim/starStages';
 import { BUILD_HISTORY, LATEST_BUILD } from '../buildHistory';
 import { useUiOptions, setUiOption, resetUiOptions, type UiOptions } from '../uiOptions';
@@ -189,6 +191,9 @@ interface HUDProps {
   enemyStarFleetCount: number;
   deliveryMode: 'feed' | 'deposit';
   onSetDeliveryMode: (mode: 'feed' | 'deposit') => void;
+  ship: Ship;
+  drones: Harvester[];
+  escorts: EscortShip[];
   onBuildEscort: (kind: EscortKind) => void;
   onDebugGrantScrap?: (amount: number) => void;
   onDebugGrantFed?: (amount: number) => void;
@@ -256,6 +261,9 @@ export const HUD: React.FC<HUDProps> = ({
   enemyStarFleetCount,
   deliveryMode,
   onSetDeliveryMode,
+  ship,
+  drones,
+  escorts,
   onBuildEscort,
   onDebugGrantScrap,
   onDebugGrantFed,
@@ -277,6 +285,36 @@ export const HUD: React.FC<HUDProps> = ({
   // hauler line's crown in v1 — the switch surfaces key off this one
   // read, never the line's name inlined here.
   const canOrder = canOrderWorkforce(shipLine);
+
+  // FORCED SELL previews (Adam's pin, 2026-10-22; the pure helper
+  // in src/switchReconcile.ts is the SAME code the switch verbs
+  // execute, so a preview here is the outcome, not an estimate):
+  // for every other line — the SWITCH target (same tier) and the
+  // CHOICE target off the Skiff (T2) — plus the within-line CLIMB.
+  // The switch buttons warn from these, and the confirmation
+  // effect below announces from the previous frame's set.
+  const previewFor = (line: ShipLine | null, tier: TypeTier) => {
+    const rec = reconcileSwitch(ship, drones, escorts, line, tier);
+    return { refund: rec.refund, sold: rec.sold };
+  };
+  type SellPreview = ReturnType<typeof previewFor>;
+  const hasSales = (p: SellPreview | undefined): boolean => !!p && (p.sold.weapons.length > 0 || p.sold.drones > 0 || p.sold.defenseDrones > 0 || p.sold.mounts > 0 || p.sold.escorts > 0);
+  const sellSummary = (p: SellPreview): string => {
+    const parts: string[] = p.sold.weapons.map(w => (getLoadoutItem(w)?.name ?? w).toUpperCase());
+    if (p.sold.drones > 0) parts.push(`${p.sold.drones} DRONE${p.sold.drones > 1 ? 'S' : ''}`);
+    if (p.sold.defenseDrones > 0) parts.push(`${p.sold.defenseDrones} DEFENSE DRONE${p.sold.defenseDrones > 1 ? 'S' : ''}`);
+    if (p.sold.mounts > 0) parts.push(`${p.sold.mounts} MOUNT${p.sold.mounts > 1 ? 'S' : ''}`);
+    if (p.sold.escorts > 0) parts.push(`${p.sold.escorts} ESCORT${p.sold.escorts > 1 ? 'S' : ''}`);
+    return parts.join(' · ');
+  };
+  const switchPreviews: Partial<Record<ShipLine, SellPreview>> = {};
+  const choicePreviews: Partial<Record<ShipLine, SellPreview>> = {};
+  for (const ln of Object.keys(SHIP_LINES) as ShipLine[]) {
+    if (ln === shipLine) continue;
+    switchPreviews[ln] = previewFor(ln, typeTier);
+    choicePreviews[ln] = previewFor(ln, 2);
+  }
+  const climbPreview: SellPreview | null = shipLine !== null && typeTier < 5 ? previewFor(shipLine, (typeTier + 1) as TypeTier) : null;
   const caps = capsFor(shipLine, typeTier);
   const switchCost = switchToll({ lineSwitchesUsed, typeTier });
   // Gauge scales follow the ship as upgraded (audit, 2026-10-20): the
@@ -383,23 +421,51 @@ export const HUD: React.FC<HUDProps> = ({
     if (shopNoticeTimer.current) window.clearTimeout(shopNoticeTimer.current);
     shopNoticeTimer.current = window.setTimeout(() => setShopNotice(null), 2800);
   };
-  // SHELVE CONFIRMATION (slice 4 close-out, on BackGround's flag,
-  // 2026-10-21): the switch buttons WARN before the toll; this
-  // confirms AFTER. switchLine (c7d69fa) shelves an unmountable
-  // equipped weapon — slot nulls, arsenal untouched. The trigger is
-  // that exact transition and nothing looser: the LINE changed, the
-  // weapon slot went non-null -> null, and the lost weapon does not
-  // mount on the new hull. Death/respawn nulls never change the
-  // line, so they cannot false-fire it. A debug jump produces the
-  // same transition, so when armed the note ALSO lands in the DEV
-  // section's own line (the workshop notice is invisible from
-  // inside SysCfg).
-  const prevFrameRef = React.useRef<{ line: ShipLine | null; weapon: string | null }>({ line: shipLine, weapon: loadout.weapon });
+  // SWITCH CONFIRMATION — THE FORCED SELL, AND THE ONE
+  // REMAINING SHELVE (2026-10-22): a real hull change SELLS what
+  // the new hull can't hold, at full price into the bank. The
+  // manifest announced is the preview computed from the PREVIOUS
+  // frame's state for exactly this target (the same pure code
+  // the verbs execute), and it announces only when the outcome
+  // verifies against the new state: a sold weapon is GONE from
+  // the arsenal, and the entity counts fell by the manifest's
+  // total. The DEBUG JUMP still shelves (a tester teleport is
+  // not a transaction): there the weapon stays owned with its
+  // slot emptied, the sell verification fails on exactly that
+  // fact, and the shelve line below runs as it always has —
+  // mirrored to the DEV note when armed, since the workshop
+  // notice is invisible from inside SysCfg. Death/respawn
+  // changes neither line nor tier and cannot false-fire either.
+  const prevSwitchRef = React.useRef<{
+    line: ShipLine | null; tier: TypeTier; weapon: string | null;
+    switchPreviews: Partial<Record<ShipLine, SellPreview>>; choicePreviews: Partial<Record<ShipLine, SellPreview>>; climbPreview: SellPreview | null;
+    drones: number; defenseDrones: number; escorts: number; mounts: number;
+  }>({ line: shipLine, tier: typeTier, weapon: loadout.weapon, switchPreviews: {}, choicePreviews: {}, climbPreview: null, drones: playerDrones, defenseDrones: playerDefenseDrones, escorts: 0, mounts: turretMounts });
   React.useEffect(() => {
-    const prev = prevFrameRef.current;
-    prevFrameRef.current = { line: shipLine, weapon: loadout.weapon };
-    if (prev.line !== null && shipLine !== null && shipLine !== prev.line
-      && prev.weapon && loadout.weapon === null
+    const prev = prevSwitchRef.current;
+    const escortTotal = escortCounts.skiff + escortCounts.stinger + escortCounts.lancer;
+    prevSwitchRef.current = { line: shipLine, tier: typeTier, weapon: loadout.weapon, switchPreviews, choicePreviews, climbPreview, drones: playerDrones, defenseDrones: playerDefenseDrones, escorts: escortTotal, mounts: turretMounts };
+    const lineChanged = prev.line !== shipLine;
+    const tierChanged = prev.tier !== typeTier;
+    if (!lineChanged && !tierChanged) return;
+    let manifest: SellPreview | undefined;
+    if (lineChanged && shipLine !== null) manifest = prev.line === null ? prev.choicePreviews[shipLine] : prev.switchPreviews[shipLine];
+    else if (!lineChanged && tierChanged) manifest = prev.climbPreview ?? undefined;
+    let announced = false;
+    if (manifest && hasSales(manifest)) {
+      const weaponVerified = manifest.sold.weapons.length === 0
+        || (prev.weapon !== null && manifest.sold.weapons.includes(prev.weapon) && !arsenal[prev.weapon]);
+      const entityDelta = (prev.drones - playerDrones) + (prev.defenseDrones - playerDefenseDrones) + (prev.escorts - escortTotal) + (prev.mounts - turretMounts);
+      const entityTotal = manifest.sold.drones + manifest.sold.defenseDrones + manifest.sold.mounts + manifest.sold.escorts;
+      if (weaponVerified && entityDelta >= entityTotal) {
+        let msg = `💰 SOLD ON THE SWITCH: ${sellSummary(manifest)} — +${manifest.refund}U TO YOUR BANK`;
+        flashShopNotice(msg);
+        if (DEBUG_ARMED) setDevNote(msg);
+        announced = true;
+      }
+    }
+    if (!announced && prev.line !== null && shipLine !== null && shipLine !== prev.line
+      && prev.weapon && loadout.weapon === null && arsenal[prev.weapon]
       && !canMountWeapon(shipLine, typeTier, prev.weapon)) {
       const name = getLoadoutItem(prev.weapon)?.name.toUpperCase() ?? 'WEAPON';
       const msg = `⚠ ${name} SHELVED — NOT MOUNTABLE ON THE ${shipLine.toUpperCase()} HULL · STAYS OWNED, RE-EQUIPS ON A HULL THAT MOUNTS IT`;
@@ -1480,10 +1546,13 @@ export const HUD: React.FC<HUDProps> = ({
                       const afford = funds >= price;
                       return (
                         <button key={ln} onClick={() => afford ? onBuyType(ln) : flashShopNotice(`NOT ENOUGH SCRAP — ${ln.toUpperCase()} → ${t2.name} COSTS ${price}U · YOU HAVE ${funds}U`)}
-                          className={`pitted-metal px-3 py-2 rounded flex items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
+                          className={`pitted-metal px-3 py-2 rounded flex flex-wrap items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
                           <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">{ln} → {t2.name}</span>
                           <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(t2)}</span>
                           <span className="text-[10px] sm:text-xs font-mono font-bold text-pink-400">{price}U</span>
+                          {hasSales(choicePreviews[ln]) && (
+                            <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-amber-400">⚠ SELLS: {sellSummary(choicePreviews[ln]!)} (+{choicePreviews[ln]!.refund}U TO BANK)</span>
+                          )}
                         </button>
                       );
                     })}
@@ -1496,10 +1565,13 @@ export const HUD: React.FC<HUDProps> = ({
                   const afford = funds >= price;
                   return (
                     <button onClick={() => afford ? onBuyType() : flashShopNotice(`NOT ENOUGH SCRAP — CLIMB TO ${next.name} COSTS ${price}U · YOU HAVE ${funds}U`)}
-                      className={`pitted-metal px-3 py-2 rounded flex items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
+                      className={`pitted-metal px-3 py-2 rounded flex flex-wrap items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
                       <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">⬆ CLIMB → {next.name} (T{typeTier + 1})</span>
                       <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(next)} · HULL CAP {next.hullStepCap}</span>
                       <span className="text-[10px] sm:text-xs font-mono font-bold text-pink-400">{price}U</span>
+                      {hasSales(climbPreview ?? undefined) && (
+                        <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-amber-400">⚠ SELLS: {sellSummary(climbPreview!)} (+{climbPreview!.refund}U TO BANK)</span>
+                      )}
                     </button>
                   );
                 })()}
@@ -1514,18 +1586,20 @@ export const HUD: React.FC<HUDProps> = ({
                     <div className="flex gap-1.5 flex-wrap">
                       {(Object.keys(SHIP_LINES) as ShipLine[]).filter(ln => ln !== shipLine).map(ln => {
                         const afford = funds >= switchCost;
-                        const equippedCls = weaponClassFor(loadout.weapon);
-                        // Slice 4's close (BackGround, c7d69fa): a weapon
-                        // the target hull can't mount SHELVES on the
-                        // switch — slot empties, item stays owned. The
-                        // warning names that outcome before the toll.
-                        const targetGateWarn = !!equippedCls && !lineMountsClass(ln, typeTier, equippedCls);
+                        // THE FORCED SELL (Adam, 2026-10-22): holdings
+                        // the target hull can't hold SELL at full
+                        // price into the bank. The warning is the
+                        // reconcile preview for this exact target —
+                        // the same pure code the verb will run, so
+                        // what it names is what will happen.
+                        const targetPreview = switchPreviews[ln];
+                        const targetSellWarn = hasSales(targetPreview);
                         return (
                           <button key={ln} onClick={() => afford ? onSwitchLine(ln) : flashShopNotice(`NOT ENOUGH SCRAP — THE SWITCH TOLL IS ${switchCost}U · YOU HAVE ${funds}U`)}
                             className={`flex-1 min-w-[86px] px-2 py-1.5 rounded text-[9px] sm:text-[10px] font-mono font-bold border touch-manipulation active:scale-95 flex flex-col items-center justify-center gap-0.5 ${afford ? 'bg-zinc-900 text-zinc-200 border-zinc-600' : 'bg-zinc-900 text-zinc-500 border-zinc-800 cursor-not-allowed'}`}>
                             <span>⇄ {ln.toUpperCase()} · {switchCost === 0 ? 'FREE' : `${switchCost}U`}</span>
-                            {targetGateWarn && (
-                              <span className="text-[7px] sm:text-[8px] text-amber-400 tracking-normal">⚠ EQUIPPED {equippedCls!.toUpperCase()} SHELVES THERE — STAYS OWNED, RE-EQUIPS ON A HULL THAT MOUNTS IT</span>
+                            {targetSellWarn && (
+                              <span className="text-[7px] sm:text-[8px] text-amber-400 tracking-normal">⚠ SELLS THERE: {sellSummary(targetPreview!)} (+{targetPreview!.refund}U TO BANK)</span>
                             )}
                           </button>
                         );
@@ -1558,10 +1632,12 @@ export const HUD: React.FC<HUDProps> = ({
                     frame's autoGuns field is a CAP — mounts are bought
                     one at a time to fill it, and only min(cap, owned)
                     fire (effectiveAutoGuns — the loop and the canvas
-                    barrel tells read the same number). Owned mounts
-                    ride across line switches; on a shallower frame the
-                    excess shelves (amber pips) until a deeper hull
-                    carries it again. Mounts die with the ship. */}
+                    barrel tells read the same number). On a hull
+                    change, mounts over the new frame's cap SELL at
+                    their curve prices (the forced sell, 2026-10-22)
+                    — owned never exceeds cap in play; the amber pips
+                    below remain only as a defensive read. Mounts die
+                    with the ship. */}
                 {(() => {
                   const mountCap = autoGunCapFor(shipLine, typeTier);
                   const firing = effectiveAutoGuns({ line: shipLine, typeTier, turretMounts });
@@ -1581,7 +1657,6 @@ export const HUD: React.FC<HUDProps> = ({
                       </div>
                       <p className="text-[8px] sm:text-[9px] font-mono text-zinc-400 leading-snug">
                         SHIPBOARD AUTO-TURRETS ON BOUGHT MOUNTS — THEY FIRE ON HOSTILES IN RANGE, NO HANDS NEEDED. THE FRAME SETS THE CAP; EACH MOUNT IS FITTED AT THE DOCK AND DIES WITH THE SHIP.
-                        {turretMounts > mountCap && <span className="text-amber-400"> {turretMounts - mountCap} MOUNT{turretMounts - mountCap > 1 ? 'S' : ''} SHELVED ON THIS FRAME — THEY RIDE ACROSS AND WAKE ON A DEEPER HULL.</span>}
                       </p>
                       {atCap ? (
                         <div className="text-[10px] sm:text-xs font-mono text-amber-400">MOUNTS FULL FOR {progType.name} — A DEEPER FRAME CARRIES MORE</div>
