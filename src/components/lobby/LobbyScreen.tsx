@@ -145,7 +145,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   // rides the create/join call into the session's memory-only ref,
   // and typing a different name clears it.
   const [callsignPassword, setCallsignPassword] = React.useState('');
-  const asksReserved = callsign.trim().toLowerCase() === 'nomad';
+  const asksReserved = callsign.trim().toLowerCase().includes('nomad');
   const [roomName, setRoomName] = React.useState('');
   const [starCount, setStarCount] = React.useState<2 | 3 | 4>(2);
   const [isPrivate, setIsPrivate] = React.useState(false);
@@ -452,7 +452,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               autoComplete="off"
               className="hud-panel rounded px-3 py-2.5 bg-zinc-900 border border-amber-700 font-mono text-sm text-zinc-50 placeholder:text-zinc-600 outline-none focus:border-amber-400"
             />
-            <span className="text-[9px] font-mono text-zinc-400 leading-snug">With its password, the name is yours plain. Without it — or with a wrong one — you fly as Nomad-2. No fuss either way.</span>
+            <span className="text-[9px] font-mono text-zinc-400 leading-snug">Any name containing NOMAD is reserved, in every form. With its password, the name is yours. Without it — or with a wrong one — the name can't be taken at all: pick another and fly.</span>
           </label>
         )}
 

@@ -420,8 +420,8 @@ export class RoomDO {
     // word is never stored or echoed. Attempts are rate-limited
     // per connection (RESERVED_ATTEMPT_INTERVAL_MS): an attempt
     // inside the window is not evaluated at all, so the claim
-    // suffixes like any collision. An unset hash (empty in the
-    // registry) passes nobody.
+    // fails its proof and the reserved refusal answers it. An
+    // unset hash (empty in the registry) passes nobody.
     let reservedProofOk = false;
     const desiredCallsign = (msg.callsign ?? '').trim();
     if (
@@ -459,6 +459,9 @@ export class RoomDO {
       playerId,
       seat,
       room: toRoomState(this.room),
+      // A refused reserved rename rides the welcome (the claim
+      // itself succeeded — the player keeps their current name).
+      ...(claim.notice ? { notice: claim.notice } : {}),
     });
     // Chat seed: the rolling window follows the welcome on the
     // same socket (join and reclaim alike) — the client replaces

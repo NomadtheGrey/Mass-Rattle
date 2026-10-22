@@ -128,7 +128,7 @@ export interface NetSession {
 export const NetSessionContext = React.createContext<NetSession | null>(null);
 
 const PLAYER_ID_KEY = 'mr.playerId';
-const TERMINAL_ERRORS: ErrorCode[] = ['room_not_found', 'room_full', 'version_mismatch', 'kicked'];
+const TERMINAL_ERRORS: ErrorCode[] = ['room_not_found', 'room_full', 'version_mismatch', 'name_reserved', 'kicked'];
 
 export function useNetClient(): NetSession {
   const [clientState, setClientState] = React.useState<ClientState>({ connection: 'idle', lastError: null });
@@ -198,7 +198,11 @@ export function useNetClient(): NetSession {
           setMyPlayerId(msg.playerId);
           setRoom(msg.room);
           setClientState({ connection: 'connected', lastError: null });
-          setNotice(null);
+          // A refused reserved rename rides the welcome's notice
+          // field (the claim itself succeeded; the name stands).
+          setNotice(msg.notice === 'name_reserved'
+            ? 'THAT NAME IS RESERVED — IT NEEDS ITS PASSWORD · YOUR CURRENT NAME STANDS'
+            : null);
           break;
         }
         case 'roomState': {
