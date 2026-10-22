@@ -32,7 +32,10 @@ seekers, bolts, point defense, auto-guns, escorts, and bots
 all skip docked drones. It heals from the ship's hold and
 relaunches healed. If the ship dies, docked drones spill
 back to work. **Star-fleet drones never dock** (no capital
-ship to dock in).
+ship to dock in) — and neither do DEFENSE-MODE drones: the
+dock gate reads `!drone.starFleet && drone.mode !== 'defense'`
+(`src/sim/drones.ts`), which is why the workshop's DEFENSE
+block carries no docked state.
 
 ## Escort docking
 
@@ -46,8 +49,11 @@ to the star ring, healing paused. UI's MUSTER reads the wing
 whole: flying / docked-mending / "N ON THE ROAD HOME"
 (below cap, beyond dock range). Surfaces: DAMAGE CONTROL
 block in the workshop (switch + cap % + HP/s + the law in
-copy), an in-play pill, a phone tile, and an amber repair-cap
-tick on both hull bars.
+copy), an in-play pill, a phone tile, an amber repair-cap
+tick on both hull bars, the BUILD DRONE line's docked count,
+and the canvas treatments — docked harvesters undrawn
+(inside the hull) and a green cross pip over each
+alongside-healing escort.
 
 ## Bot disposition
 

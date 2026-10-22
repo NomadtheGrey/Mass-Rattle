@@ -7,7 +7,7 @@ UI's; the selection verb and its guest path are BackGround's.
 
 ## Weapons
 
-- **1–6 + T — SELECT WEAPON** among OWNED, INSTALLED weapons,
+- **1–5 + T — SELECT WEAPON** among OWNED, INSTALLED weapons,
   fixed registry order: **1 Bolt Cannon · 2 Ion Blaster ·
   3 Mine Layer · 4 Flak Cannon · 5 Rail Lance · 6 (T) Seeker
   Torpedoes**. The digit names the WEAPON — learned once, for
