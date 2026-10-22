@@ -35,6 +35,29 @@ endpoints named by Adam are quoted.
 | **Drone line** | **Drones fielded** | The drone ship "would upgrade eventually into a carrier." Player-owned harvester drones already exist in the game; this line is their force multiplier. |
 | **Cruiser line** | **Extra shipboard guns** | "The cruiser would eventually become a Battlestar then a dreadnought." The size line: biggest hull caps in the game. The guns are auto-guns that grow with type (**reading**, confirmed by Adam as "spot on"). |
 
+## The crowns (T5) — addendum, 2026-10-21
+
+Every line gained a fifth tier, and Adam adopted all five crown
+names the same day they shipped (Merge #9):
+
+| Line | Ladder (T2 → T5) | Crown |
+| --- | --- | --- |
+| Fighter | STINGER / LANCER / WARFANG | **WARMONGER** |
+| Minelayer | MOLE / SKULKER / SABOTEUR | **NAUTILUS** |
+| Hauler | MULE / MAMMOTH / LEVIATHAN | **ATLAS** |
+| Drone line | SHEPHERD / WARDEN / CARRIER | **MOTHERSHIP** |
+| Cruiser | CRUISER / VANGUARD / BATTLESTAR | **DREADNOUGHT** |
+
+Notes the table alone doesn't carry: the shared T1 is the SKIFF on
+every line. The cruiser's names moved UP a rung when the crown
+landed (VANGUARD interpolated at T3; DREADNOUGHT belongs to the
+cruiser line — Adam retracted his own fighter-line suggestion for
+it). The hauler's T3 is MAMMOTH (PACKHORSE retired), and the
+minelayer ladder is the saboteur ladder (SOWER / TRAPPER / WIDOW
+retired). All crown NUMBERS — stats, the fourth hull-step prices,
+and the T5 switch toll (500) — are DRAFT, awaiting Adam's numbers
+pass over the whole table.
+
 ## Peaks, not locks
 
 A line's specialty is its **highest amount of a thing, not its only thing**
