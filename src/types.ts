@@ -50,6 +50,11 @@ export interface Ship extends GameObject {
    * Absent = not docked.
    */
   dockedTo?: string;
+  /** TARGET LOCK (src/sim/targeting.ts): the ownerId of the
+   *  hostile capital ship this ship holds a lock on — set by
+   *  Tab's cycle or click/tap, cleared by the lock law the
+   *  frame it leaves validity. The Lightning Lock's read. */
+  targetId?: string;
   /**
    * The HARBOR SWITCH (src/sim/harbor.ts): this ship's
    * consent to host allied guests. Undefined reads as OPEN;
