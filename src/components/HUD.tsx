@@ -348,6 +348,13 @@ export const HUD: React.FC<HUDProps> = ({
   const escortDockedFor = (kind: EscortKind): number => escorts.filter(e => e.ownerId === ship.ownerId && escortKindOf(e) === kind
     && e.health < e.maxHealth * healCapPctFor(e.line, e.typeTier)
     && Math.hypot(e.pos.x - shipPos.x, e.pos.y - shipPos.y) <= ship.size + ESCORT_DOCK_PAD).length;
+  // The dock's other half (BackGround's exact read): a below-cap
+  // escort with a living carrier is ALWAYS either alongside
+  // healing or ON THE ROAD home — never on ordinary duty. The
+  // road count is the same test with the range flipped.
+  const escortRoadFor = (kind: EscortKind): number => escorts.filter(e => e.ownerId === ship.ownerId && escortKindOf(e) === kind
+    && e.health < e.maxHealth * healCapPctFor(e.line, e.typeTier)
+    && Math.hypot(e.pos.x - shipPos.x, e.pos.y - shipPos.y) > ship.size + ESCORT_DOCK_PAD).length;
   const caps = capsFor(shipLine, typeTier);
   const switchCost = switchToll({ lineSwitchesUsed, typeTier });
   // Gauge scales follow the ship as upgraded (audit, 2026-10-20): the
@@ -1877,6 +1884,7 @@ export const HUD: React.FC<HUDProps> = ({
                         const full = cap > 0 && count >= cap;
                         const afford = funds >= def.price;
                         const docked = escortDockedFor(kind);
+                        const road = escortRoadFor(kind);
                         return (
                           <div key={kind} className="flex items-center gap-2 flex-wrap">
                             <span className="text-[9px] sm:text-[10px] font-mono font-bold text-zinc-200 w-[128px]">{def.label} <span className="text-zinc-500 font-normal">· {def.line ? `${def.line.toUpperCase()} T${def.typeTier} HULL` : 'SHARED T1 HULL'}</span></span>
@@ -1887,6 +1895,7 @@ export const HUD: React.FC<HUDProps> = ({
                             </span>
                             <span className="text-[9px] font-mono text-zinc-400">{count}/{cap} FLYING</span>
                             {docked > 0 && <span className="text-[9px] font-mono text-emerald-400">{docked} DOCKED — REPAIRING</span>}
+                            {road > 0 && <span className="text-[9px] font-mono text-amber-400">{road} ON THE ROAD HOME</span>}
                             {cap > 0 && (full ? (
                               <span className="ml-auto text-[9px] sm:text-[10px] font-mono text-amber-400">{def.label} COMPLEMENT FULL</span>
                             ) : (
