@@ -13,6 +13,7 @@ import type { EscortShip, GameState, Harvester, SeatSimState } from '../types';
 import type { NetInputPayload } from './useNetClient';
 import { tryRepurchase } from '../sim/deathEconomy';
 import { starIdForSeat } from '../sim/ownership';
+import { isValidTarget, nextTargetId } from '../sim/targeting';
 import type { EventFeedEntry } from '../sim/eventFeed';
 import {
   seatBuyTrack, seatBuyItem, seatEquipItem, seatBuyType, seatBuyHullStep,
@@ -44,6 +45,8 @@ export interface ShipFrameInput {
   wantsThrust: boolean;
   wantsFire: boolean;
   wantsJettison: boolean;
+  /** DUMP ALL (J): the whole hold overboard behind the ship. */
+  wantsJettisonAll: boolean;
   rotateLeft: boolean;
   rotateRight: boolean;
   vac: boolean;
@@ -59,6 +62,7 @@ export interface TouchInputLike {
   rotateRight: boolean;
   vac: boolean;
   jettison: boolean;
+  jettisonAll?: boolean;
   fire: boolean;
   analogStick: { x: number; y: number } | null;
 }
@@ -85,6 +89,7 @@ export const localShipInput = (
       keys.has('ArrowUp') || keys.has('KeyW') || touch.thrust || stickThrust,
     wantsFire: keys.has('KeyF') || touch.fire,
     wantsJettison: keys.has('Space') || touch.jettison,
+    wantsJettisonAll: keys.has('KeyJ') || !!touch.jettisonAll,
     rotateLeft:
       keys.has('ArrowLeft') || keys.has('KeyA') || touch.rotateLeft,
     rotateRight:
@@ -106,6 +111,7 @@ export const remoteShipInput = (payload: NetInputPayload): ShipFrameInput => {
     wantsThrust: payload.thrust || stickThrust,
     wantsFire: payload.fire,
     wantsJettison: payload.jettison,
+    wantsJettisonAll: payload.jettisonAll ?? false,
     rotateLeft: payload.left,
     rotateRight: payload.right,
     vac: payload.vac ?? false,
@@ -120,6 +126,7 @@ export const idleShipInput = (): ShipFrameInput => ({
   wantsThrust: false,
   wantsFire: false,
   wantsJettison: false,
+  wantsJettisonAll: false,
   rotateLeft: false,
   rotateRight: false,
   vac: false,
@@ -163,7 +170,34 @@ const CONSUMED_ACTION_KINDS = new Set([
   'buyTurretMount', 'switchLine', 'buildDrone', 'buildDefenseDrone',
   'buildEscort', 'bankDeposit', 'bankWithdraw', 'feed',
   'setDeliveryMode', 'setRepairing',
+  'cycleTarget', 'setTarget',
 ]);
+
+/** Apply a remote seat's TARGET intents (the Controls
+ *  follow-on contract): cycle advances through the lock law's
+ *  seat-order track; set names a specific ship and lands only
+ *  while it is a valid target — anything else (including an
+ *  absent targetOwnerId) clears the lock. Runs inside the same
+ *  seq gate as repurchase and the economy, against the SENDER's
+ *  seat; locks die per-frame by stepTargetLocks in the loop. */
+export const consumeTargetIntents = (
+  seat: SeatSimState,
+  payload: NetInputPayload,
+  seats: SeatSimState[],
+): void => {
+  const actions = payload.actions;
+  if (!actions || actions.length === 0 || !seat.ship) return;
+  for (const action of actions) {
+    if (action.kind === 'cycleTarget') {
+      seat.ship.targetId = nextTargetId(seats, seat.ship) ?? undefined;
+    } else if (action.kind === 'setTarget') {
+      seat.ship.targetId =
+        action.targetOwnerId && isValidTarget(seats, seat.ship, action.targetOwnerId)
+          ? action.targetOwnerId
+          : undefined;
+    }
+  }
+};
 
 export const countDroppedActions = (payload: NetInputPayload): number => {
   // Consumed kinds are NOT counted (see the set above). The
