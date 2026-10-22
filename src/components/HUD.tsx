@@ -1619,8 +1619,15 @@ export const HUD: React.FC<HUDProps> = ({
                     no milestone credit until withdrawn and fed by
                     hand). The star's own fleet is never under orders.
                     The block keys off canOrderWorkforce — the gate,
-                    not the line's name. */}
-                {canOrder && (
+                    not the line's name. THE EDGE (BackGround's
+                    32e8eda, on this lane's question): the order
+                    persists on the seat across switches and death
+                    but BINDS only on a hauler hull — off-hull it
+                    shelves (the crew feeds) and binds again when a
+                    hauler returns, no re-issuing; the note below
+                    keeps a shelved DEPOSIT visible from any frame,
+                    the MUSTER precedent. */}
+                {canOrder ? (
                   <div className="pitted-metal px-3 py-2 rounded border border-zinc-700 flex flex-col gap-1.5">
                     <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🚁 WORKFORCE ORDERS — {deliveryMode === 'feed' ? '⭐ FEED THE STAR' : '🏦 DEPOSIT TO BANK'}</span>
                     <div className="grid grid-cols-2 gap-1.5">
@@ -1638,9 +1645,11 @@ export const HUD: React.FC<HUDProps> = ({
                         ? 'YOUR HARVESTERS FLY EVERY LOAD STRAIGHT INTO THE STAR: IT FEEDS HER — GROWTH, MILESTONES, AND A LITTLE MENDING PER LOAD. NOTHING IS BANKED.'
                         : 'YOUR HARVESTERS BANK EVERY LOAD AT THE WELL INSTEAD. BANKED SCRAP IS NOT FOOD: NO GROWTH, NO MENDING, NO MILESTONE CREDIT — UNTIL YOU WITHDRAW IT AND FEED IT BY HAND.'}
                     </p>
-                    <p className="text-[8px] sm:text-[9px] font-mono text-zinc-500 leading-snug">THE ORDER STANDS UNTIL YOU CHANGE IT. THE STAR'S OWN FLEET (✦) TAKES NO ORDERS — GLEANERS ALWAYS FEED.</p>
+                    <p className="text-[8px] sm:text-[9px] font-mono text-zinc-500 leading-snug">THE ORDER STANDS UNTIL YOU CHANGE IT. OFF A HAULER HULL IT SHELVES — YOUR CREW FEEDS — AND BINDS AGAIN WHEN A HAULER HULL RETURNS, NO RE-ISSUING. THE STAR'S OWN FLEET (✦) TAKES NO ORDERS — GLEANERS ALWAYS FEED.</p>
                   </div>
-                )}
+                ) : deliveryMode === 'deposit' ? (
+                  <p className="text-[8px] sm:text-[9px] font-mono text-zinc-500 leading-snug border border-zinc-800 rounded px-2 py-1.5">🚁 WORKFORCE ORDER SHELVED — 🏦 DEPOSIT STANDS ON YOUR SEAT BUT BINDS ONLY ON A HAULER HULL. YOUR CREW FEEDS MEANWHILE; THE ORDER RETURNS WITH THE HULL, NO RE-ISSUING.</p>
+                ) : null}
 
                 {progType.defenseDrones > 0 && (() => {
                   const defenseCap = progType.defenseDrones;
