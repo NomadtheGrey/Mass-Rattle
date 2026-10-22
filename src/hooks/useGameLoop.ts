@@ -35,7 +35,7 @@ import { applyDeathLoss, botRepurchaseDue, completeRespawn, respawnDue, tryRepur
 import { appendEventRecords, EventFeedEntry } from '../sim/eventFeed';
 import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, turretAngleAt, targetInTurretArc, applyDeliveryHeal } from '../starDefense';
 import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, thornDamageFor, aegisAbsorbFor } from '../loadout';
-import { ShipLine, TypeTier, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, DEFENSE_DRONE_PRICE, EXTRA_MOUNT_DAMAGE, AUTO_GUN, autoGunCapFor, effectiveAutoGuns, turretMountPriceFor, ESCORT_KIND_DEFS, escortCapFor, escortKindOf, canOrderWorkforce, healCapPctFor, healRateFor, type EscortKind } from '../shipProgression';
+import { ShipLine, TypeTier, DRONE_MAX_HEALTH, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, DEFENSE_DRONE_PRICE, EXTRA_MOUNT_DAMAGE, AUTO_GUN, autoGunCapFor, effectiveAutoGuns, turretMountPriceFor, ESCORT_KIND_DEFS, escortCapFor, escortKindOf, canOrderWorkforce, healCapPctFor, healRateFor, type EscortKind } from '../shipProgression';
 
 /**
  * SHIP PROGRESSION (Phase 3, src/shipProgression.ts — DRAFT numbers):
@@ -675,7 +675,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         owner: 'player' as const,
         ownerId: prev.ship.ownerId,
         state: 'searching' as const,
-        health: 100,
+        health: DRONE_MAX_HEALTH,
       };
       return { ...prev, ship, bankedScrap: payment.banked, drones: [...prev.drones, drone], glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
     });
@@ -731,7 +731,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         ownerId: prev.ship.ownerId,
         state: 'searching' as const,
         mode: 'defense' as const,
-        health: 100,
+        health: DRONE_MAX_HEALTH,
       };
       return { ...prev, ship, bankedScrap: payment.banked, drones: [...prev.drones, drone], glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
     });
@@ -934,7 +934,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           owner: 'player',
           ownerId: s.star.ownerId,
           state: 'searching',
-          health: 100
+          health: DRONE_MAX_HEALTH
         },
         {
           id: 'enemy-drone-1',
@@ -947,7 +947,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           owner: 'enemy',
           ownerId: s.enemyStar.ownerId,
           state: 'searching',
-          health: 100
+          health: DRONE_MAX_HEALTH
         }
       ],
       star: anchoredStar,
