@@ -43,6 +43,14 @@ export type NetActionIntent =
   | { kind: 'buyTurretMount' }
   | { kind: 'switchLine'; line: string }
   | { kind: 'buildDrone' }
+  /** B2 per-seat economy follow-on (BackGround): the remaining
+   * shop verbs and the seat-flag riders the verbs' own comments
+   * promised to this channel — the host applies each to the
+   * SENDER's seat through the seat shop (src/sim/seatShop.ts). */
+  | { kind: 'buildDefenseDrone' }
+  | { kind: 'buildEscort'; escortKind: string }
+  | { kind: 'setDeliveryMode'; mode: 'feed' | 'deposit' }
+  | { kind: 'setRepairing'; on: boolean }
   /** P2-5 death economy: BARE — the host derives the seat from the
    * relay's fromOwnerId and prices it host-side from the seat's
    * ledger (repurchasePriceFor). Added by the UI lane on BackGround's

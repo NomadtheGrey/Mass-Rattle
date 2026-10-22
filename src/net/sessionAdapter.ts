@@ -9,11 +9,19 @@
  * UI lane's NetInputPayload (imported as a type only).
  */
 
-import type { GameState, SeatSimState } from '../types';
+import type { EscortShip, GameState, Harvester, SeatSimState } from '../types';
 import type { NetInputPayload } from './useNetClient';
 import { tryRepurchase } from '../sim/deathEconomy';
 import { starIdForSeat } from '../sim/ownership';
 import type { EventFeedEntry } from '../sim/eventFeed';
+import {
+  seatBuyTrack, seatBuyItem, seatEquipItem, seatBuyType, seatBuyHullStep,
+  seatBuyTurretMount, seatSwitchLine, seatBuildDrone, seatBuildDefenseDrone,
+  seatBuildEscort, seatFeedCargo, seatDepositBank, seatWithdrawBank,
+  seatSetDeliveryMode, seatSetRepairing,
+  type SeatShopCtx, type SeatShopChange, type UpgradeTrack,
+} from '../sim/seatShop';
+import type { ShipLine, EscortKind } from '../shipProgression';
 
 /** Host snapshot cadence: one full-state snapshot every 5 frames —
  *  12 Hz at the sim's 60 fps (design draft §1, DRAFT rate). */
@@ -135,22 +143,109 @@ export const acceptGuestPayload = (
 /* ------------------------------------------------------------------ */
 
 /**
- * Economy ACTION intents (buy/equip/feed/bank/shop) from remote
- * seats are NOT applied in v1: per-seat banks/wallets are not
- * sim-wired beyond the local seat (P2-2b), so a remote seat has no
- * wallet for the host to pay from. The intents are counted here —
- * module-level and greppable — so the deferral is measured, not
- * silent, until the per-seat economy lands.
+ * Economy ACTION intents from remote seats were NOT applied in
+ * v1: per-seat banks/wallets were not sim-wired beyond the local
+ * seat (P2-2b). B2 LANDED the per-seat economy (2026-10-22):
+ * consumeEconomyIntents (below) applies the economy kinds to the
+ * sender's seat through the seat shop, and 'repurchase' has been
+ * consumed since the P2-5 follow-on. What remains counted here
+ * is what is still genuinely unapplied — 'decoy' (a combat verb,
+ * not economy) and 'toggleShop' (the guest's own UI state) —
+ * module-level and greppable, so the remainder is measured, not
+ * silent.
  */
 export let droppedRemoteActionIntents = 0;
 
+const CONSUMED_ACTION_KINDS = new Set([
+  'repurchase',
+  'buyTrack', 'buyItem', 'equipItem', 'buyType', 'buyHull',
+  'buyTurretMount', 'switchLine', 'buildDrone', 'buildDefenseDrone',
+  'buildEscort', 'bankDeposit', 'bankWithdraw', 'feed',
+  'setDeliveryMode', 'setRepairing',
+]);
+
 export const countDroppedActions = (payload: NetInputPayload): number => {
-  // 'repurchase' is NOT counted: since the P2-5 follow-on it is
-  // consumed (consumeRepurchaseIntent, below), not dropped. Every
-  // other economy kind remains counted + dropped, unchanged.
-  const n = (payload.actions ?? []).filter(a => a.kind !== 'repurchase').length;
+  // Consumed kinds are NOT counted (see the set above). The
+  // remainder — decoy, toggleShop, anything unknown — is.
+  const n = (payload.actions ?? []).filter(a => !CONSUMED_ACTION_KINDS.has(a.kind)).length;
   droppedRemoteActionIntents += n;
   return n;
+};
+
+/* ------------------------------------------------------------------ */
+/* Guest economy consumption (B2 per-seat economy follow-on)           */
+/* ------------------------------------------------------------------ */
+
+export interface GuestEconomyResult {
+  /** Replacement arrays when a reconcile changed them. */
+  drones?: Harvester[];
+  escorts?: EscortShip[];
+  /** Newly built units for the caller to append. */
+  addDrones: Harvester[];
+  addEscorts: EscortShip[];
+}
+
+const SHIP_LINES: ShipLine[] = ['fighter', 'minelayer', 'hauler', 'drone', 'cruiser'];
+const UPGRADE_TRACKS: UpgradeTrack[] = ['thrust', 'handling', 'attractor', 'fuel', 'cargo'];
+const ESCORT_KINDS: EscortKind[] = ['skiff', 'stinger', 'lancer'];
+
+/**
+ * Apply a guest payload's economy intents to the SENDER's seat,
+ * in order, through the seat shop (src/sim/seatShop.ts) — the
+ * sender buys through the host against their OWN seat bank
+ * under the same wallet rules as anyone (hold first, then bank;
+ * the well is the market). Refusals are silent and total per
+ * intent (an unaffordable buy changes nothing and does not
+ * block the rest of the payload). Exactly-once is structural,
+ * as with repurchase: the caller runs this inside the seq gate.
+ * Returns null when the payload carries no economy intent.
+ */
+export const consumeEconomyIntents = (
+  seat: SeatSimState,
+  payload: NetInputPayload,
+  ctx: SeatShopCtx,
+): GuestEconomyResult | null => {
+  const actions = (payload.actions ?? []).filter(a => a.kind !== 'repurchase');
+  if (!actions.length) return null;
+  const out: GuestEconomyResult = { addDrones: [], addEscorts: [] };
+  let applied = false;
+  const adopt = (change: SeatShopChange | null): void => {
+    if (!change) return;
+    applied = true;
+    if (change.drones) { out.drones = change.drones; ctx.drones = change.drones; }
+    if (change.escorts) { out.escorts = change.escorts; ctx.escorts = change.escorts; }
+    if (change.drone) { out.addDrones.push(change.drone); ctx.drones = [...ctx.drones, change.drone]; }
+    if (change.escort) { out.addEscorts.push(change.escort); ctx.escorts = [...ctx.escorts, change.escort]; }
+  };
+  for (const a of actions) {
+    switch (a.kind) {
+      case 'buyTrack':
+        if (UPGRADE_TRACKS.includes(a.track as UpgradeTrack)) adopt(seatBuyTrack(seat, ctx, a.track as UpgradeTrack));
+        break;
+      case 'buyItem': adopt(seatBuyItem(seat, ctx, a.itemId)); break;
+      case 'equipItem': adopt(seatEquipItem(seat, ctx, a.itemId)); break;
+      case 'buyType':
+        adopt(seatBuyType(seat, ctx, a.line && SHIP_LINES.includes(a.line as ShipLine) ? (a.line as ShipLine) : undefined));
+        break;
+      case 'buyHull': adopt(seatBuyHullStep(seat, ctx)); break;
+      case 'buyTurretMount': adopt(seatBuyTurretMount(seat, ctx)); break;
+      case 'switchLine':
+        if (SHIP_LINES.includes(a.line as ShipLine)) adopt(seatSwitchLine(seat, ctx, a.line as ShipLine));
+        break;
+      case 'buildDrone': adopt(seatBuildDrone(seat, ctx)); break;
+      case 'buildDefenseDrone': adopt(seatBuildDefenseDrone(seat, ctx)); break;
+      case 'buildEscort':
+        if (ESCORT_KINDS.includes(a.escortKind as EscortKind)) adopt(seatBuildEscort(seat, ctx, a.escortKind as EscortKind));
+        break;
+      case 'bankDeposit': adopt(seatDepositBank(seat, ctx)); break;
+      case 'bankWithdraw': adopt(seatWithdrawBank(seat, ctx)); break;
+      case 'feed': adopt(seatFeedCargo(seat, ctx)); break;
+      case 'setDeliveryMode': if (seatSetDeliveryMode(seat, a.mode)) applied = true; break;
+      case 'setRepairing': if (seatSetRepairing(seat, a.on)) applied = true; break;
+      default: break; // decoy / toggleShop / unknown: not economy
+    }
+  }
+  return applied ? out : null;
 };
 
 /* ------------------------------------------------------------------ */
