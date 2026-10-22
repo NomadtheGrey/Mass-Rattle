@@ -86,6 +86,7 @@ export default function App() {
     setHarborOpen,
     undockGuest,
     selectWeaponSlot,
+    setTarget,
     repurchaseShip,
     feedCargo,
     depositBank, 
@@ -319,7 +320,7 @@ export default function App() {
         <div className="absolute inset-0 z-0">
           <div className="w-full h-full relative bg-[#050505]">
             <div className="absolute inset-0 grid-bg opacity-20 pointer-events-none" />
-            <GameCanvas state={state} width={dimensions.width} height={dimensions.height} seatLabels={seatLabels} />
+            <GameCanvas state={state} width={dimensions.width} height={dimensions.height} seatLabels={seatLabels} onSetTarget={setTarget} />
           </div>
         </div>
 

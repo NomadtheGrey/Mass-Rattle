@@ -133,11 +133,36 @@ interface GameCanvasProps {
    *  for every seat in a net room, built by App from the room state.
    *  Absent in solo — no plates, and remote ships don't exist there. */
   seatLabels?: Record<string, { callsign: string; color: string }>;
+  onSetTarget?: (ownerId: string | null) => void;
   width: number;
   height: number;
 }
 
-export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, seatLabels }) => {
+export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, seatLabels, onSetTarget }) => {
+  // CLICK / TAP TARGETING (controls follow-on, 2026-10-22): a
+  // click names the nearest valid enemy under it — hostile,
+  // alive, undocked; stealth visibility is the sim's word (its
+  // setTarget validation clears what may not be locked). A
+  // click that names nothing clears the lock. Screen -> world
+  // inverts the camera translate exactly (no zoom in this
+  // canvas; the frame shake is ignored — a few px of jitter
+  // inside a generous pick radius).
+  const handlePick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!onSetTarget) return;
+    const wx = e.nativeEvent.offsetX - width / 2 + state.ship.pos.x;
+    const wy = e.nativeEvent.offsetY - height / 2 + state.ship.pos.y;
+    const mySeat = state.seats.find(se => se.ownerId === state.ship.ownerId);
+    let best: { ownerId: string; dist: number } | null = null;
+    for (const seat of state.seats) {
+      const rs = seat.ship;
+      if (!rs || seat.ownerId === state.ship.ownerId || seat.eliminated) continue;
+      if (rs.dockedTo) continue;
+      if (mySeat && seat.teamId === mySeat.teamId) continue;
+      const d = Math.hypot(rs.pos.x - wx, rs.pos.y - wy);
+      if (d <= rs.size + 26 && (!best || d < best.dist)) best = { ownerId: seat.ownerId, dist: d };
+    }
+    onSetTarget(best ? best.ownerId : null);
+  };
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // Wrap-edge flash: a >2000-unit jump between frames can only be the
   // world wrap firing — remember when it happened so the rim can flash.
@@ -1553,6 +1578,31 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       }
     }
 
+    // TARGET LOCK RETICLE (controls follow-on): the local
+    // captain's lock — ship.targetId is the sim's record, and
+    // locks clear sim-side the frame they leave validity, so
+    // this draw simply believes the record: amber corner
+    // brackets with a slow pulse, no expiry logic of its own.
+    if (ship.targetId) {
+      const tSeat = (state.seats || []).find(se => se.ownerId === ship.targetId);
+      const ts = tSeat?.ship;
+      if (ts) {
+        const rr = ts.size + 12 + Math.sin(nowMs / 280) * 2;
+        const arm = 9;
+        ctx.strokeStyle = '#ffb020';
+        ctx.lineWidth = 2;
+        for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+          const cx = ts.pos.x + sx * rr;
+          const cy = ts.pos.y + sy * rr;
+          ctx.beginPath();
+          ctx.moveTo(cx - sx * arm, cy);
+          ctx.lineTo(cx, cy);
+          ctx.lineTo(cx, cy - sy * arm);
+          ctx.stroke();
+        }
+      }
+    }
+
     ctx.restore(); // End Camera space
 
     // OFF-SCREEN CHARGE CUE: the HUD banner says a CME is charging, but not
@@ -1599,5 +1649,5 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
     }
   }, [state, width, height]);
 
-  return <canvas ref={canvasRef} width={width} height={height} className="block" />;
+  return <canvas ref={canvasRef} width={width} height={height} className="block" onClick={handlePick} />;
 };

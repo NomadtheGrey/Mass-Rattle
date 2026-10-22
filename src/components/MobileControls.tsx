@@ -4,7 +4,7 @@ import { getLoadoutItem } from '../loadout';
 import { useUiOptions } from '../uiOptions';
 
 interface MobileControlsProps {
-  onControlChange: (action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison' | 'fire', active: boolean) => void;
+  onControlChange: (action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison' | 'jettisonAll' | 'fire', active: boolean) => void;
   onAnalogStick: (stick: { x: number; y: number } | null) => void;
   onOpenWorkshop: () => void;
   onToggleRadar: () => void;
@@ -123,7 +123,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
     }
   };
 
-  const createTouchButtonHandler = (action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison' | 'fire') => {
+  const createTouchButtonHandler = (action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison' | 'jettisonAll' | 'fire') => {
     return {
       onPointerDown: (e: React.PointerEvent) => {
         e.preventDefault();
@@ -147,6 +147,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
   const thrustHandlers = createTouchButtonHandler('thrust');
   const vacHandlers = createTouchButtonHandler('vac');
   const jettisonHandlers = createTouchButtonHandler('jettison');
+  const jettisonAllHandlers = createTouchButtonHandler('jettisonAll');
   const leftHandlers = createTouchButtonHandler('rotateLeft');
   const rightHandlers = createTouchButtonHandler('rotateRight');
 
@@ -221,6 +222,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                 : { label: 'FIRE · HOLD', keys: 'NO WEAPON EQUIPPED', dim: true },
               { label: 'VAC PULL · HOLD', keys: 'COLLECT SCRAP' },
               { label: 'EJECT', keys: 'CARGO PULSE — SHOWS WHEN CARRYING' },
+              { label: 'DUMP', keys: 'ALL CARGO AT ONCE — SHOWS WHEN CARRYING' },
               ...(decoyEquipped ? [{ label: 'DECOY ▸ DROP', keys: 'DROPS THE BEACON' }] : []),
               { label: 'IN THE WELL', keys: 'FEED · BANK · WITHDRAW · WORKSHOP' },
               { label: 'WORKSHOP', keys: 'SHOP + UPGRADES — AT YOUR STAR' },
@@ -380,6 +382,20 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                 >
                   <Disc size={16} className="text-red-400 animate-spin" />
                   <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">EJECT</span>
+                </button>
+              )}
+
+              {/* DUMP ALL Button — J's tile twin (Adam, 2026-10-22):
+                  the whole hold behind you at once (the escape
+                  verb). Same carrying gate as EJECT; the two cargo
+                  verbs sit together in the column. */}
+              {carrying > 0 && (
+                <button
+                  {...jettisonAllHandlers}
+                  className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-orange-600 bg-orange-950/40 text-orange-400 active:bg-orange-900 active:scale-95 flex flex-col items-center justify-center transition-all touch-none shadow-[0_0_12px_rgba(249,115,22,0.3)]"
+                >
+                  <Disc size={16} className="text-orange-400" />
+                  <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">DUMP</span>
                 </button>
               )}
 

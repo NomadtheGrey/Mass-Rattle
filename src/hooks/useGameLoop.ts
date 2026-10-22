@@ -1231,8 +1231,9 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       // sixth weapon's only key. E deploys the item (X is
       // retired); R toggles Damage Control; U alone works the
       // workshop — Tab's toggle duty retired with its
-      // reassignment to TARGET CYCLE, which binds when the
-      // lightning lock's target state lands in the sim. SPACE
+      // reassignment to TARGET CYCLE — the lock state has since
+      // landed (ship.targetId; the sim validates and clears it),
+      // so Tab cycles it below. SPACE
       // IS NEVER FIRE: it is the scrap key (jettison), owned by
       // the adapter; this handler must never claim it.
       const slotDigits = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'];
@@ -1249,6 +1250,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       if (e.code === 'KeyG') toggleGauges();
       if (e.code === 'KeyE') deployDecoy();
       if (e.code === 'KeyR') setRepairing(stateRef.current.ship.repairing === false);
+      if (e.code === 'Tab') { e.preventDefault(); cycleTarget(); }
       if (e.code === 'KeyU') {
         setState(prev => {
           // Same shop-well gate as toggleShop (Adam's pin, 2026-10-19).
@@ -1289,7 +1291,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       window.removeEventListener('blur', releaseAllInputs);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [upgrade, deployDecoy, selectWeaponSlot, setRepairing, toggleGauges]);
+  }, [upgrade, deployDecoy, selectWeaponSlot, setRepairing, toggleGauges, cycleTarget]);
 
   useEffect(() => {
     let frameId: number;

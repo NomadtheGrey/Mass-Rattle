@@ -646,10 +646,12 @@ export const HUD: React.FC<HUDProps> = ({
       ? { label: 'FIRE · HOLD', keys: `F — ${controlsWeapon.name.toUpperCase()}` }
       : { label: 'FIRE · HOLD', keys: 'F — NO WEAPON', dim: true },
     { label: 'EJECT PULSE', keys: 'SPACE' },
+    { label: 'DUMP ALL', keys: 'J' },
     ...(loadout.defense === 'decoy_beacon'
       ? [{ label: 'DEPLOY DECOY', keys: 'E' } as { label: string; keys: string; dim?: boolean; bold?: boolean }]
       : []),
     { label: 'REPAIR', keys: 'R' },
+    { label: 'TARGET', keys: 'TAB · CLICK' },
     { label: 'SHOP', keys: 'U — AT HOME STAR' },
     { label: 'UPGRADES', keys: 'SHIFT + 1 – 5' },
   ];
