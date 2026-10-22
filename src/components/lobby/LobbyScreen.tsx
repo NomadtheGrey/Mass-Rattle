@@ -435,7 +435,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             value={callsign}
             onChange={e => { setCallsign(e.target.value); if (e.target.value.trim().toLowerCase() !== 'nomad') setCallsignPassword(''); }}
             maxLength={16}
-            placeholder="e.g. NOMAD"
+            placeholder="e.g. VOIDRUNNER"
             className="hud-panel rounded px-3 py-2.5 bg-zinc-900 border border-zinc-700 font-mono text-sm text-zinc-50 placeholder:text-zinc-600 outline-none focus:border-[#33ff33]"
           />
         </label>
