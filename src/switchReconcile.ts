@@ -17,14 +17,17 @@
  * goes dormant off the hauler and binds again on return.
  *
  * Refunds land in the BANK (the switch happens at the well,
- * the bank's home ground). A sold drone's undelivered cargo
- * DROPS as loose scrap where it stood — the drone-death
- * precedent; it was never delivered, so it is never banked.
+ * the bank's home ground) — and a sold drone's CARGO BANKS
+ * WITH THEM (Adam's correction, 2026-10-22: 'Sold cargo is
+ * sold cargo — it gets BANKED'). The cargo is part of the
+ * sale, valued at face; it does NOT drop as field scrap.
+ * (Drone DEATH is a different system: a wreck still drops
+ * what it carried, plus its salvage piece.)
  *
  * Pure: callers (the loop's switch verbs) apply the result —
  * arsenal/loadout/mounts read straight off it, the sold ids
- * filter out of the drone/escort lists, and the cargo drops
- * expand into scrap entities at the drop points.
+ * filter out of the drone/escort lists, and the refund (sale
+ * prices + banked cargo) credits the bank.
  */
 import { canMountWeapon, getLoadoutItem, itemTierCost } from './loadout';
 import {
@@ -43,9 +46,7 @@ export interface SwitchSellResult {
   turretMounts: number;
   soldDroneIds: string[];
   soldEscortIds: string[];
-  /** Undelivered cargo of sold drones, to drop as loose scrap. */
-  cargoDrops: { x: number; y: number; count: number }[];
-  /** Total refund, headed for the bank. */
+  /** Total refund (sale prices + sold cargo at face), for the bank. */
   refund: number;
   /** A manifest for the surface: what sold, in plain counts. */
   sold: { weapons: string[]; drones: number; defenseDrones: number; mounts: number; escorts: number };
@@ -84,7 +85,6 @@ export const reconcileSwitch = (
   // newest first on ties — deterministic, and stated here so a
   // captain can predict which hulls go.
   const soldDroneIds: string[] = [];
-  const cargoDrops: SwitchSellResult['cargoDrops'] = [];
   const workforce = drones
     .map((d, i) => ({ d, i }))
     .filter(({ d }) => d.ownerId === ship.ownerId && !d.starFleet && d.mode !== 'defense');
@@ -96,8 +96,9 @@ export const reconcileSwitch = (
       || b.i - a.i);
     for (const { d } of ranked.slice(0, wfExcess)) {
       soldDroneIds.push(d.id);
-      if (d.carrying > 0) cargoDrops.push({ x: d.pos.x, y: d.pos.y, count: d.carrying });
-      refund += DRONE_PRICE;
+      // The cargo is part of the sale: it banks at face with
+      // the refund (Adam's correction — not field scrap).
+      refund += DRONE_PRICE + d.carrying;
       sold.drones += 1;
     }
   }
@@ -140,5 +141,5 @@ export const reconcileSwitch = (
     }
   }
 
-  return { arsenal, loadout, turretMounts, soldDroneIds, soldEscortIds, cargoDrops, refund, sold };
+  return { arsenal, loadout, turretMounts, soldDroneIds, soldEscortIds, refund, sold };
 };
