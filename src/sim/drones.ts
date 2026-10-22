@@ -17,7 +17,7 @@ import { infuseStar } from '../starGrowth';
 import { STAR_DRONE_RESPAWN_FRAMES, starDroneRangeFor, starDroneTargetFor } from '../starFleet';
 import { applyDeliveryHeal } from '../starDefense';
 import { areHostile } from './teams';
-import { AUTO_GUN, DEFENSE_DRONE, typeFor } from '../shipProgression';
+import { AUTO_GUN, DEFENSE_DRONE, canOrderWorkforce, typeFor } from '../shipProgression';
 import type { GameState, Harvester, SeatSimState, Star, Vector2D } from '../types';
 
 export interface DroneStepContext {
@@ -247,9 +247,19 @@ export const stepDrones = (ctx: DroneStepContext): DroneStepResult => {
         // feeding — no infusion, no delivery heal, no teamScrap
         // (banking is not nourishment, and the fed counter stays
         // truthful). The STAR FLEET is never under orders: the
-        // star's own gleaners always feed her.
+        // star's own gleaners always feed her. And the order BINDS
+        // only while the captain flies a hauler hull — the game's
+        // shelve law (slice 4): the standing order persists on the
+        // seat across line switches and death, dormant, and binds
+        // again the moment a hauler hull returns; off-hull (or
+        // shipless, in the starter frame death leaves), the
+        // workforce feeds.
         const ownerSeat = seatByOwnerId.get(drone.ownerId);
-        if (!drone.starFleet && ownerSeat?.deliveryMode === 'deposit') {
+        if (
+          !drone.starFleet &&
+          ownerSeat?.deliveryMode === 'deposit' &&
+          canOrderWorkforce(ownerSeat.ship?.line ?? null)
+        ) {
           ownerSeat.bankedScrap += amount;
         } else {
           // Every star grows through the SAME rising milestone

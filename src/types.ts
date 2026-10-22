@@ -303,7 +303,10 @@ export interface SeatSimState {
    * nourishment). A HAULER-line capability in v1 (the order is her
    * workforce crown's third face — canOrderWorkforce in
    * shipProgression.ts); the STAR FLEET is never under orders and
-   * always feeds. Default 'feed'. */
+   * always feeds. The order persists on the seat across line
+   * switches and death but BINDS only while the seat's current
+   * ship is a hauler hull — shelved, never stripped, like every
+   * line capability in the game. Default 'feed'. */
   deliveryMode: 'feed' | 'deposit';
   /** Mirror of star.totalScrapInfused, refreshed by the loop each
    * frame — the star's field is the single source of truth. */

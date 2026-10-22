@@ -712,7 +712,11 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
    * SeatSimState.deliveryMode). The order is the HAULER line's
    * crown capability in v1 (canOrderWorkforce); any other hull's
    * call is refused silently, like the arsenal's mount gates. The
-   * mode lives on the seat record, so it syncs as seat state; a
+   * standing order persists on the seat across line switches, but
+   * the delivery read binds it only while she flies a hauler —
+   * shelved, never stripped (the game's standing law for line
+   * capabilities). The mode lives on the seat record, so it syncs
+   * as seat state; a
    * GUEST captain's switch-throwing rides the per-seat economy
    * follow-on with the other guest economy verbs — this verb is
    * the local/host path, and the B2 bot policy will set the same
