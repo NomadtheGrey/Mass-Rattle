@@ -14,6 +14,7 @@
 
 import { PHYSICS } from '../constants';
 import { infuseStar } from '../starGrowth';
+import { STAR_DRONE_RESPAWN_FRAMES, starDroneRangeFor, starDroneTargetFor } from '../starFleet';
 import { applyDeliveryHeal } from '../starDefense';
 import { areHostile } from './teams';
 import { AUTO_GUN, DEFENSE_DRONE, typeFor } from '../shipProgression';
@@ -63,12 +64,19 @@ export const stepDrones = (ctx: DroneStepContext): DroneStepResult => {
 
     // Drone QUALITY (Arsenal slice 3): the owner's current ship
     // type grades its workforce — speed reads live (a better hull
-    // directs better drones), shipless owners fly baseline.
+    // directs better drones), shipless owners fly baseline. The
+    // STAR FLEET is not the captain's workforce (it is excluded
+    // from their counts on the same logic), so it flies baseline
+    // regardless of the hull overhead.
     const ownerShip = seatByOwnerId.get(drone.ownerId)?.ship ?? null;
-    const speedMul = ownerShip
+    const speedMul = ownerShip && !drone.starFleet
       ? 1 + typeFor(ownerShip.line, ownerShip.typeTier).droneSpeedPct / 100
       : 1;
     const droneSpeed = PHYSICS.DRONES.SPEED * speedMul;
+    // STAR FLEET leash (2026-10-22): a fleet drone only gleans
+    // within its star's current fleet range — young stars glean
+    // near, old stars sweep far (src/starFleet.ts).
+    const fleetRange = drone.starFleet ? starDroneRangeFor(droneStar) : Infinity;
 
     // DEFENSE MODE (Arsenal slice 3 — Adam's hauler pair): a
     // defense drone never harvests. It holds a station off its
@@ -147,8 +155,9 @@ export const stepDrones = (ctx: DroneStepContext): DroneStepResult => {
     // instead of working — it screams "hostile" louder than scrap
     // whispers, and a returning drone delays its delivery to chase
     // it. (Hostile = TEAMS: not the decoy's TEAM; in SP, the
-    // enemy's.)
-    if (next.decoy && areHostile(simSeats, drone.ownerId, next.decoy.ownerId)) {
+    // enemy's.) The STAR FLEET never chases: they are gleaners,
+    // not guards — the defense pair does the guarding.
+    if (!drone.starFleet && next.decoy && areHostile(simSeats, drone.ownerId, next.decoy.ownerId)) {
       const bx = next.decoy.pos.x - drone.pos.x;
       const by = next.decoy.pos.y - drone.pos.y;
       const bd = Math.hypot(bx, by);
@@ -164,10 +173,16 @@ export const stepDrones = (ctx: DroneStepContext): DroneStepResult => {
     }
     
     if (drone.state === 'searching') {
-      // Find closest scrap
+      // Find closest scrap (STAR FLEET: only scrap inside the
+      // fleet's leash of its home star is a candidate at all).
       let closestScrap = null;
       let minDist = Infinity;
       next.scrap.forEach(s => {
+        if (drone.starFleet) {
+          const sx = s.pos.x - droneStar.pos.x;
+          const sy = s.pos.y - droneStar.pos.y;
+          if (sx * sx + sy * sy > fleetRange * fleetRange) return;
+        }
         const dx = s.pos.x - drone.pos.x;
         const dy = s.pos.y - drone.pos.y;
         const d = dx * dx + dy * dy;
@@ -244,5 +259,47 @@ export const stepDrones = (ctx: DroneStepContext): DroneStepResult => {
 
     return drone;
   });
+  // STAR FLEET growth + regrowth (2026-10-22, src/starFleet.ts):
+  // each living seat's star rebuilds its own fleet toward the
+  // target its evolution sets — one birth per respawn interval,
+  // growth and replacement alike (Adam: "if destroyed, then the
+  // star can slowly respawn them"). The newborn is the birth
+  // drone's twin, spawned by the star's own convention (100 per
+  // axis toward the arena center, as in matchAssembly).
+  for (const seat of seatByOwnerId.values()) {
+    if (seat.eliminated) continue;
+    const homeStar = seat.star;
+    const target = starDroneTargetFor(homeStar);
+    const fleetCount = drones.filter(
+      d => d.starFleet && d.ownerId === seat.ownerId,
+    ).length;
+    if (fleetCount >= target) {
+      homeStar.starDroneTimerFrames = 0;
+      continue;
+    }
+    homeStar.starDroneTimerFrames = (homeStar.starDroneTimerFrames ?? 0) + 1;
+    if (homeStar.starDroneTimerFrames < STAR_DRONE_RESPAWN_FRAMES) continue;
+    homeStar.starDroneTimerFrames = 0;
+    const seq = (homeStar.starDroneSeq ?? 1) + 1;
+    homeStar.starDroneSeq = seq;
+    drones.push({
+      id: `${seat.ownerId}-stardrone-${seq}`,
+      health: 100,
+      pos: {
+        x: homeStar.pos.x - Math.sign(homeStar.pos.x) * 100,
+        y: homeStar.pos.y - Math.sign(homeStar.pos.y) * 100,
+      },
+      vel: { x: 0, y: 0 },
+      angle: 0,
+      targetId: null,
+      carrying: 0,
+      capacity: PHYSICS.DRONES.CAPACITY,
+      owner: seat.starIndex === 0 ? 'player' : 'enemy',
+      ownerId: seat.ownerId,
+      state: 'searching',
+      starFleet: true,
+    });
+  }
+
   return { drones, teamScrap };
 };

@@ -118,6 +118,9 @@ const createSeatDrone = (star: Star, starIndex: number): Harvester => ({
   owner: starIndex === 0 ? 'player' : 'enemy',
   ownerId: star.ownerId,
   state: 'searching',
+  // The birth drone is the STAR FLEET's seed (2026-10-22): the
+  // fleet grows from this one as the star evolves (src/starFleet.ts).
+  starFleet: true,
 });
 
 export const createMatch = (config: CreateMatchConfig): GameState => {

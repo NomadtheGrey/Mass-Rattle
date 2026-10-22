@@ -250,7 +250,7 @@ export default function App() {
         typeTier={state.ship.typeTier}
         hullSteps={state.ship.hullSteps}
         lineSwitchesUsed={state.ship.lineSwitchesUsed}
-        playerDrones={state.drones.filter(d => d.owner === 'player' && d.mode !== 'defense').length}
+        playerDrones={state.drones.filter(d => d.owner === 'player' && d.mode !== 'defense' && !d.starFleet).length}
         playerDefenseDrones={state.drones.filter(d => d.owner === 'player' && d.mode === 'defense').length}
         onBuildDefenseDrone={buildDefenseDrone}
         onDebugGrantScrap={debugGrantScrap}

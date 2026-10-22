@@ -625,7 +625,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // drones are built at home
       // Harvesters only (Arsenal slice 3): defense-mode drones are
       // a separate complement and never eat workforce slots.
-      const fielded = prev.drones.filter(d => d.owner === 'player' && d.mode !== 'defense').length;
+      const fielded = prev.drones.filter(d => d.owner === 'player' && d.mode !== 'defense' && !d.starFleet).length;
       if (fielded >= typeFor(prev.ship.line, prev.ship.typeTier).dronesFielded) return prev;
       const payment = walletPay(prev.ship.carrying, prev.bankedScrap, DRONE_PRICE, inTeamWell(prev.seats, prev.ship));
       if (!payment) return prev;

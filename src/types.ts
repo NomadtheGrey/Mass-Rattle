@@ -179,6 +179,12 @@ export interface Star extends GameObject {
   cmeNextAt?: number;
   cmeChargeEndsAt?: number;
   cmeAimAngle?: number;
+  /** Star-fleet bookkeeping (2026-10-22, src/starFleet.ts): frames
+   *  accrued toward the next fleet birth/regrowth, and the birth
+   *  sequence that keeps fleet drone ids unique. Runtime fields on
+   *  the star, like the CME timers above. */
+  starDroneTimerFrames?: number;
+  starDroneSeq?: number;
 }
 
 /**
@@ -241,6 +247,14 @@ export interface Harvester {
    *  sim/drones.ts + DEFENSE_DRONE in shipProgression.ts). Absent
    *  = an ordinary harvester; every pre-slice-3 drone is one. */
   mode?: 'defense';
+  /** Star fleet (2026-10-22): the star's OWN harvester, not the
+   *  captain's — born with the star (matchAssembly's birth drone),
+   *  grown and regrown by the star itself as it evolves
+   *  (src/starFleet.ts). Excluded from every ship-workforce count;
+   *  persists across the captain ship's death; the fleet's life is
+   *  the star's. Absent = a ship's drone, as every pre-fleet drone
+   *  was. */
+  starFleet?: boolean;
   /** Ion Blaster effect: frames remaining where this drone is rebooting (no movement). */
   stunFrames?: number;
   /** Kill attribution (Phase 2, P2-2b): the ownerId of the seat whose
