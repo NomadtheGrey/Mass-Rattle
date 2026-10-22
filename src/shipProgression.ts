@@ -63,10 +63,47 @@ export interface ShipTypeDef {
    * its extra guns are autoGuns instead (Adam: "spot on").
    */
   hardPoints: number;
-  /** Cruiser only: shipboard auto-turrets (see AUTO_GUN). 0 elsewhere. */
+  /**
+   * Shipboard auto-turret MOUNT CAP (Arsenal slice 2, 2026-10-21):
+   * how many turret mounts this type can carry. Mounts are BOUGHT
+   * one at a time (buyTurretMount, turretMountPriceFor); the ship
+   * fires min(cap, Ship.turretMounts) — see effectiveAutoGuns. The
+   * cruiser's values are the shipped Phase 3 amounts become caps:
+   * the battery's advantage is now cap DEPTH, not free guns. Every
+   * other line's cap is a NEW DRAFT under peaks-not-locks (a line
+   * can mount turrets, the cruiser just mounts the most).
+   */
   autoGuns: number;
   /** Mines laid per Mine Layer activation (each still costs 1 scrap). */
   minesPerDrop: number;
+  /**
+   * Defense-drone CAP (Arsenal slice 3, 2026-10-21): how many
+   * defense-mode drones (see sim/drones.ts) this type can field
+   * alongside its harvesters. Adam's hauler complement: the pair
+   * completes at the hauler's T3 (1 at T2, 2 from T3) — "a couple,
+   * nothing near the carriers." Every other line is 0 IN THIS
+   * SLICE: the axis exists in the table for a later pass.
+   */
+  defenseDrones: number;
+  /**
+   * Drone quality axis (Arsenal slice 3, DRAFT): the workforce a
+   * ship fields flies at PHYSICS.DRONES.SPEED x (1 + pct/100) and
+   * carries PHYSICS.DRONES.CAPACITY + bonus. Values live ONLY on
+   * the hauler row in this slice (her workforce IS the complement);
+   * every other type is baseline 0/+0.
+   */
+  droneSpeedPct: number;
+  droneCarryBonus: number;
+  /**
+   * THE CARRIER WING (Arsenal slice 5b): how many escorts of each
+   * kind this type may field. Nonzero ONLY on the drone line — the
+   * wing is that line's abundance (Adam's ruling: the carrier's
+   * numbers are her escorts, not her workers). All other lines
+   * carry zeros. Values DRAFT for the numbers pass; the entity
+   * worst case (4 drone-line seats x an 11-ship crown wing = 44
+   * extra hulls) is FLAGGED there, not solved here.
+   */
+  escortWing: { skiff: number; stinger: number; lancer: number };
   /** Player drones the ship can field at once (buildDrone's cap). */
   dronesFielded: number;
   /** Flat hold capacity added on top of the cargo track. */
@@ -90,11 +127,13 @@ const SKIFF: ShipTypeDef = {
   hullStepCap: 1,
   trackCaps: { thrust: 3, handling: 3, vac: 2, fuel: 2, cargo: 2 },
   hardPoints: 1,
-  autoGuns: 0,
+  autoGuns: 1,
   minesPerDrop: 1,
   dronesFielded: 1,
   cargoBonus: 0,
   vacBonus: 0,
+  defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0,
+  escortWing: { skiff: 0, stinger: 0, lancer: 0 },
 };
 
 export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
@@ -107,7 +146,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         turnFactor: 1.25,
         hullStepCap: 3,
         trackCaps: { thrust: 5, handling: 5, vac: 4, fuel: 4, cargo: 4 },
-        hardPoints: 2, autoGuns: 0, minesPerDrop: 1, dronesFielded: 1, cargoBonus: 0, vacBonus: 0,
+        hardPoints: 2, autoGuns: 1, minesPerDrop: 1, dronesFielded: 1, cargoBonus: 0, vacBonus: 0, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0, escortWing: { skiff: 0, stinger: 0, lancer: 0 },
       },
       {
         name: 'LANCER',
@@ -115,7 +154,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hullStepCap: 5,
         // PEAK: thrust + handling (+1 over baseline at T3).
         trackCaps: { thrust: 9, handling: 9, vac: 6, fuel: 7, cargo: 6 },
-        hardPoints: 3, autoGuns: 0, minesPerDrop: 1, dronesFielded: 2, cargoBonus: 0, vacBonus: 10,
+        hardPoints: 3, autoGuns: 1, minesPerDrop: 1, dronesFielded: 2, cargoBonus: 0, vacBonus: 10, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0, escortWing: { skiff: 0, stinger: 0, lancer: 0 },
       },
       {
         name: 'WARFANG',
@@ -127,7 +166,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hullStepCap: 7,
         // PEAK: thrust + handling (+2 over baseline at T4).
         trackCaps: { thrust: 14, handling: 14, vac: 10, fuel: 10, cargo: 10 },
-        hardPoints: 4, autoGuns: 0, minesPerDrop: 2, dronesFielded: 2, cargoBonus: 2, vacBonus: 20,
+        hardPoints: 4, autoGuns: 2, minesPerDrop: 2, dronesFielded: 2, cargoBonus: 2, vacBonus: 20, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0, escortWing: { skiff: 0, stinger: 0, lancer: 0 },
       },
       {
         // T5 CROWN — WARMONGER (Adam, adopted 2026-10-21).
@@ -138,7 +177,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hullStepCap: 9,
         // PEAK: thrust + handling (+3 over the T5 baseline).
         trackCaps: { thrust: 19, handling: 19, vac: 13, fuel: 13, cargo: 13 },
-        hardPoints: 5, autoGuns: 0, minesPerDrop: 2, dronesFielded: 3, cargoBonus: 2, vacBonus: 30,
+        hardPoints: 5, autoGuns: 2, minesPerDrop: 2, dronesFielded: 3, cargoBonus: 2, vacBonus: 30, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0, escortWing: { skiff: 0, stinger: 0, lancer: 0 },
       },
     ],
   },
@@ -151,7 +190,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         turnFactor: 1.05, // The saboteur ladder (Adam, adopted 2026-10-21): MOLE / SKULKER / SABOTEUR / NAUTILUS — SOWER retired.
         hullStepCap: 3,
         trackCaps: { thrust: 5, handling: 5, vac: 4, fuel: 4, cargo: 4 },
-        hardPoints: 1, autoGuns: 0, minesPerDrop: 2, dronesFielded: 1, cargoBonus: 0, vacBonus: 0,
+        hardPoints: 1, autoGuns: 1, minesPerDrop: 2, dronesFielded: 1, cargoBonus: 0, vacBonus: 0, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0, escortWing: { skiff: 0, stinger: 0, lancer: 0 },
       },
       {
         name: 'SKULKER',
@@ -159,7 +198,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hullStepCap: 5,
         // PEAK: cargo (+1 over baseline at T3).
         trackCaps: { thrust: 8, handling: 8, vac: 6, fuel: 7, cargo: 7 },
-        hardPoints: 2, autoGuns: 0, minesPerDrop: 3, dronesFielded: 2, cargoBonus: 2, vacBonus: 10,
+        hardPoints: 2, autoGuns: 1, minesPerDrop: 3, dronesFielded: 2, cargoBonus: 2, vacBonus: 10, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0, escortWing: { skiff: 0, stinger: 0, lancer: 0 },
       },
       {
         name: 'SABOTEUR',
@@ -167,7 +206,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hullStepCap: 8,
         // PEAK: cargo (+2 over baseline at T4).
         trackCaps: { thrust: 12, handling: 12, vac: 10, fuel: 10, cargo: 12 },
-        hardPoints: 2, autoGuns: 0, minesPerDrop: 5, dronesFielded: 2, cargoBonus: 4, vacBonus: 20,
+        hardPoints: 2, autoGuns: 1, minesPerDrop: 5, dronesFielded: 2, cargoBonus: 4, vacBonus: 20, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0, escortWing: { skiff: 0, stinger: 0, lancer: 0 },
       },
       {
         // T5 CROWN — NAUTILUS (Adam, adopted 2026-10-21): the
@@ -179,7 +218,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hullStepCap: 11,
         // PEAK: cargo (+3 over the T5 baseline).
         trackCaps: { thrust: 16, handling: 16, vac: 13, fuel: 13, cargo: 16 },
-        hardPoints: 2, autoGuns: 0, minesPerDrop: 7, dronesFielded: 3, cargoBonus: 6, vacBonus: 30,
+        hardPoints: 2, autoGuns: 2, minesPerDrop: 7, dronesFielded: 3, cargoBonus: 6, vacBonus: 30, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0, escortWing: { skiff: 0, stinger: 0, lancer: 0 },
       },
     ],
   },
@@ -188,11 +227,17 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
     types: [
       SKIFF,
       {
+        // WORKFORCE CROWN (Adam's ruling, 2026-10-21 — "If anyone
+        // has harvesters, HAULERS should"): the hauler row wears
+        // the deep workforce ladder (2/3/5/7, the drone line's old
+        // numbers) in number AND quality — her dronesFielded and
+        // the droneSpeedPct/droneCarryBonus axis are both the
+        // game's peak. Still DRAFT for the numbers pass.
         name: 'MULE',
         turnFactor: 0.72,
         hullStepCap: 3,
         trackCaps: { thrust: 5, handling: 5, vac: 4, fuel: 4, cargo: 4 },
-        hardPoints: 1, autoGuns: 0, minesPerDrop: 1, dronesFielded: 1, cargoBonus: 4, vacBonus: 20,
+        hardPoints: 1, autoGuns: 1, minesPerDrop: 1, dronesFielded: 2, cargoBonus: 4, vacBonus: 20, defenseDrones: 1, droneSpeedPct: 0, droneCarryBonus: 0, escortWing: { skiff: 0, stinger: 0, lancer: 0 },
       },
       {
         name: 'MAMMOTH',
@@ -200,7 +245,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hullStepCap: 5,
         // PEAK: vac + cargo (+1 over baseline at T3).
         trackCaps: { thrust: 8, handling: 8, vac: 7, fuel: 7, cargo: 7 },
-        hardPoints: 1, autoGuns: 0, minesPerDrop: 2, dronesFielded: 2, cargoBonus: 8, vacBonus: 40,
+        hardPoints: 1, autoGuns: 2, minesPerDrop: 2, dronesFielded: 3, cargoBonus: 8, vacBonus: 40, defenseDrones: 2, droneSpeedPct: 10, droneCarryBonus: 1, escortWing: { skiff: 0, stinger: 0, lancer: 0 },
       },
       {
         name: 'LEVIATHAN',
@@ -208,7 +253,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hullStepCap: 9, // Hauler T4 peaks hull second only to Cruiser.
         // PEAK: vac + cargo (+2 over baseline at T4).
         trackCaps: { thrust: 12, handling: 12, vac: 12, fuel: 10, cargo: 12 },
-        hardPoints: 2, autoGuns: 0, minesPerDrop: 2, dronesFielded: 2, cargoBonus: 12, vacBonus: 60,
+        hardPoints: 2, autoGuns: 2, minesPerDrop: 2, dronesFielded: 5, cargoBonus: 12, vacBonus: 60, defenseDrones: 2, droneSpeedPct: 20, droneCarryBonus: 1, escortWing: { skiff: 0, stinger: 0, lancer: 0 },
       },
       {
         // T5 CROWN — ATLAS (Adam, adopted 2026-10-21: 'That's even
@@ -220,7 +265,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hullStepCap: 12,
         // PEAK: vac + cargo (+3 over the T5 baseline).
         trackCaps: { thrust: 16, handling: 16, vac: 16, fuel: 13, cargo: 16 },
-        hardPoints: 2, autoGuns: 0, minesPerDrop: 2, dronesFielded: 3, cargoBonus: 16, vacBonus: 80,
+        hardPoints: 2, autoGuns: 3, minesPerDrop: 2, dronesFielded: 7, cargoBonus: 16, vacBonus: 80, defenseDrones: 2, droneSpeedPct: 30, droneCarryBonus: 2, escortWing: { skiff: 0, stinger: 0, lancer: 0 },
       },
     ],
   },
@@ -229,11 +274,15 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
     types: [
       SKIFF,
       {
+        // MODEST CREW (Adam's ruling, 2026-10-21 — see the Mule):
+        // the drone line's workforce drops to 1/2/3/4 — enough to
+        // tend her star, no more. This line's abundance is her
+        // ESCORT WING (Arsenal slice 5), not her workers.
         name: 'SHEPHERD',
         turnFactor: 0.72,
         hullStepCap: 3,
         trackCaps: { thrust: 5, handling: 5, vac: 4, fuel: 4, cargo: 4 },
-        hardPoints: 1, autoGuns: 0, minesPerDrop: 1, dronesFielded: 2, cargoBonus: 2, vacBonus: 10,
+        hardPoints: 1, autoGuns: 1, minesPerDrop: 1, dronesFielded: 1, cargoBonus: 2, vacBonus: 10, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0, escortWing: { skiff: 1, stinger: 0, lancer: 0 },
       },
       {
         name: 'WARDEN',
@@ -241,7 +290,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hullStepCap: 5,
         // PEAK: fuel (+1 over baseline at T3).
         trackCaps: { thrust: 8, handling: 8, vac: 6, fuel: 8, cargo: 6 },
-        hardPoints: 2, autoGuns: 0, minesPerDrop: 1, dronesFielded: 3, cargoBonus: 2, vacBonus: 20,
+        hardPoints: 2, autoGuns: 2, minesPerDrop: 1, dronesFielded: 2, cargoBonus: 2, vacBonus: 20, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0, escortWing: { skiff: 2, stinger: 1, lancer: 0 },
       },
       {
         name: 'CARRIER',
@@ -249,7 +298,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hullStepCap: 8,
         // PEAK: fuel (+2 over baseline at T4).
         trackCaps: { thrust: 12, handling: 12, vac: 10, fuel: 12, cargo: 10 },
-        hardPoints: 2, autoGuns: 0, minesPerDrop: 2, dronesFielded: 5, cargoBonus: 4, vacBonus: 30,
+        hardPoints: 2, autoGuns: 3, minesPerDrop: 2, dronesFielded: 3, cargoBonus: 4, vacBonus: 30, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0, escortWing: { skiff: 4, stinger: 2, lancer: 0 },
       },
       {
         // T5 CROWN — MOTHERSHIP (Adam, adopted 2026-10-21).
@@ -258,7 +307,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hullStepCap: 11,
         // PEAK: fuel (+3 over the T5 baseline).
         trackCaps: { thrust: 16, handling: 16, vac: 13, fuel: 16, cargo: 13 },
-        hardPoints: 2, autoGuns: 0, minesPerDrop: 2, dronesFielded: 7, cargoBonus: 6, vacBonus: 40,
+        hardPoints: 2, autoGuns: 4, minesPerDrop: 2, dronesFielded: 4, cargoBonus: 6, vacBonus: 40, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0, escortWing: { skiff: 6, stinger: 3, lancer: 2 },
       },
     ],
   },
@@ -273,7 +322,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         // Cruiser exception: handling -1 from T2 on (the biggest hulls
         // turn worst). No peak tracks — its peak is size/health.
         trackCaps: { thrust: 5, handling: 4, vac: 4, fuel: 4, cargo: 4 },
-        hardPoints: 1, autoGuns: 1, minesPerDrop: 2, dronesFielded: 1, cargoBonus: 2, vacBonus: 0,
+        hardPoints: 1, autoGuns: 1, minesPerDrop: 2, dronesFielded: 1, cargoBonus: 2, vacBonus: 0, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0, escortWing: { skiff: 0, stinger: 0, lancer: 0 },
       },
       {
         // T3 VANGUARD — the interpolated rung (Adam, adopted
@@ -285,7 +334,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hullStepCap: 6,
         // Handling -1; fuel +1 (T3/T4).
         trackCaps: { thrust: 8, handling: 7, vac: 6, fuel: 8, cargo: 6 },
-        hardPoints: 1, autoGuns: 2, minesPerDrop: 2, dronesFielded: 2, cargoBonus: 4, vacBonus: 10,
+        hardPoints: 1, autoGuns: 2, minesPerDrop: 2, dronesFielded: 2, cargoBonus: 4, vacBonus: 10, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0, escortWing: { skiff: 0, stinger: 0, lancer: 0 },
       },
       {
         // T4 BATTLESTAR — the old T4 (Dreadnought) numbers under
@@ -295,7 +344,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hullStepCap: 10, // Max size 35.
         // Handling -1; fuel +1 (T3/T4).
         trackCaps: { thrust: 12, handling: 11, vac: 10, fuel: 11, cargo: 10 },
-        hardPoints: 1, autoGuns: 4, minesPerDrop: 3, dronesFielded: 3, cargoBonus: 6, vacBonus: 20,
+        hardPoints: 1, autoGuns: 4, minesPerDrop: 3, dronesFielded: 3, cargoBonus: 6, vacBonus: 20, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0, escortWing: { skiff: 0, stinger: 0, lancer: 0 },
       },
       {
         // T5 CROWN — DREADNOUGHT (Adam, FINAL 2026-10-21: the name
@@ -306,7 +355,7 @@ export const SHIP_LINES: Record<ShipLine, ShipLineDef> = {
         hullStepCap: 13,
         // Handling -1; fuel +1.
         trackCaps: { thrust: 16, handling: 15, vac: 13, fuel: 14, cargo: 13 },
-        hardPoints: 1, autoGuns: 6, minesPerDrop: 3, dronesFielded: 4, cargoBonus: 8, vacBonus: 30,
+        hardPoints: 1, autoGuns: 6, minesPerDrop: 3, dronesFielded: 4, cargoBonus: 8, vacBonus: 30, defenseDrones: 0, droneSpeedPct: 0, droneCarryBonus: 0, escortWing: { skiff: 0, stinger: 0, lancer: 0 },
       },
     ],
   },
@@ -364,13 +413,48 @@ export const switchToll = (s: { lineSwitchesUsed: number; typeTier: TypeTier }):
  */
 export const DRONE_PRICE = 75;
 
+/**
+ * Turret mounts (Arsenal slice 2, 2026-10-21 — Adam's universal
+ * turret purchase): every type's autoGuns value is a CAP; a ship
+ * buys mounts one at a time up to it and fires what it owns. The
+ * price curve is DRAFT, drafted off the household ladders (hull
+ * steps' base + step shape; DRONE_PRICE 75 as the neighborhood for
+ * a permanent shipboard system): the NEXT mount when `owned` are
+ * already fitted costs 50 + 25 x owned — mounts run 50 / 75 / 100 /
+ * 125 / 150 / 175, so filling a Dreadnought's six caps costs 675
+ * all-in. Named here so the pin pass sweeps it in one read.
+ */
+export const TURRET_MOUNT_PRICE_BASE = 50;
+export const TURRET_MOUNT_PRICE_STEP = 25;
+export const turretMountPriceFor = (owned: number): number =>
+  TURRET_MOUNT_PRICE_BASE + TURRET_MOUNT_PRICE_STEP * Math.max(0, owned);
+
+/** Turret mount cap for a ship's current line/tier. */
+export const autoGunCapFor = (line: ShipLine | null, tier: TypeTier): number =>
+  typeFor(line, tier).autoGuns;
+
+/**
+ * The guns that actually fire: min(cap, owned). Mounts persist
+ * across type purchases and line switches (owned hardware rides
+ * with the captain — the track-cap precedent); a hull whose cap is
+ * lower than the owned count simply shelves the excess until a
+ * deeper-cap hull carries it again. The loop's fire step and the
+ * canvas's barrel tells both read THIS, never the raw fields.
+ */
+export const effectiveAutoGuns = (s: {
+  line: ShipLine | null;
+  typeTier: TypeTier;
+  turretMounts: number;
+}): number => Math.min(autoGunCapFor(s.line, s.typeTier), Math.max(0, s.turretMounts));
+
 /** Extra hard-point mounts fire at this fraction of the weapon's damage. */
 export const EXTRA_MOUNT_DAMAGE = 0.6;
 
 /**
- * Cruiser auto-gun stats (DRAFT, numbers draft Table 2): shipboard
- * turrets that fire on their own at the nearest hostile — they never
- * focus-fire the pilot's target. Bolt speed mirrors the star turrets'.
+ * Shipboard auto-turret stats (DRAFT, numbers draft Table 2): the
+ * purchased mounts of Arsenal slice 2, on any hull — they fire on
+ * their own at the nearest hostile and never focus-fire the pilot's
+ * target. Bolt speed mirrors the star turrets'.
  */
 export const AUTO_GUN = {
   damage: 6,
@@ -378,4 +462,80 @@ export const AUTO_GUN = {
   range: 700,
   boltSpeed: 8,
   life: 110, // frames; range / boltSpeed ~= 88, plus slack
+};
+
+/**
+ * Defense drones (Arsenal slice 3, 2026-10-21 — Adam's hauler
+ * complement): a drone MODE, not a new entity — a defense drone
+ * guards its owner's ship (or home star, shipless) from a station
+ * off the anchor and fires light bolts at hostiles in range,
+ * drones first. ALL VALUES DRAFT for the pin pass. The price is
+ * derived per the costs rule: DRONE_PRICE (75) + 25, the mount
+ * step's increment, for the gun fit.
+ */
+export const DEFENSE_DRONE_PRICE = 100;
+export const DEFENSE_DRONE = {
+  damage: 4,
+  fireChance: 0.01, // per frame while a hostile is in range
+  range: 320, // engagement range, measured from the drone
+};
+
+// ---------------------------------------------------------------------
+// THE CARRIER WING (Arsenal slice 5b, 2026-10-21 — the program's
+// summit, Adam's vision): the drone line's escorts are REAL little
+// ships flown by the offense engine (slice 5a's acquisition + fire
+// discipline, on a guard leash — see src/sim/escorts.ts). The wing
+// grows by kind as the carrier climbs:
+//   T2 SHEPHERD   1 Skiff
+//   T3 WARDEN     2 Skiffs + 1 Stinger
+//   T4 CARRIER    4 Skiffs + 2 Stingers
+//   T5 MOTHERSHIP 6 Skiffs + 3 Stingers + 2 Lancers (an 11-ship wing)
+// (the counts themselves live on the type defs' escortWing field).
+// Each kind IS a hull from the tables — a Skiff escort flies the
+// shared T1 def, a Stinger the fighter's T2, a Lancer the T3 — so
+// hard points, turn factor and bolt strength all read the one
+// table. Prices are DRAFT, off the program's ladders (a Skiff ≈ a
+// drone's 75 + a gun fit; a Stinger ≈ the fighter's T2 step
+// neighborhood; a Lancer ≈ a T3 step), for the numbers pass.
+// ---------------------------------------------------------------------
+
+/** The escort kinds, in build order (cheapest hull first). */
+export type EscortKind = 'skiff' | 'stinger' | 'lancer';
+export const ESCORT_KINDS: readonly EscortKind[] = ['skiff', 'stinger', 'lancer'];
+
+export interface EscortKindDef {
+  kind: EscortKind;
+  /** Display name (the hull's own name from the tables). */
+  label: string;
+  /** The hull this escort flies: a line + tier read through typeFor. */
+  line: ShipLine | null;
+  typeTier: TypeTier;
+  /** Build/rebuild price at the well (DRAFT). */
+  price: number;
+}
+
+export const ESCORT_KIND_DEFS: Record<EscortKind, EscortKindDef> = {
+  skiff:   { kind: 'skiff',   label: 'SKIFF',   line: null,      typeTier: 1, price: 100 },
+  stinger: { kind: 'stinger', label: 'STINGER', line: 'fighter', typeTier: 2, price: 200 },
+  lancer:  { kind: 'lancer',  label: 'LANCER',  line: 'fighter', typeTier: 3, price: 350 },
+};
+
+/** How many escorts of `kind` a ship of this line/tier may field. */
+export const escortCapFor = (line: ShipLine | null, typeTier: TypeTier, kind: EscortKind): number =>
+  typeFor(line, typeTier).escortWing[kind];
+
+/** Total wing size a ship of this line/tier may field. */
+export const escortWingSize = (line: ShipLine | null, typeTier: TypeTier): number => {
+  const w = typeFor(line, typeTier).escortWing;
+  return w.skiff + w.stinger + w.lancer;
+};
+
+/** Which kind a flying escort is, read back off its hull (the
+ * inverse of ESCORT_KIND_DEFS — escorts carry no kind stamp). */
+export const escortKindOf = (ship: { line: ShipLine | null; typeTier: TypeTier }): EscortKind | null => {
+  for (const kind of ESCORT_KINDS) {
+    const def = ESCORT_KIND_DEFS[kind];
+    if (def.line === ship.line && def.typeTier === ship.typeTier) return kind;
+  }
+  return null;
 };

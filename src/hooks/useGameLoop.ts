@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { GameState, SeatSimState, Star, Vector2D, Ship, Scrap } from '../types';
 import { PHYSICS, COLORS } from '../constants';
-import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, canMountWeapon } from '../loadout';
+import { getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, canMountWeapon, mountableLoadout } from '../loadout';
 import { inBankWell } from '../bank';
 import { infuseStar, milestonesForInfused } from '../starGrowth';
 import { ownerIdForSeat, starIdForSeat } from '../sim/ownership';
 import { createMatchLayout, DEFAULT_MATCH_SEED } from '../sim/matchInit';
 import { advanceSeatTracking, createSeatSimState, createStarterShip } from '../sim/seatState';
 import { stepBotShip } from '../sim/botDriver';
+import { DEBUG_ARMED } from '../debug';
 import { stepStarBurn, stepShipPhysics, ShipPhysicsInputs } from '../sim/physics';
 import { createMatch } from '../sim/matchAssembly';
 import type { NetSession } from '../net/useNetClient';
@@ -22,6 +23,7 @@ import {
   physicalSizeForStar,
 } from '../sim/starStages';
 import { stepDrones } from '../sim/drones';
+import { stepEscorts } from '../sim/escorts';
 import { stepMines, stepProjectiles } from '../sim/projectiles';
 import { isStealthShip, isVisibleTo, PERISCOPE_REVEAL_S } from '../sim/stealth';
 import { stepCme } from '../sim/cme';
@@ -31,7 +33,7 @@ import { applyDeathLoss, botRepurchaseDue, completeRespawn, respawnDue, tryRepur
 import { appendEventRecords, EventFeedEntry } from '../sim/eventFeed';
 import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, turretAngleAt, targetInTurretArc, applyDeliveryHeal } from '../starDefense';
 import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, thornDamageFor, aegisAbsorbFor } from '../loadout';
-import { ShipLine, TypeTier, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, EXTRA_MOUNT_DAMAGE, AUTO_GUN } from '../shipProgression';
+import { ShipLine, TypeTier, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, DEFENSE_DRONE_PRICE, EXTRA_MOUNT_DAMAGE, AUTO_GUN, autoGunCapFor, effectiveAutoGuns, turretMountPriceFor, ESCORT_KIND_DEFS, escortCapFor, escortKindOf, type EscortKind } from '../shipProgression';
 
 /**
  * SHIP PROGRESSION (Phase 3, src/shipProgression.ts — DRAFT numbers):
@@ -160,6 +162,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     decoy: null,
     cmes: [],
     drones: [],
+    escorts: [],
     starOrbit: 0,
     enemyStarOrbit: 0,
     teamScrap: 0,
@@ -507,6 +510,28 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     });
   }, []);
 
+  /**
+   * Buy ONE turret mount (Arsenal slice 2, 2026-10-21): mounts fill
+   * the current type's autoGuns CAP one purchase at a time, priced
+   * off turretMountPriceFor (DRAFT — see shipProgression.ts). At the
+   * cap the purchase refuses (the hull carries no more — a deeper
+   * type is the way up, the two-ladder rule again). Mounts persist
+   * across type/line changes and die with the ship (the fresh
+   * starter frame carries none). Workshop work: well-gated like
+   * every refit.
+   */
+  const buyTurretMount = useCallback(() => {
+    setState(prev => {
+      if (!inTeamWell(prev.seats, prev.ship)) return prev; // mounts are fitted at home
+      if (prev.ship.turretMounts >= autoGunCapFor(prev.ship.line, prev.ship.typeTier)) return prev;
+      const cost = turretMountPriceFor(prev.ship.turretMounts);
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost, inTeamWell(prev.seats, prev.ship));
+      if (!payment) return prev;
+      const ship = { ...prev.ship, carrying: payment.carrying, turretMounts: prev.ship.turretMounts + 1 };
+      return { ...prev, ship, bankedScrap: payment.banked, glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
+    });
+  }, []);
+
   const switchLine = useCallback((line: ShipLine) => {
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // refits happen at home
@@ -520,9 +545,73 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       // amounts) changes. If hullSteps exceeds the new line/type's cap,
       // the steps STAY; the cap only refuses buying more (same rule as
       // track caps). The VAC bonus follows the new line immediately.
-      const ship = { ...prev.ship, carrying: payment.carrying, line, lineSwitchesUsed: prev.ship.lineSwitchesUsed + 1 };
+      // The equipped weapon rides through mountableLoadout (slice 4):
+      // a weapon this hull cannot mount is SHELVED on the switch —
+      // slot emptied, ownership kept — never left live in the slot.
+      const ship = { ...prev.ship, carrying: payment.carrying, line, lineSwitchesUsed: prev.ship.lineSwitchesUsed + 1, loadout: mountableLoadout(line, prev.ship.typeTier, prev.ship.loadout) };
       ship.attractRadius = attractRadiusForShip(ship.upgrades.attractor, ship.line, ship.typeTier);
       return { ...prev, ship, bankedScrap: payment.banked, glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
+    });
+  }, []);
+
+  // =====================================================================
+  // DEBUG KIT (Adam's tester kit, 2026-10-21) — see src/debug.ts for
+  // the arming contract. EVERY action below carries the same double
+  // guard: the kit must be ARMED (?debug=1) AND this client must not
+  // be in a networked room (host or guest — netRef.current.room is
+  // the loop's networked signal). A refused call changes nothing.
+  // The SysCfg DEV section (UI's surface) renders only when armed
+  // and calls exactly these three hooks.
+  // =====================================================================
+
+  /** GRANT SCRAP: top up the bank (the wallet every purchase reads). */
+  const debugGrantScrap = useCallback((amount: number) => {
+    if (!DEBUG_ARMED || netRef.current?.room) return;
+    if (!(amount > 0)) return;
+    setState(prev => ({ ...prev, bankedScrap: prev.bankedScrap + amount }));
+  }, []);
+
+  /**
+   * GRANT FED: infuse the home star on demand — the same infusion a
+   * delivery runs (milestones, mass, size all follow through the
+   * growth functions; the per-frame reconciliation walks the stages
+   * and turret ladder from there). The star's own growth record is
+   * what grows; teamScrap (the seat's hand-fed counter) is untouched
+   * — no hands did this feeding.
+   */
+  const debugGrantFed = useCallback((amount: number) => {
+    if (!DEBUG_ARMED || netRef.current?.room) return;
+    if (!(amount > 0)) return;
+    setState(prev => {
+      const star = { ...prev.star };
+      infuseStar(star, amount);
+      return { ...prev, star, glitchActive: true, lastGlitchTime: performance.now() };
+    });
+  }, []);
+
+  /**
+   * LINE/TIER JUMP: sit in any hull instantly. The derivation is
+   * buyType's, minus the toll and the well: line + tier set, the
+   * VAC bonus follows via attractRadius, and the equipped weapon
+   * rides through mountableLoadout — jumping into a light-only hull
+   * SHELVES a heavy weapon (slice 4's law, no debug exception).
+   * Tier 1 is the SKIFF: line clears to unaligned. Hull steps, track
+   * levels, cargo and the bank all ride — the jump exercises the
+   * TABLES at the destination, not a fresh frame.
+   */
+  const debugJumpTo = useCallback((line: ShipLine | null, tier: TypeTier) => {
+    if (!DEBUG_ARMED || netRef.current?.room) return;
+    setState(prev => {
+      const targetLine = tier === 1 ? null : line;
+      if (targetLine === prev.ship.line && tier === prev.ship.typeTier) return prev;
+      const ship = {
+        ...prev.ship,
+        line: targetLine,
+        typeTier: tier,
+        loadout: mountableLoadout(targetLine, tier, prev.ship.loadout),
+      };
+      ship.attractRadius = attractRadiusForShip(ship.upgrades.attractor, ship.line, ship.typeTier);
+      return { ...prev, ship, glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
     });
   }, []);
 
@@ -534,7 +623,9 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   const buildDrone = useCallback(() => {
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // drones are built at home
-      const fielded = prev.drones.filter(d => d.owner === 'player').length;
+      // Harvesters only (Arsenal slice 3): defense-mode drones are
+      // a separate complement and never eat workforce slots.
+      const fielded = prev.drones.filter(d => d.owner === 'player' && d.mode !== 'defense').length;
       if (fielded >= typeFor(prev.ship.line, prev.ship.typeTier).dronesFielded) return prev;
       const payment = walletPay(prev.ship.carrying, prev.bankedScrap, DRONE_PRICE, inTeamWell(prev.seats, prev.ship));
       if (!payment) return prev;
@@ -547,7 +638,9 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         angle: 0,
         targetId: null,
         carrying: 0,
-        capacity: PHYSICS.DRONES.CAPACITY,
+        // Drone quality (Arsenal slice 3): carry capacity is
+        // stamped at build from the builder's current type.
+        capacity: PHYSICS.DRONES.CAPACITY + typeFor(prev.ship.line, prev.ship.typeTier).droneCarryBonus,
         owner: 'player' as const,
         ownerId: prev.ship.ownerId,
         state: 'searching' as const,
@@ -578,6 +671,76 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
    * game over; the enemy seat never flew) and tryRepurchase
    * refuses them.
    */
+  /**
+   * Build ONE defense drone (Arsenal slice 3, 2026-10-21 — Adam's
+   * hauler pair): a drone in defense MODE (see sim/drones.ts) that
+   * guards the ship/star and never harvests. Capped by the current
+   * type's defenseDrones (the hauler's pair completes at T3; other
+   * lines field none in this slice). DEFENSE_DRONE_PRICE (DRAFT).
+   * A lost guard is rebuilt here, like a lost harvester.
+   */
+  const buildDefenseDrone = useCallback(() => {
+    setState(prev => {
+      if (!inTeamWell(prev.seats, prev.ship)) return prev; // drones are built at home
+      const fielded = prev.drones.filter(d => d.owner === 'player' && d.mode === 'defense').length;
+      if (fielded >= typeFor(prev.ship.line, prev.ship.typeTier).defenseDrones) return prev;
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, DEFENSE_DRONE_PRICE, inTeamWell(prev.seats, prev.ship));
+      if (!payment) return prev;
+
+      const ship = { ...prev.ship, carrying: payment.carrying };
+      const drone = {
+        id: 'player-drone-' + Math.random().toString(36).substr(2, 9),
+        pos: { x: prev.ship.pos.x + 40, y: prev.ship.pos.y + 40 },
+        vel: { x: 0, y: 0 },
+        angle: 0,
+        targetId: null,
+        carrying: 0,
+        capacity: 0, // guards carry nothing; the mode branch never harvests
+        owner: 'player' as const,
+        ownerId: prev.ship.ownerId,
+        state: 'searching' as const,
+        mode: 'defense' as const,
+        health: 100,
+      };
+      return { ...prev, ship, bankedScrap: payment.banked, drones: [...prev.drones, drone], glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
+    });
+  }, []);
+
+  /**
+   * Build ONE carrier-wing escort (Arsenal slice 5b, 2026-10-21):
+   * a real little ship of the given kind, built at the well like a
+   * drone and rebuilt the same way when lost. The CURRENT type's
+   * escortWing composition is the cap (the wing belongs to the
+   * drone line — other hulls field none); the wing itself is a
+   * seat asset that persists through the carrier's death and any
+   * line change, like her drones. The escort flies its kind's hull
+   * from the tables (line/tier stamped at build) with a bolt
+   * cannon at its class's tier; src/sim/escorts.ts flies it.
+   * Prices are the kind defs' DRAFT figures.
+   */
+  const buildEscort = useCallback((kind: EscortKind) => {
+    setState(prev => {
+      if (!inTeamWell(prev.seats, prev.ship)) return prev; // escorts are built at home
+      const def = ESCORT_KIND_DEFS[kind];
+      const fielded = prev.escorts.filter(e => e.ownerId === prev.ship.ownerId && escortKindOf(e) === kind).length;
+      if (fielded >= escortCapFor(prev.ship.line, prev.ship.typeTier, kind)) return prev;
+      const payment = walletPay(prev.ship.carrying, prev.bankedScrap, def.price, inTeamWell(prev.seats, prev.ship));
+      if (!payment) return prev;
+
+      const ship = { ...prev.ship, carrying: payment.carrying };
+      const escort = {
+        ...createStarterShip(prev.ship.ownerId, { x: prev.ship.pos.x + 50, y: prev.ship.pos.y + 50 }, { withStarterWeapon: true }),
+        // The starter frame's id names its seat — every escort of
+        // the wing needs its OWN (projectile pierce dedupes by id).
+        id: 'escort-' + Math.random().toString(36).substr(2, 9),
+        line: def.line,
+        typeTier: def.typeTier,
+        arsenal: { bolt_cannon: def.typeTier },
+      };
+      return { ...prev, ship, bankedScrap: payment.banked, escorts: [...prev.escorts, escort], glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
+    });
+  }, []);
+
   const repurchaseShip = useCallback((ownerId: string) => {
     const session = netRef.current;
     if (session?.room && !session.isHost) return;
@@ -1743,16 +1906,19 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           }
         }
 
-        // CRUISER AUTO-GUNS (Phase 3): the cruiser line's shipboard
-        // turrets fire on their own — each gun independently rolls its
-        // fire chance per frame at the NEAREST hostile in range (an
-        // enemy drone, else the enemy star). They never focus-fire the
-        // pilot's target; the pilot's own weapon is separate. Bolts are
-        // ordinary player projectiles with kind 'auto_gun', so they run
-        // the same drone/star hit paths as ship weapons (star turret
-        // bolts pass drones by leaving kind unset; these set it, so
-        // they connect with drones too — that's their job).
-        const autoGunCount = typeFor(ship.line, ship.typeTier).autoGuns;
+        // SHIPBOARD AUTO-TURRETS (Phase 3, universalized by Arsenal
+        // slice 2, 2026-10-21): purchased turret mounts fire on their
+        // own — each gun independently rolls its fire chance per frame
+        // at the NEAREST hostile in range (an enemy drone, else the
+        // enemy star). They never focus-fire the pilot's target; the
+        // pilot's own weapon is separate. Bolts are ordinary player
+        // projectiles with kind 'auto_gun', so they run the same
+        // drone/star hit paths as ship weapons (star turret bolts pass
+        // drones by leaving kind unset; these set it, so they connect
+        // with drones too — that's their job). The count is
+        // effectiveAutoGuns: the type's CAP bounded by mounts OWNED —
+        // an unbought cap fires nothing.
+        const autoGunCount = effectiveAutoGuns(ship);
         if (!localSeatDead && autoGunCount > 0) {
           let gunTarget: Vector2D | null = null;
           let gunBestD = AUTO_GUN.range;
@@ -1989,6 +2155,13 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           for (const p of botResult.projectiles) next.projectiles.push(p);
         }
 
+        // ESCORT WINGS (Arsenal slice 5b): every seat's wing steps
+        // here — station, leashed engagement, volleys into this
+        // frame's production phase beside the bot drivers' (their
+        // bolts first move next frame, like theirs). Wrecks and
+        // dissolved seats' wings drop out inside the step.
+        next.escorts = stepEscorts({ next, seatByOwnerId, seats: simSeats, time, localOwnerId });
+
         // Update Turrets
         next.starOrbit += 0.01;
         next.enemyStarOrbit += 0.015;
@@ -2156,8 +2329,14 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     equipItem,
     buyType,
     buyHullStep,
+    buyTurretMount,
     switchLine,
     buildDrone,
+    buildDefenseDrone,
+    buildEscort,
+    debugGrantScrap,
+    debugGrantFed,
+    debugJumpTo,
     repurchaseShip,
     feedCargo,
     depositBank, 

@@ -162,6 +162,7 @@ export const createMatch = (config: CreateMatchConfig): GameState => {
     decoy: null,
     cmes: [],
     drones,
+    escorts: [],
     starOrbit: 0,
     enemyStarOrbit: 0,
     teamScrap: 0,

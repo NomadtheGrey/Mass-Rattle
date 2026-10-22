@@ -34,6 +34,7 @@ export const ERROR_LABELS: Record<ErrorCode, string> = {
   room_not_found: 'NO ROOM WITH THAT CODE — CHECK IT AND TRY AGAIN',
   room_full: 'THAT ROOM IS FULL — EVERY STAR HAS A CARETAKER',
   version_mismatch: 'VERSION MISMATCH — REFRESH THE GAME AND TRY AGAIN',
+  name_reserved: 'THAT NAME IS RESERVED — PICK ANOTHER',
   kicked: 'YOU WERE REMOVED FROM THAT ROOM',
 };
 

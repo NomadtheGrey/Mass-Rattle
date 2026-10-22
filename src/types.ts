@@ -13,6 +13,16 @@ export interface GameObject {
   size: number;
 }
 
+/**
+ * A carrier-wing escort hull (Arsenal slice 5b): a Ship with its
+ * own id. Seat ships need no id (one per seat — systems key on
+ * ownerId); a wing fields many hulls per seat, so escorts carry
+ * one (projectile pierce dedupes by it, as it does for drones).
+ */
+export interface EscortShip extends Ship {
+  id: string;
+}
+
 export interface Ship extends GameObject {
   angle: number;
   rotationVel: number;
@@ -75,6 +85,13 @@ export interface Ship extends GameObject {
   hullSteps: number;
   /** Lifetime line switches this match (the first switch is free). */
   lineSwitchesUsed: number;
+  /** Turret mounts OWNED (Arsenal slice 2, 2026-10-21): bought one
+   *  at a time in the workshop up to the current type's cap (the
+   *  autoGuns field, read via effectiveAutoGuns). Per-match ship
+   *  property like the arsenal: the fresh starter frame after a
+   *  death carries none. Persists across type/line changes — caps
+   *  gate buying and firing, never strip what is owned. */
+  turretMounts: number;
 }
 
 export interface Projectile {
@@ -218,6 +235,12 @@ export interface Harvester {
    * that owns this entity for the whole match, whoever controls it. */
   ownerId: string;
   state: 'searching' | 'collecting' | 'returning';
+  /** Defense mode (Arsenal slice 3, 2026-10-21): a drone with
+   *  mode 'defense' never harvests — it stations on its owner's
+   *  ship (or home star) and engages hostiles in range (see
+   *  sim/drones.ts + DEFENSE_DRONE in shipProgression.ts). Absent
+   *  = an ordinary harvester; every pre-slice-3 drone is one. */
+  mode?: 'defense';
   /** Ion Blaster effect: frames remaining where this drone is rebooting (no movement). */
   stunFrames?: number;
   /** Kill attribution (Phase 2, P2-2b): the ownerId of the seat whose
@@ -351,6 +374,15 @@ export interface GameState {
   /** CME wavefronts currently in flight from either star (Slice 7). */
   cmes: CmeWave[];
   drones: Harvester[];
+  /**
+   * Carrier-wing escorts (Arsenal slice 5b): full Ship objects
+   * owned by a seat (ownerId), flown by src/sim/escorts.ts. They
+   * persist through their carrier's death like drones do, anchor
+   * to her star while she is shipless, and are rebuilt at the well
+   * (buildEscort). The local seat's wing and remote seats' wings
+   * share this one list; the snapshot carries it as an entity.
+   */
+  escorts: EscortShip[];
   starOrbit: number;
   enemyStarOrbit: number;
   teamScrap: number;

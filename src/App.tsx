@@ -16,6 +16,7 @@ import { ChatPanel } from './components/ChatPanel';
 import { useNetClient, NetSessionContext } from './net/useNetClient';
 import { RepurchaseOverlay } from './components/RepurchaseOverlay';
 import { repurchasePriceFor } from './sim/deathEconomy';
+import { escortKindOf } from './shipProgression';
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -70,6 +71,12 @@ export default function App() {
     // grows the interface and these four props in one move).
     buyType,
     buyHullStep,
+    buyTurretMount,
+    buildDefenseDrone,
+    debugGrantScrap,
+    debugGrantFed,
+    debugJumpTo,
+    buildEscort,
     switchLine,
     buildDrone,
     repurchaseShip,
@@ -243,9 +250,18 @@ export default function App() {
         typeTier={state.ship.typeTier}
         hullSteps={state.ship.hullSteps}
         lineSwitchesUsed={state.ship.lineSwitchesUsed}
-        playerDrones={state.drones.filter(d => d.owner === 'player').length}
+        playerDrones={state.drones.filter(d => d.owner === 'player' && d.mode !== 'defense').length}
+        playerDefenseDrones={state.drones.filter(d => d.owner === 'player' && d.mode === 'defense').length}
+        onBuildDefenseDrone={buildDefenseDrone}
+        onDebugGrantScrap={debugGrantScrap}
+        onDebugGrantFed={debugGrantFed}
+        onDebugJumpTo={debugJumpTo}
+        escortCounts={{ skiff: state.escorts.filter(e => e.ownerId === state.ship.ownerId && escortKindOf(e) === 'skiff').length, stinger: state.escorts.filter(e => e.ownerId === state.ship.ownerId && escortKindOf(e) === 'stinger').length, lancer: state.escorts.filter(e => e.ownerId === state.ship.ownerId && escortKindOf(e) === 'lancer').length }}
+        onBuildEscort={buildEscort}
         onBuyType={buyType}
         onBuyHullStep={buyHullStep}
+        onBuyTurretMount={buyTurretMount}
+        turretMounts={state.ship.turretMounts}
         onSwitchLine={switchLine}
         onBuildDrone={buildDrone}
       />

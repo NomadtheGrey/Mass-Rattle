@@ -290,6 +290,34 @@ export const stepProjectiles = (ctx: ProjectileStepContext): Projectile[] => {
       }
     }
 
+    // Collision with hostile ESCORTS (Arsenal slice 5b): a carrier
+    // wing's hulls are plain targets — full damage, no loadout
+    // defenses (those are seat-ship systems). A wreck drops one
+    // salvage scrap, the drone-kill precedent, and drops out in
+    // the escort step. Escorts of ANY seat ride this pass (the
+    // local seat's wing included — its carrier's player systems
+    // protect the carrier, not her escorts).
+    for (const escort of next.escorts) {
+      if (escort.health <= 0) continue;
+      if (!areHostile(simSeats, escort.ownerId, p.ownerId)) continue;
+      if ((p.hitIds || []).includes(escort.id)) continue;
+      if (Math.hypot(escort.pos.x - p.pos.x, escort.pos.y - p.pos.y) >= escort.size) continue;
+      escort.health -= p.damage !== undefined ? p.damage : PHYSICS.DEFENSE.DAMAGE;
+      escort.lastHitByOwnerId = p.ownerId;
+      if (escort.health <= 0) {
+        newScrap.push({
+          id: Math.random().toString(),
+          pos: { x: escort.pos.x, y: escort.pos.y },
+          color: COLORS.SCRAP[Math.floor(Math.random() * COLORS.SCRAP.length)],
+        });
+      }
+      if (p.pierce) {
+        (p.hitIds = p.hitIds || []).push(escort.id);
+      } else {
+        return false;
+      }
+    }
+
     // Collision with hostile DRONES (ship weapons only — the gate
     // keys on `kind`, which ship weapons and mirror-reflected
     // bolts carry and star turret bolts never do; turret bolts

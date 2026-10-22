@@ -10,7 +10,7 @@ import React from 'react';
 export interface UiOptions {
   controlsCard: boolean; // SHIP CONTROLS card (desktop) + phone HELP legend
   astroPanel: boolean; // ASTRONOMIC DATA left panel (star fields + local nav)
-  telemetry: boolean; // PINGS · FPS · RANGE rows in the comms panel
+  telemetry: boolean; // RANGE rows in the comms panel (PING/FPS graduated to the always-on chip, 2026-10-21)
   nameplates: boolean; // callsigns over remote ships (GameCanvas)
 }
 

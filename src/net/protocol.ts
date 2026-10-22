@@ -199,6 +199,7 @@ export type ErrorCode =
   | 'room_not_found'
   | 'room_full'
   | 'version_mismatch'
+  | 'name_reserved'
   | 'kicked';
 
 /** One seat's row in a standings snapshot. Host-authored (the host sim
@@ -371,7 +372,7 @@ export type ServerMessage =
   /** Full sync: on join, and on any membership/phase change. */
   | { type: 'roomState'; room: RoomState }
   /** The hello answer: your identity + your seat + the full room. */
-  | { type: 'welcome'; playerId: string; seat: Seat; room: RoomState }
+  | { type: 'welcome'; playerId: string; seat: Seat; room: RoomState; notice?: 'name_reserved' }
   | { type: 'error'; code: ErrorCode }
   /** A human takes a seat (first claim or bot→human flip).
    *  `reclaimed` (P2-3a) is true when the claim restored the seat the

@@ -5,19 +5,44 @@ import { milestonesForInfused, progressIntoNextMilestone, nextMilestoneCost, cum
 import { stageStateForInfused, type StarStageState } from '../sim/starStages';
 import { BUILD_HISTORY, LATEST_BUILD } from '../buildHistory';
 import { useUiOptions, setUiOption, resetUiOptions, type UiOptions } from '../uiOptions';
+import { DEBUG_ARMED } from '../debug';
 import type { StarStage } from '../net/protocol';
 import { STAGE_LABELS, TEAM_LABELS, TEAM_COLORS } from './lobby/lobbyTypes';
 import type { TeamId } from '../net/protocol';
 import { MechanicsGuide } from './MechanicsGuide';
-import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor } from '../loadout';
-import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
+import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor, MOUNT_ACCESS, canMountWeapon, weaponClassFor, type WeaponClass } from '../loadout';
+import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, autoGunCapFor, turretMountPriceFor, effectiveAutoGuns, DEFENSE_DRONE_PRICE, ESCORT_KIND_DEFS, ESCORT_KINDS, escortCapFor, escortWingSize, type EscortKind, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
 
 // One-line summary of what a type's frame DOES, read off its capability
 // fields — the workshop sells the special in the type's own numbers.
+// WEAPON MOUNT GATE COPY (Arsenal slice 4 pairing, 2026-10-21): the
+// loop has enforced MOUNT_ACCESS since slice 1, but the workshop
+// never SAID it — locked weapons looked buyable and their buttons
+// died silently. These helpers turn the one table into words: what
+// this frame may mount, and exactly why a given weapon is locked.
+const mountAccessLabel = (line: ShipLine | null, tier: TypeTier): string =>
+  MOUNT_ACCESS[line ?? 'unaligned'][tier].map(c => c.toUpperCase()).join(' + ');
+const weaponGateReason = (line: ShipLine | null, tier: TypeTier, itemId: string): string | null => {
+  const cls = weaponClassFor(itemId);
+  if (!cls || canMountWeapon(line, tier, itemId)) return null;
+  if (cls === 'heavy') {
+    if (line === 'fighter' || line === 'cruiser') {
+      return `HEAVY GATE — ${line.toUpperCase()} MOUNTS HEAVY FROM T3 · THIS FRAME IS T${tier}`;
+    }
+    if (line) return `HEAVY GATE — ${line.toUpperCase()} NEVER MOUNTS HEAVY · FIGHTER / CRUISER T3+ ONLY`;
+    return 'HEAVY GATE — THE UNALIGNED SKIFF MOUNTS LIGHT ONLY · FIGHTER / CRUISER T3+ MOUNT HEAVY';
+  }
+  return `${cls.toUpperCase()} GATE — THIS FRAME CAN'T MOUNT IT`;
+};
+const lineMountsClass = (line: ShipLine, tier: TypeTier, cls: WeaponClass): boolean =>
+  MOUNT_ACCESS[line][tier].includes(cls);
+
 const capSummary = (d: ShipTypeDef): string => {
   const parts: string[] = [];
   if (d.hardPoints > 1) parts.push(`${d.hardPoints} HARD POINTS`);
-  if (d.autoGuns > 0) parts.push(`${d.autoGuns} AUTO-GUN${d.autoGuns > 1 ? 'S' : ''}`);
+  // autoGuns is a mount CAP since Arsenal slice 2 (2026-10-21):
+  // the frame carries that many bought turret mounts, never free guns.
+  if (d.autoGuns > 0) parts.push(`${d.autoGuns} TURRET MOUNT${d.autoGuns > 1 ? 'S' : ''}`);
   if (d.minesPerDrop > 1) parts.push(`${d.minesPerDrop} MINES / DROP`);
   if (d.dronesFielded > 1) parts.push(`FIELDS ${d.dronesFielded} DRONES`);
   if (d.cargoBonus > 0) parts.push(`+${d.cargoBonus} HOLD`);
@@ -153,10 +178,19 @@ interface HUDProps {
   shipLine: ShipLine | null;
   typeTier: TypeTier;
   hullSteps: number;
+  turretMounts: number;
   lineSwitchesUsed: number;
   playerDrones: number;
+  playerDefenseDrones: number;
+  onBuildDefenseDrone: () => void;
+  escortCounts: { skiff: number; stinger: number; lancer: number };
+  onBuildEscort: (kind: EscortKind) => void;
+  onDebugGrantScrap?: (amount: number) => void;
+  onDebugGrantFed?: (amount: number) => void;
+  onDebugJumpTo?: (line: ShipLine | null, tier: TypeTier) => void;
   onBuyType: (line?: ShipLine) => void;
   onBuyHullStep: () => void;
+  onBuyTurretMount: () => void;
   onSwitchLine: (line: ShipLine) => void;
   onBuildDrone: () => void;
 }
@@ -207,10 +241,19 @@ export const HUD: React.FC<HUDProps> = ({
   shipLine,
   typeTier,
   hullSteps,
+  turretMounts,
   lineSwitchesUsed,
   playerDrones,
+  playerDefenseDrones,
+  onBuildDefenseDrone,
+  escortCounts,
+  onBuildEscort,
+  onDebugGrantScrap,
+  onDebugGrantFed,
+  onDebugJumpTo,
   onBuyType,
   onBuyHullStep,
+  onBuyTurretMount,
   onSwitchLine,
   onBuildDrone
 }) => {
@@ -233,6 +276,12 @@ export const HUD: React.FC<HUDProps> = ({
   // you — instead of the random number it used to roll. When the
   // host-run multiplayer lands, this same readout takes the real
   // network round-trip from the sync layer.
+  // PLACEMENT (Adam, 2026-10-21 — 'HUD chat figures out a good place
+  // for ping and framerate'): both figures graduated OUT of the comms
+  // panel into an always-on instrumentation chip at the play field's
+  // top-right corner (see INSTRUMENTATION CHIP below) — machine
+  // vitals are glanced at, not read in a log, and instrumentation
+  // never toggles. The telemetry option now governs RANGE only.
   const pingRef = React.useRef({ last: performance.now(), ema: 16 });
   {
     const now = performance.now();
@@ -282,6 +331,10 @@ export const HUD: React.FC<HUDProps> = ({
   const nextStage = homeField.next;
   const enemyField = stageFieldFor(enemyTotalInfused);
   const [showSysCfg, setShowSysCfg] = React.useState(false);
+  // TESTER KIT feedback line (SysCfg DEV section): the kit's actions
+  // confirm in place — the workshop's notice line is not visible
+  // from inside SysCfg, so the section keeps its own.
+  const [devNote, setDevNote] = React.useState<string | null>(null);
   // BUILD HISTORY (Adam, 2026-10-21): SYSCFG wears the latest build;
   // pressing it opens the last-20 modal, stacked over SYSCFG in the
   // modal rule (it closes first, back into SYSCFG).
@@ -308,6 +361,33 @@ export const HUD: React.FC<HUDProps> = ({
     if (shopNoticeTimer.current) window.clearTimeout(shopNoticeTimer.current);
     shopNoticeTimer.current = window.setTimeout(() => setShopNotice(null), 2800);
   };
+  // SHELVE CONFIRMATION (slice 4 close-out, on BackGround's flag,
+  // 2026-10-21): the switch buttons WARN before the toll; this
+  // confirms AFTER. switchLine (c7d69fa) shelves an unmountable
+  // equipped weapon — slot nulls, arsenal untouched. The trigger is
+  // that exact transition and nothing looser: the LINE changed, the
+  // weapon slot went non-null -> null, and the lost weapon does not
+  // mount on the new hull. Death/respawn nulls never change the
+  // line, so they cannot false-fire it. A debug jump produces the
+  // same transition, so when armed the note ALSO lands in the DEV
+  // section's own line (the workshop notice is invisible from
+  // inside SysCfg).
+  const prevFrameRef = React.useRef<{ line: ShipLine | null; weapon: string | null }>({ line: shipLine, weapon: loadout.weapon });
+  React.useEffect(() => {
+    const prev = prevFrameRef.current;
+    prevFrameRef.current = { line: shipLine, weapon: loadout.weapon };
+    if (prev.line !== null && shipLine !== null && shipLine !== prev.line
+      && prev.weapon && loadout.weapon === null
+      && !canMountWeapon(shipLine, typeTier, prev.weapon)) {
+      const name = getLoadoutItem(prev.weapon)?.name.toUpperCase() ?? 'WEAPON';
+      const msg = `⚠ ${name} SHELVED — NOT MOUNTABLE ON THE ${shipLine.toUpperCase()} HULL · STAYS OWNED, RE-EQUIPS ON A HULL THAT MOUNTS IT`;
+      flashShopNotice(msg);
+      if (DEBUG_ARMED) setDevNote(msg);
+    }
+    // flashShopNotice/setDevNote are stable-enough HUD locals; the
+    // transition inputs are the real dependencies.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shipLine, typeTier, loadout.weapon]);
   const [localRadarOpen, setLocalRadarOpen] = React.useState(false);
 
   const radarActive = isMobileRadarOpen || localRadarOpen;
@@ -725,8 +805,6 @@ export const HUD: React.FC<HUDProps> = ({
               {glitch && <p className="text-yellow-500">[DATA] SENSORS RECALIBRATING...</p>}
               <div className="border-t border-zinc-800/70 pt-1.5 mt-1 space-y-0.5 text-[10px]">
                 {uiOptions.telemetry && (<>
-                <div className="flex justify-between"><span className="text-zinc-400">PINGS</span><span>{pingMs}ms</span></div>
-                <div className="flex justify-between"><span className="text-zinc-400">FPS</span><span>{fpsRef.current.fps || '—'}</span></div>
                 <div className="flex justify-between"><span className="text-zinc-400">RANGE · HOME</span><span className="text-orange-400">{rangeHome}U</span></div>
                 <div className="flex justify-between"><span className="text-zinc-400">RANGE · ENEMY</span><span className="text-red-400">{rangeEnemy}U</span></div>
                 </>)}
@@ -1081,6 +1159,28 @@ export const HUD: React.FC<HUDProps> = ({
           is evicted (the bank lives in the dock row + the BANK tab). When
           ship classes land with per-class caps, each track cell gains
           its /MAX — no denominator is printed until a real cap exists. */}
+      {/* INSTRUMENTATION CHIP — PING + FPS (Adam's placement call,
+          2026-10-21, UI lane's pick): the play field's TOP-RIGHT
+          corner. Reasoning, on the record: (a) the corner is the one
+          piece of screen no system already owns — the status strip
+          holds top-center (fit data; machine vitals must not compete
+          with it), the dock and loadout tiles hold bottom-center,
+          gauges and the phone action cluster hold bottom-right, the
+          controls card bottom-left, the chat tab the left edge;
+          (b) vitals are a glance, not a read — one short line, dim
+          labels / bright values, subordinate to every functional
+          element; (c) instrumentation class: always on, no toggle
+          governs it. Desktop: the frame's inner top-right. Mobile:
+          the verified gap between the header (~76px) and the status
+          strip (148px) — the chip's bottom edge clears the strip. */}
+      <div className="fixed top-[104px] right-2 md:top-6 md:right-6 z-[54] pointer-events-none">
+        <div className="hud-panel border border-zinc-800 px-2 py-1 font-mono text-[9px] sm:text-[10px] leading-none flex items-center gap-1.5 shadow-lg">
+          <span><span className="text-zinc-500">PING</span> <span className="text-zinc-100 font-bold">{pingMs}MS</span></span>
+          <span className="text-zinc-700">·</span>
+          <span><span className="text-zinc-500">FPS</span> <span className="text-zinc-100 font-bold">{fpsRef.current.fps || '—'}</span></span>
+        </div>
+      </div>
+
       <div className="fixed top-[148px] md:top-12 left-1/2 -translate-x-1/2 z-[55] flex flex-wrap justify-center items-stretch gap-1 max-w-[97vw] pointer-events-none">
         {[
           { icon: '🚀', name: 'THRUST', lvl: upgrades.thrust, cap: caps.thrust, stat: `SPD ${(PHYSICS.MAX_VELOCITY + upgrades.thrust * 0.5).toFixed(1)}` },
@@ -1227,50 +1327,82 @@ export const HUD: React.FC<HUDProps> = ({
 
               {shopTab !== 'ship' && shopTab !== 'bank' && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 overflow-y-auto pr-1 max-h-[60vh] scrollbar-thin">
+                  {shopNotice && (
+                    <div className="col-span-full text-[10px] sm:text-[11px] font-mono font-bold text-amber-300 border border-amber-700 bg-amber-950/40 rounded px-2 py-1.5">{shopNotice}</div>
+                  )}
+                  {shopTab === 'weapon' && (
+                    <div className="col-span-full pitted-metal px-3 py-2 rounded-lg border border-zinc-700">
+                      <div className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🎯 WEAPON MOUNT ACCESS — {progType.name}: {mountAccessLabel(shipLine, typeTier)}</div>
+                      <p className="text-[8px] sm:text-[9px] font-mono text-zinc-400 leading-snug mt-1">
+                        LIGHT MOUNTS EVERYWHERE. HEAVY MOUNTS ONLY ON FIGHTER / CRUISER FROM T3 — THE WHOLE ARSENAL AND THE BATTERY ARE THOSE LINES' IDENTITIES. A WEAPON THIS FRAME CAN'T MOUNT CAN'T BE BOUGHT OR SWAPPED IN; THE GATE IS THE SAME TABLE THE LOOP ENFORCES.
+                      </p>
+                      {loadout.weapon && weaponClassFor(loadout.weapon) && !canMountWeapon(shipLine, typeTier, loadout.weapon) && (
+                        <p className="text-[8px] sm:text-[9px] font-mono font-bold text-amber-400 leading-snug mt-1">
+                          ⚠ {getLoadoutItem(loadout.weapon)?.name.toUpperCase()} IS EQUIPPED BUT OUTSIDE THIS FRAME'S MOUNT ACCESS — ITS GATE REASON IS ON ITS CARD BELOW.
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {LOADOUT_ITEMS.filter(def => def.category === shopTab).map(def => {
                     const owned = arsenal[def.id] || 0;
                     const equipped = loadout[def.category] === def.id;
                     const nextCost = itemTierCost(def, owned);
                     const maxed = owned >= MAX_ITEM_TIER;
-                    const canBuy = !maxed && funds >= nextCost;
+                    // MOUNT GATE (slice 4): weapons carry a class and
+                    // this frame's access decides — the same
+                    // canMountWeapon the loop enforces on buy/equip.
+                    const itemClass = def.category === 'weapon' ? weaponClassFor(def.id) : null;
+                    const gateReason = def.category === 'weapon' ? weaponGateReason(shipLine, typeTier, def.id) : null;
+                    const mountable = gateReason === null;
+                    const canBuy = !maxed && mountable && funds >= nextCost;
                     // Swap pricing (Adam's pin): free into an empty slot,
                     // otherwise 60 + 20 per tier beyond the first of the
                     // item being swapped in.
                     const slotFilled = loadout[def.category] !== null;
                     const swapCost = slotFilled ? swapCostForTier(Math.max(1, owned)) : 0;
-                    const canEquip = owned > 0 && !equipped && funds >= swapCost;
+                    const canEquip = owned > 0 && !equipped && mountable && funds >= swapCost;
                     return (
-                      <div key={def.id} className={`pitted-metal p-3 sm:p-4 flex flex-col gap-1.5 sm:gap-2 relative rounded-lg text-left border ${equipped ? 'border-[#33ff33] shadow-[0_0_10px_rgba(51,255,51,0.25)]' : 'border-zinc-700'}`}>
+                      <div key={def.id} className={`pitted-metal p-3 sm:p-4 flex flex-col gap-1.5 sm:gap-2 relative rounded-lg text-left border ${equipped && !mountable ? 'border-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.25)]' : equipped ? 'border-[#33ff33] shadow-[0_0_10px_rgba(51,255,51,0.25)]' : gateReason ? 'border-zinc-800' : 'border-zinc-700'}`}>
                         <div className="flex justify-between items-start">
                           <div className="flex items-center gap-1.5">
                             <span className="text-base">{def.icon}</span>
                             <span className="text-xs sm:text-sm font-bold uppercase text-[#33ff33]">{def.name}</span>
                           </div>
-                          <span className="text-[10px] sm:text-xs font-mono text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded">
-                            {owned > 0 ? `TIER ${owned}/${MAX_ITEM_TIER}` : 'NOT OWNED'}
+                          <span className="flex flex-col items-end gap-1">
+                            <span className="text-[10px] sm:text-xs font-mono text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded">
+                              {owned > 0 ? `TIER ${owned}/${MAX_ITEM_TIER}` : 'NOT OWNED'}
+                            </span>
+                            {itemClass && (
+                              <span className={`text-[8px] sm:text-[9px] font-mono font-bold px-1.5 py-0.5 rounded ${itemClass === 'heavy' ? 'bg-rose-950 text-rose-300 border border-rose-800' : 'bg-zinc-800 text-zinc-300 border border-zinc-700'}`}>
+                                {itemClass.toUpperCase()} CLASS
+                              </span>
+                            )}
                           </span>
                         </div>
                         <p className="text-[9px] sm:text-[10px] text-zinc-400 leading-tight">{def.desc}</p>
+                        {gateReason && (
+                          <p className={`text-[8px] sm:text-[9px] font-mono font-bold leading-snug ${equipped ? 'text-amber-400' : 'text-rose-400'}`}>
+                            {equipped ? `⚠ EQUIPPED — ${gateReason}` : `🔒 ${gateReason}`}
+                          </p>
+                        )}
                         <div className="flex gap-1.5 mt-1 pt-1.5 border-t border-zinc-800/50">
                           <button
-                            onClick={() => onBuyItem(def.id)}
-                            disabled={!canBuy}
+                            onClick={() => maxed ? flashShopNotice(`${def.name.toUpperCase()} IS AT MAX TIER ${MAX_ITEM_TIER}`) : gateReason ? flashShopNotice(`${def.name.toUpperCase()} CAN'T BE BOUGHT HERE — ${gateReason}`) : canBuy ? onBuyItem(def.id) : flashShopNotice(`NOT ENOUGH SCRAP — ${def.name.toUpperCase()} ${owned > 0 ? 'UPGRADE' : 'BUY'} COSTS ${nextCost}U · YOU HAVE ${funds}U`)}
                             className={`flex-1 px-2 py-1 rounded text-[9px] sm:text-[10px] font-bold touch-manipulation active:scale-95 ${
                               canBuy ? 'bg-[#33ff33] text-black shadow-[0_0_8px_#33ff33]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
                             }`}
                           >
-                            {maxed ? 'MAX TIER' : owned > 0 ? `UPGRADE: ${nextCost}U` : `BUY: ${nextCost}U`}
+                            {maxed ? 'MAX TIER' : gateReason ? '🔒 MOUNT GATE' : owned > 0 ? `UPGRADE: ${nextCost}U` : `BUY: ${nextCost}U`}
                           </button>
                           {owned > 0 && (
                             <button
-                              onClick={() => onEquipItem(def.id)}
-                              disabled={!canEquip}
+                              onClick={() => equipped ? undefined : gateReason ? flashShopNotice(`${def.name.toUpperCase()} CAN'T SWAP IN HERE — ${gateReason}`) : canEquip ? onEquipItem(def.id) : flashShopNotice(`NOT ENOUGH SCRAP — SWAPPING IN ${def.name.toUpperCase()} COSTS ${swapCost}U · YOU HAVE ${funds}U`)}
                               className={`flex-1 px-2 py-1 rounded text-[9px] sm:text-[10px] font-bold touch-manipulation active:scale-95 ${
                                 equipped ? 'bg-zinc-800 text-[#33ff33] cursor-default' :
                                 canEquip ? 'bg-pink-600 text-white shadow-[0_0_8px_rgba(219,39,119,0.6)]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
                               }`}
                             >
-                              {equipped ? 'EQUIPPED' : swapCost > 0 ? `SWAP IN: ${swapCost}U` : 'EQUIP (FREE)'}
+                              {equipped ? 'EQUIPPED' : gateReason ? '🔒 MOUNT GATE' : swapCost > 0 ? `SWAP IN: ${swapCost}U` : 'EQUIP (FREE)'}
                             </button>
                           )}
                         </div>
@@ -1297,7 +1429,7 @@ export const HUD: React.FC<HUDProps> = ({
                   <span className="text-xs sm:text-sm font-bold uppercase text-[#33ff33]">🛸 SHIP FRAME — {progType.name}{shipLine ? ` · ${shipLine.toUpperCase()} LINE · T${typeTier}` : ' · UNALIGNED'} {frameOpen ? '▾' : '▸ CHOOSE'}</span>
                   <span className="text-[9px] sm:text-[10px] font-mono text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded">SIZE {hullSizeFor(hullSteps)} · HULL {hullSteps}/{progType.hullStepCap}</span>
                 </button>
-                <p className="text-[9px] sm:text-[10px] text-zinc-400 leading-tight">{capSummary(progType)} — the special is built into the frame's price, never sold separately.</p>
+                <p className="text-[9px] sm:text-[10px] text-zinc-400 leading-tight">{capSummary(progType)} — the frame's caps are built into its price; turret mounts are fitted separately, below.</p>
                 {frameOpen && (<>
 
                 {typeTier < 5 && shipLine === null && (
@@ -1343,10 +1475,19 @@ export const HUD: React.FC<HUDProps> = ({
                     <div className="flex gap-1.5 flex-wrap">
                       {(Object.keys(SHIP_LINES) as ShipLine[]).filter(ln => ln !== shipLine).map(ln => {
                         const afford = funds >= switchCost;
+                        const equippedCls = weaponClassFor(loadout.weapon);
+                        // Slice 4's close (BackGround, c7d69fa): a weapon
+                        // the target hull can't mount SHELVES on the
+                        // switch — slot empties, item stays owned. The
+                        // warning names that outcome before the toll.
+                        const targetGateWarn = !!equippedCls && !lineMountsClass(ln, typeTier, equippedCls);
                         return (
                           <button key={ln} onClick={() => afford ? onSwitchLine(ln) : flashShopNotice(`NOT ENOUGH SCRAP — THE SWITCH TOLL IS ${switchCost}U · YOU HAVE ${funds}U`)}
-                            className={`flex-1 min-w-[86px] px-2 py-1.5 rounded text-[9px] sm:text-[10px] font-mono font-bold border touch-manipulation active:scale-95 ${afford ? 'bg-zinc-900 text-zinc-200 border-zinc-600' : 'bg-zinc-900 text-zinc-500 border-zinc-800 cursor-not-allowed'}`}>
-                            ⇄ {ln.toUpperCase()} · {switchCost === 0 ? 'FREE' : `${switchCost}U`}
+                            className={`flex-1 min-w-[86px] px-2 py-1.5 rounded text-[9px] sm:text-[10px] font-mono font-bold border touch-manipulation active:scale-95 flex flex-col items-center justify-center gap-0.5 ${afford ? 'bg-zinc-900 text-zinc-200 border-zinc-600' : 'bg-zinc-900 text-zinc-500 border-zinc-800 cursor-not-allowed'}`}>
+                            <span>⇄ {ln.toUpperCase()} · {switchCost === 0 ? 'FREE' : `${switchCost}U`}</span>
+                            {targetGateWarn && (
+                              <span className="text-[7px] sm:text-[8px] text-amber-400 tracking-normal">⚠ EQUIPPED {equippedCls!.toUpperCase()} SHELVES THERE — STAYS OWNED, RE-EQUIPS ON A HULL THAT MOUNTS IT</span>
+                            )}
                           </button>
                         );
                       })}
@@ -1373,6 +1514,145 @@ export const HUD: React.FC<HUDProps> = ({
                     <div className="text-[8px] sm:text-[9px] font-mono text-zinc-400">HARVESTER DRONE, REPLACES LOSSES · <span className="text-pink-400 font-bold">{DRONE_PRICE}U</span></div>
                   </button>
                 </div>
+
+                {/* TURRET MOUNTS (Arsenal slice 2, 2026-10-21): the
+                    frame's autoGuns field is a CAP — mounts are bought
+                    one at a time to fill it, and only min(cap, owned)
+                    fire (effectiveAutoGuns — the loop and the canvas
+                    barrel tells read the same number). Owned mounts
+                    ride across line switches; on a shallower frame the
+                    excess shelves (amber pips) until a deeper hull
+                    carries it again. Mounts die with the ship. */}
+                {(() => {
+                  const mountCap = autoGunCapFor(shipLine, typeTier);
+                  const firing = effectiveAutoGuns({ line: shipLine, typeTier, turretMounts });
+                  const nextPrice = turretMountPriceFor(turretMounts);
+                  const atCap = turretMounts >= mountCap;
+                  const afford = funds >= nextPrice;
+                  const pips = Math.max(mountCap, turretMounts);
+                  return (
+                    <div className="pitted-metal px-3 py-2 rounded border border-zinc-700 flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🔫 TURRET MOUNTS — {firing}/{mountCap} FIRING</span>
+                        <span className="flex gap-1" aria-hidden="true">
+                          {Array.from({ length: pips }, (_, i) => (
+                            <span key={i} className={`w-2.5 h-2.5 rounded-sm ${i < firing ? 'bg-[#33ff33]' : i < turretMounts ? 'bg-amber-500' : 'bg-zinc-700'}`} />
+                          ))}
+                        </span>
+                      </div>
+                      <p className="text-[8px] sm:text-[9px] font-mono text-zinc-400 leading-snug">
+                        SHIPBOARD AUTO-TURRETS ON BOUGHT MOUNTS — THEY FIRE ON HOSTILES IN RANGE, NO HANDS NEEDED. THE FRAME SETS THE CAP; EACH MOUNT IS FITTED AT THE DOCK AND DIES WITH THE SHIP.
+                        {turretMounts > mountCap && <span className="text-amber-400"> {turretMounts - mountCap} MOUNT{turretMounts - mountCap > 1 ? 'S' : ''} SHELVED ON THIS FRAME — THEY RIDE ACROSS AND WAKE ON A DEEPER HULL.</span>}
+                      </p>
+                      {atCap ? (
+                        <div className="text-[10px] sm:text-xs font-mono text-amber-400">MOUNTS FULL FOR {progType.name} — A DEEPER FRAME CARRIES MORE</div>
+                      ) : (
+                        <button onClick={() => afford ? onBuyTurretMount() : flashShopNotice(`NOT ENOUGH SCRAP — TURRET MOUNT ${turretMounts + 1} COSTS ${nextPrice}U · YOU HAVE ${funds}U`)}
+                          className={`px-3 py-2 rounded text-left touch-manipulation active:scale-[0.98] border bg-zinc-900 ${afford ? 'border-zinc-600' : 'grayscale cursor-not-allowed border-zinc-800 text-zinc-500'}`}>
+                          <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🔫 FIT MOUNT {turretMounts + 1} OF {mountCap}</span>
+                          <span className="float-right text-[10px] sm:text-xs font-mono font-bold text-pink-400">{nextPrice}U</span>
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* CREW — THE DEFENSE PAIR (Arsenal slice 3, 2026-10-21):
+                    the hauler's couple of guard drones. The block exists
+                    only on frames whose defenseDrones cap is above zero
+                    (the data decides, not the line's name), and the
+                    workforce quality axis prints when the frame carries
+                    one — speed is live off the current type, carry is
+                    stamped at build. Guards never harvest and never eat
+                    a workforce slot: the counts arrive mode-split. */}
+                {(progType.droneSpeedPct > 0 || progType.droneCarryBonus > 0) && (
+                  <p className="text-[8px] sm:text-[9px] font-mono text-zinc-400 leading-snug">
+                    WORKFORCE QUALITY ON THIS FRAME: <span className="text-zinc-200">+{progType.droneSpeedPct}% DRONE SPEED · +{progType.droneCarryBonus} CARRY PER DRONE</span> — THE CREW GETS BETTER AS THE FRAME CLIMBS.
+                  </p>
+                )}
+                {progType.defenseDrones > 0 && (() => {
+                  const defenseCap = progType.defenseDrones;
+                  const full = playerDefenseDrones >= defenseCap;
+                  const afford = funds >= DEFENSE_DRONE_PRICE;
+                  return (
+                    <div className="pitted-metal px-3 py-2 rounded border border-zinc-700 flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🛡️ DEFENSE DRONES — {playerDefenseDrones}/{defenseCap} ON STATION</span>
+                        <span className="flex gap-1" aria-hidden="true">
+                          {Array.from({ length: defenseCap }, (_, i) => (
+                            <span key={i} className={`w-2.5 h-2.5 rotate-45 ${i < playerDefenseDrones ? 'bg-amber-400' : 'bg-zinc-700'}`} />
+                          ))}
+                        </span>
+                      </div>
+                      <p className="text-[8px] sm:text-[9px] font-mono text-zinc-400 leading-snug">
+                        GUARDS, NOT WORKERS — THEY STATION ON YOUR SHIP (◆ ON CANVAS) AND SHOOT HOSTILES ON THEIR OWN. NO ORDERS, NO HARVESTING, AND THEY NEVER EAT A WORKFORCE SLOT. A LOST GUARD IS REBUILT HERE.
+                      </p>
+                      {full ? (
+                        <div className="text-[10px] sm:text-xs font-mono text-amber-400">DEFENSE COMPLEMENT FULL — THE PAIR IS ON STATION</div>
+                      ) : (
+                        <button onClick={() => afford ? onBuildDefenseDrone() : flashShopNotice(`NOT ENOUGH SCRAP — A DEFENSE DRONE COSTS ${DEFENSE_DRONE_PRICE}U · YOU HAVE ${funds}U`)}
+                          className={`px-3 py-2 rounded text-left touch-manipulation active:scale-[0.98] border bg-zinc-900 ${afford ? 'border-zinc-600' : 'grayscale cursor-not-allowed border-zinc-800 text-zinc-500'}`}>
+                          <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🛡️ BUILD DEFENSE DRONE {playerDefenseDrones + 1} OF {defenseCap}</span>
+                          <span className="float-right text-[10px] sm:text-xs font-mono font-bold text-pink-400">{DEFENSE_DRONE_PRICE}U</span>
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* MUSTER — THE WING (Arsenal slice 5b, 2026-10-21):
+                    the drone line's face. The block keys off the
+                    frame's escortWing composition (escortCapFor /
+                    escortWingSize — the data decides), and ALSO
+                    renders when a wing exists on a frame that fields
+                    none: the wing is a seat asset that persists
+                    through death and line changes, so its roster must
+                    never go invisible just because this hull can't
+                    add to it. Each kind is a table hull (shared T1
+                    Skiff / fighter Stinger / fighter Lancer) and
+                    builds at the well for its DRAFT price. */}
+                {(escortWingSize(shipLine, typeTier) > 0 || escortCounts.skiff + escortCounts.stinger + escortCounts.lancer > 0) && (() => {
+                  const wingSize = escortWingSize(shipLine, typeTier);
+                  const wingCount = escortCounts.skiff + escortCounts.stinger + escortCounts.lancer;
+                  return (
+                    <div className="pitted-metal px-3 py-2 rounded border border-zinc-700 flex flex-col gap-1.5">
+                      <div className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🪽 MUSTER — THE WING · {wingCount}/{Math.max(wingSize, wingCount)} ON THE RING</div>
+                      <p className="text-[8px] sm:text-[9px] font-mono text-zinc-400 leading-snug">
+                        REAL SHIPS, NOT DRONES — THE WING GUARDS: IT RINGS YOU (YOUR STAR WHILE YOU'RE DOWN) AND ENGAGES HOSTILES ON ITS LEASH. NO HARVESTING, NO SIEGE. A WRECK DROPS A SALVAGE SCRAP AND REBUILDS HERE. THE WING OUTLIVES YOUR SHIP AND FLIES ON THROUGH LINE CHANGES.
+                      </p>
+                      {ESCORT_KINDS.map(kind => {
+                        const def = ESCORT_KIND_DEFS[kind];
+                        const cap = escortCapFor(shipLine, typeTier, kind);
+                        const count = escortCounts[kind];
+                        if (cap <= 0 && count <= 0) return null;
+                        const full = cap > 0 && count >= cap;
+                        const afford = funds >= def.price;
+                        return (
+                          <div key={kind} className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[9px] sm:text-[10px] font-mono font-bold text-zinc-200 w-[128px]">{def.label} <span className="text-zinc-500 font-normal">· {def.line ? `${def.line.toUpperCase()} T${def.typeTier} HULL` : 'SHARED T1 HULL'}</span></span>
+                            <span className="flex gap-1" aria-hidden="true">
+                              {Array.from({ length: Math.max(cap, count) }, (_, i) => (
+                                <span key={i} className={`w-2 h-2 rounded-full ${i < count ? 'bg-[#33ff33]' : 'bg-zinc-700'}`} />
+                              ))}
+                            </span>
+                            <span className="text-[9px] font-mono text-zinc-400">{count}/{cap} FLYING</span>
+                            {cap > 0 && (full ? (
+                              <span className="ml-auto text-[9px] sm:text-[10px] font-mono text-amber-400">{def.label} COMPLEMENT FULL</span>
+                            ) : (
+                              <button onClick={() => afford ? onBuildEscort(kind) : flashShopNotice(`NOT ENOUGH SCRAP — A ${def.label} ESCORT COSTS ${def.price}U · YOU HAVE ${funds}U`)}
+                                className={`ml-auto px-2.5 py-1.5 rounded text-[9px] sm:text-[10px] font-mono font-bold border touch-manipulation active:scale-95 ${afford ? 'bg-zinc-900 border-zinc-600 text-[#33ff33]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 cursor-not-allowed'}`}>
+                                🪽 {count > 0 ? 'REBUILD' : 'BUILD'} {def.label} · {def.price}U
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })}
+                      {wingSize === 0 && wingCount > 0 && (
+                        <p className="text-[8px] sm:text-[9px] font-mono font-bold text-amber-400 leading-snug">THIS FRAME FIELDS NO NEW ESCORTS — THE WING FLIES ON; A DRONE-LINE FRAME REOPENS THE MUSTER.</p>
+                      )}
+                    </div>
+                  );
+                })()}
                 </>)}
               </div>
 
@@ -1454,7 +1734,7 @@ export const HUD: React.FC<HUDProps> = ({
               {([
                 { key: 'controlsCard', label: 'SHIP CONTROLS CARD', blurb: 'The key reference — desktop card and the phone HELP legend.' },
                 { key: 'astroPanel', label: 'ASTRONOMIC DATA', blurb: 'Star fields, growth bands, enemy lifecycle, local nav map.' },
-                { key: 'telemetry', label: 'TELEMETRY ROWS', blurb: 'PINGS · FPS · RANGE in the comms panel. Warnings always show.' },
+                { key: 'telemetry', label: 'TELEMETRY ROWS', blurb: 'RANGE · HOME / ENEMY in the comms panel. PING + FPS are always-on instrumentation (top-right) and never toggle. Warnings always show.' },
                 { key: 'nameplates', label: 'NAMEPLATES', blurb: 'Callsigns over remote ships in multiplayer.' },
               ] as { key: keyof UiOptions; label: string; blurb: string }[]).map(row => (
                 <div key={row.key} className="flex items-center justify-between gap-3 border border-zinc-800 rounded px-3 py-2">
@@ -1572,6 +1852,61 @@ export const HUD: React.FC<HUDProps> = ({
                 <div className="text-[10px] font-mono text-zinc-400 leading-snug mt-0.5 line-clamp-2">{LATEST_BUILD.detail}</div>
                 <div className="text-[9px] font-mono text-[#33ff33] mt-1.5 tracking-widest">▸ BUILD HISTORY — LAST {Math.min(20, BUILD_HISTORY.length)}</div>
               </button>
+
+              {/* DEV — TESTER KIT (Adam's commission, 2026-10-21; state
+                  side BackGround 4650b48, surface UI lane). Renders ONLY
+                  when armed via ?debug=1 (src/debug.ts) — unarmed, this
+                  section does not exist. The hooks refuse in any
+                  networked room, so the copy says the law plainly; the
+                  fuchsia trim is deliberate — the kit is not part of
+                  the fiction's furniture and should never blend in. */}
+              {DEBUG_ARMED && (
+                <div className="mt-5 border border-fuchsia-800/70 rounded p-3 bg-fuchsia-950/15 flex flex-col gap-2.5">
+                  <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                    <span className="text-[10px] sm:text-xs font-mono font-bold tracking-widest text-fuchsia-400">🧪 DEV — TESTER KIT · ARMED</span>
+                    <span className="text-[8px] sm:text-[9px] font-mono text-fuchsia-300/70">VIA ?debug=1 · REMOVE IT FROM THE URL TO DISARM</span>
+                  </div>
+                  <p className="text-[8px] sm:text-[9px] font-mono text-zinc-400 leading-snug">
+                    SOLO ONLY — EVERY ACTION REFUSES WHILE A NETWORKED ROOM IS JOINED, HOST OR GUEST. THE FLAG LIVES IN THE URL ONLY: NEVER SAVED, NEVER IN A SNAPSHOT, NEVER ON THE WIRE. SCRAP LANDS IN THE BANK; FED RUNS THROUGH THE STAR'S REAL GROWTH (MILESTONES FOLLOW); JUMPS ARE FREE, NEED NO WELL, AND OBEY THE MOUNT GATE — A HEAVY WEAPON SHELVES INTO A LIGHT-ONLY HULL.
+                  </p>
+                  {devNote && <div className="text-[9px] sm:text-[10px] font-mono font-bold text-fuchsia-300 border border-fuchsia-800/60 bg-fuchsia-950/30 rounded px-2 py-1">{devNote}</div>}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[9px] font-mono text-zinc-400 w-full">GRANT SCRAP → BANK</span>
+                    {[100, 1000].map(n => (
+                      <button key={n} onClick={() => { onDebugGrantScrap?.(n); setDevNote(`🧪 +${n} SCRAP → BANK`); }}
+                        className="px-2.5 py-1.5 rounded bg-zinc-900 border border-fuchsia-800/70 text-fuchsia-300 text-[10px] font-mono font-bold touch-manipulation active:scale-95">+{n}U</button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[9px] font-mono text-zinc-400 w-full">GRANT FED → HOME STAR</span>
+                    {[250, 1000].map(n => (
+                      <button key={n} onClick={() => { onDebugGrantFed?.(n); setDevNote(`🧪 +${n} FED → HOME STAR — WATCH IT GROW`); }}
+                        className="px-2.5 py-1.5 rounded bg-zinc-900 border border-fuchsia-800/70 text-fuchsia-300 text-[10px] font-mono font-bold touch-manipulation active:scale-95">+{n} FED</button>
+                    ))}
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-[9px] font-mono text-zinc-400">JUMP TO FRAME — ONE TAP, ANY HULL</span>
+                    <button onClick={() => { onDebugJumpTo?.(null, 1); setDevNote('🧪 JUMPED → SKIFF (UNALIGNED T1)'); }}
+                      className={`px-2.5 py-1.5 rounded text-left text-[10px] font-mono font-bold border touch-manipulation active:scale-95 ${shipLine === null ? 'bg-fuchsia-900/50 border-fuchsia-500 text-fuchsia-200' : 'bg-zinc-900 border-zinc-700 text-zinc-300'}`}>
+                      SKIFF · T1 — UNALIGNED
+                    </button>
+                    {(Object.keys(SHIP_LINES) as ShipLine[]).map(ln => (
+                      <div key={ln} className="flex items-center gap-1 flex-wrap">
+                        <span className="text-[8px] sm:text-[9px] font-mono font-bold text-zinc-400 w-[74px]">{ln.toUpperCase()}</span>
+                        {([2, 3, 4, 5] as TypeTier[]).map(t => {
+                          const here = shipLine === ln && typeTier === t;
+                          return (
+                            <button key={t} onClick={() => { onDebugJumpTo?.(ln, t); setDevNote(`🧪 JUMPED → ${typeFor(ln, t).name} (${ln.toUpperCase()} T${t})`); }}
+                              className={`flex-1 min-w-[62px] px-1.5 py-1.5 rounded text-[8px] sm:text-[9px] font-mono font-bold border touch-manipulation active:scale-95 ${here ? 'bg-fuchsia-900/50 border-fuchsia-500 text-fuchsia-200' : 'bg-zinc-900 border-zinc-700 text-zinc-300'}`}>
+                              {typeFor(ln, t).name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Identity Plate Overlay */}
               <div className="mt-6 pt-4 border-t-2 border-zinc-900/60 flex flex-col items-center gap-2">

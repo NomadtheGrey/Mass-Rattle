@@ -36,6 +36,11 @@ export type NetActionIntent =
   | { kind: 'equipItem'; itemId: string }
   | { kind: 'buyType'; line?: string }
   | { kind: 'buyHull' }
+  /** Arsenal slice 2 (UI lane, on BackGround's flag): parity with
+   * buyHull — the kind exists so the surface's purchase has its
+   * wire name; guest emission rides the per-seat economy follow-on
+   * with every other economy kind. */
+  | { kind: 'buyTurretMount' }
   | { kind: 'switchLine'; line: string }
   | { kind: 'buildDrone' }
   /** P2-5 death economy: BARE — the host derives the seat from the
@@ -123,7 +128,7 @@ export interface NetSession {
 export const NetSessionContext = React.createContext<NetSession | null>(null);
 
 const PLAYER_ID_KEY = 'mr.playerId';
-const TERMINAL_ERRORS: ErrorCode[] = ['room_not_found', 'room_full', 'version_mismatch', 'kicked'];
+const TERMINAL_ERRORS: ErrorCode[] = ['room_not_found', 'room_full', 'version_mismatch', 'name_reserved', 'kicked'];
 
 export function useNetClient(): NetSession {
   const [clientState, setClientState] = React.useState<ClientState>({ connection: 'idle', lastError: null });
@@ -193,7 +198,11 @@ export function useNetClient(): NetSession {
           setMyPlayerId(msg.playerId);
           setRoom(msg.room);
           setClientState({ connection: 'connected', lastError: null });
-          setNotice(null);
+          // A refused reserved rename rides the welcome's notice
+          // field (the claim itself succeeded; the name stands).
+          setNotice(msg.notice === 'name_reserved'
+            ? 'THAT NAME IS RESERVED — IT NEEDS ITS PASSWORD · YOUR CURRENT NAME STANDS'
+            : null);
           break;
         }
         case 'roomState': {
