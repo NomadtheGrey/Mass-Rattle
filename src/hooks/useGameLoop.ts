@@ -14,7 +14,7 @@ import { createMatch } from '../sim/matchAssembly';
 import type { NetSession, NetActionIntent } from '../net/useNetClient';
 import {
   SNAPSHOT_EVERY_FRAMES, snapshotDue, localShipInput, remoteShipInput,
-  idleShipInput, acceptGuestPayload, countDroppedActions, consumeRepurchaseIntent, consumeEconomyIntents,
+  idleShipInput, acceptGuestPayload, countDroppedActions, consumeRepurchaseIntent, consumeEconomyIntents, consumeTargetIntents,
   projectStateForViewer, ShipFrameInput,
 } from '../net/sessionAdapter';
 import {
@@ -35,6 +35,7 @@ import { areHostile, areTeammates } from '../sim/teams';
 import { applyDeathLoss, botRepurchaseDue, completeRespawn, respawnDue, tryRepurchase } from '../sim/deathEconomy';
 import { walletPay, inTeamWell, attractRadiusForShip } from '../sim/seatShop';
 import { stepBotEconomy } from '../sim/botEconomy';
+import { isValidTarget, nextTargetId, stepTargetLocks } from '../sim/targeting';
 import {
   WRECK_DRIFT_DECAY,
   WRECK_MARKER_MS,
@@ -163,6 +164,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     rotateRight: boolean;
     vac: boolean;
     jettison: boolean;
+    jettisonAll: boolean;
     fire: boolean;
     analogStick: { x: number; y: number } | null;
   }>({
@@ -171,6 +173,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     rotateRight: false,
     vac: false,
     jettison: false,
+    jettisonAll: false,
     fire: false,
     analogStick: null,
   });
@@ -235,7 +238,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   const stateRef = useRef<GameState | null>(null);
   stateRef.current = state;
 
-  const setVirtualControl = useCallback((action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison' | 'fire', active: boolean) => {
+  const setVirtualControl = useCallback((action: 'thrust' | 'rotateLeft' | 'rotateRight' | 'vac' | 'jettison' | 'jettisonAll' | 'fire', active: boolean) => {
     touchInputs.current[action] = active;
   }, []);
 
@@ -476,6 +479,35 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     const itemId = weaponIdForSelectSlot(stateRef.current.ship, slotIndex);
     if (itemId) equipItem(itemId);
   }, [equipItem]);
+
+  // TARGET LOCKS (CONTROLS.md follow-on): Tab cycles the lock,
+  // click/tap sets it — both verbs are thin hands over the one
+  // lock law (src/sim/targeting.ts). On a guest they ride the
+  // intent channel and the host applies them to the sender's
+  // seat; the lock itself rides the ship in state, so every
+  // client (and tomorrow the Lightning Lock) reads one truth.
+  const cycleTarget = useCallback(() => {
+    if (queueGuestAction({ kind: 'cycleTarget' })) return;
+    setState(prev => {
+      const nextId = nextTargetId(prev.seats, prev.ship);
+      if ((prev.ship.targetId ?? null) === nextId) return prev;
+      return { ...prev, ship: { ...prev.ship, targetId: nextId ?? undefined } };
+    });
+  }, []);
+
+  // Set a specific lock (click/tap), or clear it: anything that
+  // is not a valid target right now — empty space, a teammate,
+  // a cloaked hull, null — clears instead of sticking.
+  const setTarget = useCallback((targetOwnerId: string | null) => {
+    if (queueGuestAction({ kind: 'setTarget', targetOwnerId: targetOwnerId ?? undefined })) return;
+    setState(prev => {
+      const nextId = targetOwnerId && isValidTarget(prev.seats, prev.ship, targetOwnerId)
+        ? targetOwnerId
+        : undefined;
+      if (prev.ship.targetId === nextId) return prev;
+      return { ...prev, ship: { ...prev.ship, targetId: nextId } };
+    });
+  }, []);
 
   const buyType = useCallback((line?: ShipLine) => {
     if (queueGuestAction({ kind: 'buyType', line })) return;
@@ -1292,6 +1324,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           brake: false,
           fire: input.wantsFire,
           jettison: input.wantsJettison,
+          jettisonAll: input.wantsJettisonAll,
           vac: input.vac,
           stick: input.stick,
         };
@@ -1681,6 +1714,34 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
             });
           }
 
+          // DUMP ALL (J — CARGO_AND_JETTISON.md, RULED): the
+          // whole hold overboard BEHIND the ship in one kicked,
+          // spread cloud — the escape verb (instant overload
+          // shed, and a scrap cloud in the pursuer's face). The
+          // same pods under the same cargo law as the single
+          // throw; the shared throttle stamp keeps the two
+          // verbs from stacking inside one press window.
+          if (input.wantsJettisonAll && s.carrying > 0 && (!ejectAt || time - ejectAt > 100)) {
+            ejectAt = time;
+            const load = s.carrying;
+            s.carrying = 0;
+            for (let pi = 0; pi < load; pi++) {
+              const kickDir = s.angle + Math.PI + (Math.random() - 0.5) * 0.7;
+              const kickForce = 6 + Math.random() * 4;
+              next.deployedCargo.push({
+                id: Math.random().toString(),
+                pos: { ...s.pos },
+                vel: {
+                  x: s.vel.x + Math.cos(kickDir) * kickForce,
+                  y: s.vel.y + Math.sin(kickDir) * kickForce,
+                },
+                color: '#f472b6',
+                ownerId: s.ownerId,
+                life: 200, // frames
+              });
+            }
+          }
+
           // SHIP WEAPON FIRE (Slice 4): the equipped weapon shoots down the
           // ship's nose. Hold F on desktop or the FIRE button on mobile.
           // Stats and tier scaling: src/loadout.ts WEAPON_STATS.
@@ -1899,6 +1960,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
                   // B2 PER-SEAT ECONOMY: the guest's shop intents
                   // apply to THEIR seat through the seat shop —
                   // their bank, their wallet, the shared dock.
+                  consumeTargetIntents(seat, payload, simSeats);
                   const econ = consumeEconomyIntents(seat, payload, { seats: simSeats, drones: next.drones, escorts: next.escorts, localOwnerId });
                   if (econ) {
                     if (econ.drones) next.drones = econ.drones;
@@ -2297,6 +2359,11 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           }
         }
 
+        // TARGET LOCKS (src/sim/targeting.ts): a lock whose
+        // target left validity this frame — died, docked,
+        // cloaked, changed sides — clears where it stands.
+        stepTargetLocks(simSeats);
+
         // BOT AUTO-REPURCHASE (P2-5): a bot-driven seat buys its
         // frame back on the delay timer (deathEconomy), so a match
         // never stalls on a seat nobody is driving. Human seats
@@ -2580,6 +2647,8 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     buyItem,
     equipItem,
     selectWeaponSlot,
+    cycleTarget,
+    setTarget,
     buyType,
     buyHullStep,
     buyTurretMount,
