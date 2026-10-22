@@ -32,6 +32,16 @@ export interface Ship extends GameObject {
   maxFuel: number;
   health: number;
   maxHealth: number;
+  /**
+   * SCRAP HEALING (RULED, src/sim/repair.ts): the captain's
+   * repair toggle, DEFAULT ON — undefined reads as ON; false
+   * is the captain's opt-out (scrap discipline). The heal
+   * engine converts hold scrap to hull up to this hull's
+   * type/tier cap whenever the mode stands.
+   */
+  repairing?: boolean;
+  /** The heal engine's whole-scrap credit (src/sim/repair.ts). */
+  repairCredit?: number;
   attractRadius: number;
   /** Seat-scoped ownerId (Phase 2, src/sim/ownership.ts): the seat
    * that owns this entity for the whole match, whoever controls it. */
@@ -240,7 +250,9 @@ export interface Harvester {
   /** Seat-scoped ownerId (Phase 2, src/sim/ownership.ts): the seat
    * that owns this entity for the whole match, whoever controls it. */
   ownerId: string;
-  state: 'searching' | 'collecting' | 'returning';
+  state: 'searching' | 'collecting' | 'returning' | 'docked';
+  /** The heal engine's whole-scrap credit while docked (repair.ts). */
+  repairCredit?: number;
   /** Defense mode (Arsenal slice 3, 2026-10-21): a drone with
    *  mode 'defense' never harvests — it stations on its owner's
    *  ship (or home star) and engages hostiles in range (see

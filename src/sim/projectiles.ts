@@ -54,11 +54,11 @@ export const stepMines = (ctx: MineStepContext): Mine[] => {
   // damage, including hostile stars if one is somehow close.
   // (Hostile = TEAMS: not the mine's TEAM; in SP, the enemy's.)
   return (next.mines || []).filter(mine => {
-    const tripped = next.drones.some(d => areHostile(simSeats, d.ownerId, mine.ownerId) &&
+    const tripped = next.drones.some(d => d.state !== 'docked' && areHostile(simSeats, d.ownerId, mine.ownerId) &&
       Math.hypot(d.pos.x - mine.pos.x, d.pos.y - mine.pos.y) < mine.radius);
     if (!tripped) return true;
     next.drones.forEach(d => {
-      if (areHostile(simSeats, d.ownerId, mine.ownerId) && Math.hypot(d.pos.x - mine.pos.x, d.pos.y - mine.pos.y) < mine.radius) {
+      if (d.state !== 'docked' && areHostile(simSeats, d.ownerId, mine.ownerId) && Math.hypot(d.pos.x - mine.pos.x, d.pos.y - mine.pos.y) < mine.radius) {
         d.health -= mine.damage;
         d.lastHitByOwnerId = mine.ownerId;
       }
@@ -113,6 +113,7 @@ export const stepProjectiles = (ctx: ProjectileStepContext): Projectile[] => {
       let best: any = null;
       let bestD = 700;
       next.drones.forEach(d => {
+        if (d.state === 'docked') return; // inside its ship — no lock
         if (!areHostile(simSeats, d.ownerId, p.ownerId)) return;
         const dd = Math.hypot(d.pos.x - p.pos.x, d.pos.y - p.pos.y);
         if (dd < bestD) { bestD = dd; best = d; }
@@ -324,7 +325,7 @@ export const stepProjectiles = (ctx: ProjectileStepContext): Projectile[] => {
     // carry damage since Phase 1c but keep their old pass-through
     // behavior against drones)
     if (p.damage !== undefined && p.kind !== undefined) {
-      const hitDrone = next.drones.find(d => areHostile(simSeats, d.ownerId, p.ownerId) &&
+      const hitDrone = next.drones.find(d => d.state !== 'docked' && areHostile(simSeats, d.ownerId, p.ownerId) &&
         !(p.hitIds || []).includes(d.id) &&
         Math.hypot(d.pos.x - p.pos.x, d.pos.y - p.pos.y) < 14);
       if (hitDrone) {

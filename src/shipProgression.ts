@@ -493,6 +493,48 @@ export const DEFENSE_DRONE = {
 export const canOrderWorkforce = (line: ShipLine | null): boolean =>
   line === 'hauler';
 
+/**
+ * SCRAP HEALING TABLES (RULED by Adam, 2026-10-22; figures DRAFT
+ * for the numbers pass): the heal CAP (the fraction of its own
+ * max hull a ship may repair TO — damage below the cap is
+ * permanent until death) and the heal RATE (hull per second while
+ * repair is toggled on and the hold has scrap) are set by ship
+ * TYPE and TIER. The doctrine is the lines' peaks, as everywhere:
+ * the HAULER is the great repairer (her fiction carries the
+ * workshop — the highest caps, near-full at her crown), the
+ * FIGHTER caps lightest (glass cannon; she trades repair depth
+ * for the arsenal), the SKIFF heals a little — even a skiff, up
+ * to its small cap. The engine (conversion, credit, the spend)
+ * is src/sim/repair.ts. Escorts read the same rows by their
+ * kind's line/tier — a Stinger escort repairs like a Stinger.
+ */
+const HEAL_TABLE: Record<string, { capPct: number[]; ratePerSec: number[] }> = {
+  // index 0 = tier 1 … index 4 = tier 5
+  skiff:     { capPct: [0.40], ratePerSec: [1.5] },
+  fighter:   { capPct: [0.35, 0.42, 0.48, 0.53, 0.58], ratePerSec: [2, 2.5, 3, 3.5, 4] },
+  minelayer: { capPct: [0.40, 0.46, 0.52, 0.57, 0.62], ratePerSec: [2, 2.5, 3, 3.5, 4] },
+  hauler:    { capPct: [0.55, 0.65, 0.75, 0.85, 0.95], ratePerSec: [3, 3.5, 4, 5, 6] },
+  drone:     { capPct: [0.45, 0.52, 0.60, 0.66, 0.72], ratePerSec: [2.5, 3, 3.5, 4.5, 5] },
+  cruiser:   { capPct: [0.50, 0.57, 0.64, 0.72, 0.80], ratePerSec: [2, 2.5, 3, 3.5, 4.5] },
+};
+
+const healRow = (line: ShipLine | null, tier: number): { capPct: number; ratePerSec: number } => {
+  const row = HEAL_TABLE[line ?? 'skiff'] ?? HEAL_TABLE.skiff;
+  const idx = Math.min(Math.max(tier, 1), 5) - 1;
+  return {
+    capPct: row.capPct[Math.min(idx, row.capPct.length - 1)],
+    ratePerSec: row.ratePerSec[Math.min(idx, row.ratePerSec.length - 1)],
+  };
+};
+
+/** The fraction of its max hull this type/tier may repair TO. */
+export const healCapPctFor = (line: ShipLine | null, tier: number): number =>
+  healRow(line, tier).capPct;
+
+/** Hull per second this type/tier repairs while toggled on. */
+export const healRateFor = (line: ShipLine | null, tier: number): number =>
+  healRow(line, tier).ratePerSec;
+
 // ---------------------------------------------------------------------
 // THE CARRIER WING (Arsenal slice 5b, 2026-10-21 — the program's
 // summit, Adam's vision): the drone line's escorts are REAL little

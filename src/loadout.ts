@@ -203,10 +203,16 @@ export const canMountWeapon = (line: ShipLine | null, typeTier: TypeTier, itemId
  * mountable on this line/tier, it is SHELVED — the slot empties,
  * the item stays OWNED in the arsenal, and it can be re-equipped
  * the moment a hull that mounts it returns (equipItem's gate
- * already refuses it here). Shelved, never stripped: the same law
- * as turret mounts over a shallow cap (slice 2) and track levels
- * over a new line's cap. Defense/hybrid slots are not classed and
- * always ride. Returns the input untouched when nothing shelves.
+ * already refuses it here). Defense/hybrid slots are not classed
+ * and always ride. Returns the input untouched when nothing
+ * shelves.
+ *
+ * SCOPE NOTE (2026-10-22): the ECONOMY path no longer shelves —
+ * Adam's FORCED SELL (src/switchReconcile.ts) sells unmountable
+ * weapons and every other over-cap holding at full price on a
+ * real switch. This helper survives for the DEBUG JUMP alone:
+ * a tester teleport is not a transaction, so nothing sells
+ * there — the weapon shelves, exactly as slice 4 wrote it.
  */
 export const mountableLoadout = (
   line: ShipLine | null,

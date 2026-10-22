@@ -17,6 +17,7 @@ import { infuseStar } from '../starGrowth';
 import { STAR_DRONE_RESPAWN_FRAMES, starDroneRangeFor, starDroneTargetFor } from '../starFleet';
 import { applyDeliveryHeal } from '../starDefense';
 import { areHostile } from './teams';
+import { repairFrame, DRONE_DOCK_HEALTH, DRONE_DOCK_RATE_PER_SEC } from './repair';
 import { AUTO_GUN, DEFENSE_DRONE, canOrderWorkforce, typeFor } from '../shipProgression';
 import type { GameState, Harvester, SeatSimState, Star, Vector2D } from '../types';
 
@@ -148,6 +149,61 @@ export const stepDrones = (ctx: DroneStepContext): DroneStepResult => {
           drone.angle += (out - drone.angle) * PHYSICS.DRONES.ROTATE_SPEED;
         }
       }
+      return drone;
+    }
+
+    // HARVESTER DOCKING (RULED by Adam, 2026-10-22; src/sim/
+    // repair.ts): a WORKFORCE harvester — never the star fleet
+    // (the star's own; she has no capital ship) and never the
+    // defense pair (guards, not harvesters; they already live at
+    // the ship) — hurt below DRONE_DOCK_HEALTH abandons its work
+    // and flies to its capital ship, vulnerable on the road home.
+    // Docked, it rides INSIDE the ship (untargetable: every
+    // targeting read skips state 'docked'), out of service, and
+    // heals to full from the ship's hold at the drone rate. At
+    // full health it relaunches on its own. A drone whose ship
+    // is GONE spills back to work at its current health — the
+    // dock dies with the dock; the drone does not.
+    const capitalShip = (!drone.starFleet && drone.mode !== 'defense')
+      ? seatByOwnerId.get(drone.ownerId)?.ship ?? null
+      : null;
+    if (drone.state === 'docked') {
+      if (!capitalShip) {
+        drone.state = drone.carrying >= drone.capacity ? 'returning' : 'searching';
+        return drone;
+      }
+      drone.pos.x = capitalShip.pos.x;
+      drone.pos.y = capitalShip.pos.y;
+      drone.vel.x = 0;
+      drone.vel.y = 0;
+      repairFrame(drone, capitalShip, 100, DRONE_DOCK_RATE_PER_SEC / 60);
+      if (drone.health >= 100) {
+        drone.state = drone.carrying >= drone.capacity ? 'returning' : 'searching';
+      }
+      return drone;
+    }
+    if (capitalShip && drone.health < DRONE_DOCK_HEALTH) {
+      const dx = capitalShip.pos.x - drone.pos.x;
+      const dy = capitalShip.pos.y - drone.pos.y;
+      if (Math.hypot(dx, dy) < capitalShip.size + 12) {
+        drone.state = 'docked';
+        drone.pos.x = capitalShip.pos.x;
+        drone.pos.y = capitalShip.pos.y;
+        return drone;
+      }
+      const ta = Math.atan2(dy, dx);
+      // The diff MUST wrap: a bearing of -PI and a heading of
+      // +PI are the same direction, and the naive lerp rotates
+      // the long way around the seam (the escorts' angleLerp
+      // wraps for this reason; the older drone branches' seam
+      // wobble is cosmetic, but a drone flying home to dock
+      // crosses the seam dead-on whenever the road runs level).
+      let diff = ta - drone.angle;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      drone.angle += diff * PHYSICS.DRONES.ROTATE_SPEED;
+      drone.pos.x += Math.cos(drone.angle) * droneSpeed;
+      drone.pos.y += Math.sin(drone.angle) * droneSpeed;
       return drone;
     }
 
