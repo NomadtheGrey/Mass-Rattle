@@ -14,8 +14,14 @@
  *    RED DWARF 1, RED GIANT 2, YELLOW 3, WHITE 4, NEUTRON 5. The
  *    black hole ends the match, so the fleet question ends at 5.
  *  - RANGE rides the same axis: the fleet's harvest leash from its
- *    home star grows with the target count (young stars glean
- *    near, old stars sweep far).
+ *    home star grows per stage with the target count (young stars
+ *    glean near, old stars sweep far) — range GROWS AS THE STAR
+ *    GROWS (Adam's pin, 2026-10-22; the +150-per-stage magnitudes
+ *    are DRAFT, the axis is the pin). His balance note, which is
+ *    the design intent of the whole system: linear harvester
+ *    growth against exponentially greater scrap requirements
+ *    "doesn't seem out of line" — the fleet ASSISTS the curve,
+ *    never replaces the captain's hauling.
  *  - BIRTHS ARE SLOW: growth and regrowth alike arrive one drone
  *    per STAR_DRONE_RESPAWN_FRAMES through the drone step's
  *    channel — damage dents the fleet, evolution sets its ceiling,
