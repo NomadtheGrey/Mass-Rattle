@@ -4,6 +4,7 @@ import { PHYSICS } from '../constants';
 import { milestonesForInfused, progressIntoNextMilestone, nextMilestoneCost, cumulativeCostForMilestones } from '../starGrowth';
 import { starDroneTargetForMilestones, starDroneRangeForTarget } from '../starFleet';
 import { reconcileSwitch } from '../switchReconcile';
+import { ESCORT_DOCK_PAD } from '../sim/repair';
 import type { Ship, Harvester, EscortShip } from '../types';
 import { stageStateForInfused, type StarStageState } from '../sim/starStages';
 import { BUILD_HISTORY, LATEST_BUILD } from '../buildHistory';
@@ -14,7 +15,7 @@ import { STAGE_LABELS, TEAM_LABELS, TEAM_COLORS } from './lobby/lobbyTypes';
 import type { TeamId } from '../net/protocol';
 import { MechanicsGuide } from './MechanicsGuide';
 import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor, MOUNT_ACCESS, canMountWeapon, weaponClassFor, type WeaponClass } from '../loadout';
-import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, autoGunCapFor, turretMountPriceFor, effectiveAutoGuns, DEFENSE_DRONE_PRICE, ESCORT_KIND_DEFS, ESCORT_KINDS, escortCapFor, escortWingSize, canOrderWorkforce, type EscortKind, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
+import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, autoGunCapFor, turretMountPriceFor, effectiveAutoGuns, DEFENSE_DRONE_PRICE, ESCORT_KIND_DEFS, ESCORT_KINDS, escortCapFor, escortWingSize, escortKindOf, canOrderWorkforce, healCapPctFor, healRateFor, type EscortKind, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
 
 // One-line summary of what a type's frame DOES, read off its capability
 // fields — the workshop sells the special in the type's own numbers.
@@ -191,6 +192,7 @@ interface HUDProps {
   enemyStarFleetCount: number;
   deliveryMode: 'feed' | 'deposit';
   onSetDeliveryMode: (mode: 'feed' | 'deposit') => void;
+  onSetRepairing: (on: boolean) => void;
   ship: Ship;
   drones: Harvester[];
   escorts: EscortShip[];
@@ -261,6 +263,7 @@ export const HUD: React.FC<HUDProps> = ({
   enemyStarFleetCount,
   deliveryMode,
   onSetDeliveryMode,
+  onSetRepairing,
   ship,
   drones,
   escorts,
@@ -316,6 +319,23 @@ export const HUD: React.FC<HUDProps> = ({
     choicePreviews[ln] = previewFor(ln, 2);
   }
   const climbPreview: SellPreview | null = shipLine !== null && typeTier < 5 ? previewFor(shipLine, (typeTier + 1) as TypeTier) : null;
+
+  // DAMAGE CONTROL reads (Adam, 2026-10-22; src/sim/repair.ts):
+  // the ceiling mirrors the loop's own math (maxHealth x
+  // healCapPctFor); the toggle DEFAULTS ON — ship.repairing ===
+  // false is the only opt-out. Docked counts read the sim's own
+  // marks: harvesters carry state 'docked' exactly; escorts carry
+  // no flag, so theirs is the sim's geometry (alongside ring at
+  // ship.size + ESCORT_DOCK_PAD, health below the kind's cap).
+  const repairCapPct = healCapPctFor(shipLine, typeTier);
+  const repairCeilingPct = Math.round(repairCapPct * 100);
+  const repairRate = healRateFor(shipLine, typeTier);
+  const repairingOn = ship.repairing !== false;
+  const activelyRepairing = repairingOn && shipHealth < repairCeilingPct && carrying > 0;
+  const dockedWorkforce = drones.filter(d => d.ownerId === ship.ownerId && !d.starFleet && d.mode !== 'defense' && d.state === 'docked').length;
+  const escortDockedFor = (kind: EscortKind): number => escorts.filter(e => e.ownerId === ship.ownerId && escortKindOf(e) === kind
+    && e.health < e.maxHealth * healCapPctFor(e.line, e.typeTier)
+    && Math.hypot(e.pos.x - shipPos.x, e.pos.y - shipPos.y) <= ship.size + ESCORT_DOCK_PAD).length;
   const caps = capsFor(shipLine, typeTier);
   const switchCost = switchToll({ lineSwitchesUsed, typeTier });
   // Gauge scales follow the ship as upgraded (audit, 2026-10-20): the
@@ -714,11 +734,12 @@ export const HUD: React.FC<HUDProps> = ({
                 CARGO {carrying}/{PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS}
               </span>
             </div>
-            <div className="vu-meter h-2 bg-zinc-900 border border-zinc-800">
+            <div className="vu-meter h-2 bg-zinc-900 border border-zinc-800 relative">
               <motion.div 
                 className={`h-full ${shipHealth < 30 ? 'bg-red-600' : 'bg-cyan-500 shadow-[0_0_6px_cyan]'}`}
                 animate={{ width: `${shipHealth}%` }}
               />
+              <div className="absolute top-0 bottom-0 w-[2px] bg-amber-400" style={{ left: `${repairCeilingPct}%` }} />
             </div>
           </div>
 
@@ -886,13 +907,14 @@ export const HUD: React.FC<HUDProps> = ({
               <div className="mb-4">
                 <div className="flex justify-between text-[9px] mb-1">
                   <span className={shipHealth < 30 ? 'text-red-500 animate-pulse' : 'text-zinc-200'}>HULL_INTEGRITY</span>
-                  <span>{Math.floor(shipHealth)}%</span>
+                  <span>{Math.floor(shipHealth)}% · CAP {repairCeilingPct}%</span>
                 </div>
-                <div className="vu-meter h-3 bg-zinc-900 border border-zinc-800">
+                <div className="vu-meter h-3 bg-zinc-900 border border-zinc-800 relative">
                   <motion.div 
                     className={`h-full ${shipHealth < 30 ? 'bg-red-600' : 'bg-cyan-600 shadow-[0_0_8px_cyan]'}`}
                     animate={{ width: `${shipHealth}%` }}
                   />
+                  <div className="absolute top-0 bottom-0 w-[2px] bg-amber-400" style={{ left: `${repairCeilingPct}%` }} />
                 </div>
               </div>
               {velocity > 4 && <p className="text-red-400">[WARN] SPEED EXCEEDS BUFFER</p>}
@@ -1251,6 +1273,19 @@ export const HUD: React.FC<HUDProps> = ({
           </button>
         </div>
       )}
+
+      {/* REPAIR PILL: Damage Control's in-play switch — the mode
+          is a standing discipline (burn the hold on patches, or
+          don't), so it rides beside the decoy pill, stacked above
+          it when both show. State reads on the pill itself. */}
+      <div className={`fixed ${loadout.defense === 'decoy_beacon' && !decoyActive ? 'bottom-[140px] sm:bottom-[112px]' : 'bottom-[104px] sm:bottom-[76px]'} left-1/2 -translate-x-1/2 z-[56] pointer-events-auto`}>
+        <button
+          onClick={() => onSetRepairing(!repairingOn)}
+          className={`hud-panel px-3 py-1.5 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider ${activelyRepairing ? 'border-[#33ff33] text-[#33ff33] shadow-[0_0_10px_rgba(51,255,51,0.35)]' : repairingOn ? 'border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.3)]' : 'border-zinc-700 text-zinc-500'}`}
+        >
+          🔧 REPAIR {activelyRepairing ? '· PATCHING' : repairingOn ? '· ON' : '· OFF'}
+        </button>
+      </div>
 
       {/* STATUS STRIP — slim indicators, TOP band (Adam, 2026-10-21:
           moved up from bottom-center, where it sat over the SHIP
@@ -1625,7 +1660,7 @@ export const HUD: React.FC<HUDProps> = ({
                   <button onClick={() => playerDrones >= progType.dronesFielded ? flashShopNotice(`DRONE COMPLEMENT FULL — ${progType.dronesFielded} FIELDED ON THIS FRAME`) : funds >= DRONE_PRICE ? onBuildDrone() : flashShopNotice(`NOT ENOUGH SCRAP — A DRONE COSTS ${DRONE_PRICE}U · YOU HAVE ${funds}U`)}
                     className={`flex-1 min-w-[150px] pitted-metal px-3 py-2 rounded text-left touch-manipulation active:scale-[0.98] ${playerDrones < progType.dronesFielded && funds >= DRONE_PRICE ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
                     <div className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🤖 BUILD DRONE — {playerDrones}/{progType.dronesFielded} FIELDED</div>
-                    <div className="text-[8px] sm:text-[9px] font-mono text-zinc-400">HARVESTER DRONE, REPLACES LOSSES · <span className="text-pink-400 font-bold">{DRONE_PRICE}U</span></div>
+                    <div className="text-[8px] sm:text-[9px] font-mono text-zinc-400">HARVESTER DRONE, REPLACES LOSSES · <span className="text-pink-400 font-bold">{DRONE_PRICE}U</span>{dockedWorkforce > 0 && <> · <span className="text-emerald-400">{dockedWorkforce} DOCKED — REPAIRING IN THE HULL</span></>}</div>
                   </button>
                 </div>
 
@@ -1671,6 +1706,42 @@ export const HUD: React.FC<HUDProps> = ({
                     </div>
                   );
                 })()}
+
+                {/* DAMAGE CONTROL (Adam, 2026-10-22; the engine is
+                    src/sim/repair.ts): the captain's repair toggle
+                    + this frame's cap and rate, with the law in the
+                    surface's words — hold only, never the bank; guns
+                    stay up; below-cap damage is permanent. The
+                    toggle defaults ON (undefined reads as on); OFF
+                    is the opt-out, and it governs the HULL — a
+                    docked harvester patches itself from the hold on
+                    its own law, which the OFF line says out loud. */}
+                <div className="pitted-metal px-3 py-2 rounded border border-zinc-700 flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🔧 DAMAGE CONTROL — {activelyRepairing ? 'PATCHING' : repairingOn ? 'ON' : 'OFF'}</span>
+                    <span className="text-[9px] sm:text-[10px] font-mono text-zinc-400">CAP {repairCeilingPct}% · {repairRate} HP/S</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button onClick={() => onSetRepairing(true)}
+                      className={`px-3 py-2 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider touch-manipulation active:scale-[0.98] ${repairingOn ? 'border-cyan-400 text-cyan-300 bg-cyan-950/30' : 'border-zinc-700 text-zinc-400 bg-zinc-900'}`}>
+                      🔧 REPAIRS ON
+                    </button>
+                    <button onClick={() => onSetRepairing(false)}
+                      className={`px-3 py-2 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider touch-manipulation active:scale-[0.98] ${!repairingOn ? 'border-red-400 text-red-300 bg-red-950/30' : 'border-zinc-700 text-zinc-400 bg-zinc-900'}`}>
+                      REPAIRS OFF
+                    </button>
+                  </div>
+                  <p className="text-[8px] sm:text-[9px] font-mono text-zinc-400 leading-snug">
+                    {activelyRepairing
+                      ? `PATCHING FROM THE HOLD NOW — ${repairRate} HP/S UNTIL THE CAP OR AN EMPTY HOLD.`
+                      : !repairingOn
+                        ? 'REPAIRS OFF — YOUR HULL WILL NOT PATCH. NOTE: A DOCKED HARVESTER STILL DRAWS THE HOLD TO PATCH ITSELF; THE TOGGLE GOVERNS YOUR HULL, NOT THE DOCK.'
+                        : shipHealth >= repairCeilingPct
+                          ? 'NOTHING TO PATCH — THE HULL STANDS AT ITS REPAIR CAP. DAMAGE BELOW THE CAP NEVER HEALS.'
+                          : 'HOLD EMPTY — NOTHING TO PATCH WITH. CARRY SCRAP AND THE CREWS GO TO WORK.'}
+                  </p>
+                  <p className="text-[8px] sm:text-[9px] font-mono text-zinc-500 leading-snug">CREWS WORK FROM THE HOLD ONLY (1 SCRAP = 2 HP) — NEVER THE BANK — AND YOUR GUNS STAY UP WHILE THEY WORK. THE CAP IS THE FRAME'S LAW: {progType.name} PATCHES TO {repairCeilingPct}% OF MAX HULL.</p>
+                </div>
 
                 {/* CREW — THE DEFENSE PAIR (Arsenal slice 3, 2026-10-21):
                     the hauler's couple of guard drones. The block exists
@@ -1784,6 +1855,7 @@ export const HUD: React.FC<HUDProps> = ({
                         if (cap <= 0 && count <= 0) return null;
                         const full = cap > 0 && count >= cap;
                         const afford = funds >= def.price;
+                        const docked = escortDockedFor(kind);
                         return (
                           <div key={kind} className="flex items-center gap-2 flex-wrap">
                             <span className="text-[9px] sm:text-[10px] font-mono font-bold text-zinc-200 w-[128px]">{def.label} <span className="text-zinc-500 font-normal">· {def.line ? `${def.line.toUpperCase()} T${def.typeTier} HULL` : 'SHARED T1 HULL'}</span></span>
@@ -1793,6 +1865,7 @@ export const HUD: React.FC<HUDProps> = ({
                               ))}
                             </span>
                             <span className="text-[9px] font-mono text-zinc-400">{count}/{cap} FLYING</span>
+                            {docked > 0 && <span className="text-[9px] font-mono text-emerald-400">{docked} DOCKED — REPAIRING</span>}
                             {cap > 0 && (full ? (
                               <span className="ml-auto text-[9px] sm:text-[10px] font-mono text-amber-400">{def.label} COMPLEMENT FULL</span>
                             ) : (

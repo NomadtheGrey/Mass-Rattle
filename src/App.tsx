@@ -16,7 +16,7 @@ import { ChatPanel } from './components/ChatPanel';
 import { useNetClient, NetSessionContext } from './net/useNetClient';
 import { RepurchaseOverlay } from './components/RepurchaseOverlay';
 import { repurchasePriceFor } from './sim/deathEconomy';
-import { escortKindOf } from './shipProgression';
+import { escortKindOf, healCapPctFor } from './shipProgression';
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -80,6 +80,7 @@ export default function App() {
     switchLine,
     buildDrone,
     setDeliveryMode,
+    setRepairing,
     repurchaseShip,
     feedCargo,
     depositBank, 
@@ -263,6 +264,7 @@ export default function App() {
         enemyStarFleetCount={state.drones.filter(d => d.starFleet && d.ownerId === (state.seats.find(se => se.starId === state.enemyStar.id)?.ownerId ?? '')).length}
         deliveryMode={state.seats.find(se => se.ownerId === state.ship.ownerId)?.deliveryMode ?? 'feed'}
         onSetDeliveryMode={setDeliveryMode}
+        onSetRepairing={setRepairing}
         ship={state.ship}
         drones={state.drones}
         escorts={state.escorts}
@@ -293,6 +295,9 @@ export default function App() {
         decoyEquipped={state.ship.loadout.defense === 'decoy_beacon'}
         decoyActive={!!state.decoy}
         onDeployDecoy={deployDecoy}
+        repairing={state.ship.repairing !== false}
+        activelyRepairing={state.ship.repairing !== false && state.ship.health < state.ship.maxHealth * healCapPctFor(state.ship.line, state.ship.typeTier) && state.ship.carrying > 0}
+        onToggleRepair={() => setRepairing(state.ship.repairing === false)}
       />
 
       {/* Main Game Surface with Thick Frame */}

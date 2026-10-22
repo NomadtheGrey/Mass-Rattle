@@ -7,7 +7,8 @@ import { turretRingRadius } from '../starDefense';
 import { getUiOptions } from '../uiOptions';
 import { stealthAlphaFor, mineVisibleToViewer, isStealthShip } from '../sim/stealth';
 import { shipSprite, tintedShipSprite, SPRITE_SCALE } from '../shipSprites';
-import { typeFor, effectiveAutoGuns } from '../shipProgression';
+import { typeFor, effectiveAutoGuns, healCapPctFor } from '../shipProgression';
+import { ESCORT_DOCK_PAD } from '../sim/repair';
 import { stageStateForInfused } from '../sim/starStages';
 
 // CME EJECTA (Adam, 2026-10-21): a CME is stellar mass jetting out and
@@ -537,6 +538,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
 
     // DRAW DRONES
     (state.drones || []).forEach(d => {
+      // DAMAGE CONTROL (2026-10-22): a docked harvester rides INSIDE
+      // its capital ship (the sim parks it at the ship's position) —
+      // drawing it would stack a triangle on the hull. It is out of
+      // the field until it relaunches at full health.
+      if (d.state === 'docked') return;
       ctx.save();
       ctx.translate(d.pos.x, d.pos.y);
       ctx.rotate(d.angle);
@@ -1425,6 +1431,21 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
         ctx.fillRect(e.pos.x - w / 2, e.pos.y - e.size - 11, w, 3);
         ctx.fillStyle = eColor;
         ctx.fillRect(e.pos.x - w / 2, e.pos.y - e.size - 11, w * frac, 3);
+        ctx.restore();
+      }
+      // DAMAGE CONTROL (2026-10-22): a docked escort rides its
+      // carrier's alongside ring while it heals — the sim forces
+      // the position and sets no flag, so the read is geometric
+      // (ring + below the kind's repair cap), for the LOCAL wing
+      // whose carrier this canvas flies. A green cross pip marks
+      // 'in the shop' against 'on guard'.
+      if (e.ownerId === ship.ownerId && e.health < e.maxHealth * healCapPctFor(e.line, e.typeTier)
+        && Math.hypot(e.pos.x - ship.pos.x, e.pos.y - ship.pos.y) <= ship.size + ESCORT_DOCK_PAD) {
+        ctx.save();
+        ctx.translate(e.pos.x, e.pos.y - e.size - 20);
+        ctx.fillStyle = '#34d399';
+        ctx.fillRect(-1, -4, 2, 8);
+        ctx.fillRect(-4, -1, 8, 2);
         ctx.restore();
       }
     }
