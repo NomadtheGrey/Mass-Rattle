@@ -97,7 +97,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   // seat 1 a bot seat with ship: null — the shipped game, unchanged.
   // The starter-ship factory reproduces the shipped initial ship
   // field for field (see src/sim/seatState.ts).
-  const initialShip = createStarterShip(ownerIdForSeat(0), { x: 100, y: 100 });
+  const initialShip = createStarterShip(ownerIdForSeat(0), { x: 100, y: 100 }, { withStarterWeapon: true });
   const initialHomeStar: Star = {
     pos: initialStarPos,
     vel: { x: 0, y: 0 },
