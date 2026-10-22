@@ -47,7 +47,15 @@ UI's; the selection verb and its guest path are BackGround's.
 - **C — ABILITY:** the signature slot (SIGNATURE_ABILITIES.md)
   — ghosted on the strip until signatures land; an honest
   reserved seat, so no system steals the key meanwhile.
-- **X — RETIRED.** One verb, one letter: the decoy's key is E.
+- **X — RETIRED as a flight verb** (the decoy's key is E) —
+  but X keeps its other hat, and this document's earlier
+  phrasing is corrected on Adam's strike (2026-10-22): the
+  MODAL RULE is untouched. Every modal closes three ways —
+  the corner [X], ESC, and the X key — one press closing
+  only the topmost, never bubbling (`HUD.tsx`'s capture-phase
+  handler; sealed against text fields). X never deployed
+  anything while a modal was open anyway; the two duties
+  never overlapped.
 
 ## Buying, targeting, doors
 
