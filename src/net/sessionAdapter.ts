@@ -70,7 +70,8 @@ const stickDistOf = (stick: { x: number; y: number } | null): number =>
  * The LOCAL seat's input, resolved from the same key set + touch ref
  * the shipped SP input phase reads — the expressions are the frame's
  * own (ArrowUp/KeyW/thrust/stick for thrust, KeyF for fire, Space for
- * jettison, Q/E/R for VAC), so the local ship's routine receives
+ * jettison, Q for VAC — E and R left the VAC read when the
+ * settled key map (CONTROLS.md) made them ITEM and REPAIR), so the local ship's routine receives
  * exactly what the inline code computed.
  */
 export const localShipInput = (
@@ -88,7 +89,7 @@ export const localShipInput = (
       keys.has('ArrowLeft') || keys.has('KeyA') || touch.rotateLeft,
     rotateRight:
       keys.has('ArrowRight') || keys.has('KeyD') || touch.rotateRight,
-    vac: keys.has('KeyQ') || keys.has('KeyE') || keys.has('KeyR') || touch.vac,
+    vac: keys.has('KeyQ') || touch.vac,
     stick,
   };
 };

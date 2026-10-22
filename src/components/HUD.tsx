@@ -16,7 +16,7 @@ import type { StarStage } from '../net/protocol';
 import { STAGE_LABELS, TEAM_LABELS, TEAM_COLORS } from './lobby/lobbyTypes';
 import type { TeamId } from '../net/protocol';
 import { MechanicsGuide } from './MechanicsGuide';
-import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor, MOUNT_ACCESS, canMountWeapon, weaponClassFor, type WeaponClass } from '../loadout';
+import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor, MOUNT_ACCESS, canMountWeapon, weaponClassFor, WEAPON_SELECT_ORDER, weaponIdForSelectSlot, type WeaponClass } from '../loadout';
 import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, autoGunCapFor, turretMountPriceFor, effectiveAutoGuns, DEFENSE_DRONE_PRICE, ESCORT_KIND_DEFS, ESCORT_KINDS, escortCapFor, escortWingSize, escortKindOf, canOrderWorkforce, healCapPctFor, healRateFor, type EscortKind, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
 
 // One-line summary of what a type's frame DOES, read off its capability
@@ -201,6 +201,7 @@ interface HUDProps {
   onUndock: () => void;
   onSetHarborOpen: (open: boolean) => void;
   onUndockGuest: (guestOwnerId: string) => void;
+  onSelectWeaponSlot: (slotIndex: number) => void;
   ship: Ship;
   drones: Harvester[];
   escorts: EscortShip[];
@@ -278,6 +279,7 @@ export const HUD: React.FC<HUDProps> = ({
   onUndock,
   onSetHarborOpen,
   onUndockGuest,
+  onSelectWeaponSlot,
   ship,
   drones,
   escorts,
@@ -638,16 +640,18 @@ export const HUD: React.FC<HUDProps> = ({
     { label: 'FIELD MANUAL', keys: 'ESC', bold: true },
     { label: 'THRUST', keys: 'W · ↑' },
     { label: 'STEER', keys: 'A D · ← →' },
-    { label: 'VAC · HOLD', keys: 'Q E R' },
+    { label: 'VAC · HOLD', keys: 'Q' },
+    { label: 'SELECT WEAPON', keys: '1 – 5 · T' },
     controlsWeapon
       ? { label: 'FIRE · HOLD', keys: `F — ${controlsWeapon.name.toUpperCase()}` }
       : { label: 'FIRE · HOLD', keys: 'F — NO WEAPON', dim: true },
     { label: 'EJECT PULSE', keys: 'SPACE' },
     ...(loadout.defense === 'decoy_beacon'
-      ? [{ label: 'DEPLOY DECOY', keys: 'X' } as { label: string; keys: string; dim?: boolean; bold?: boolean }]
+      ? [{ label: 'DEPLOY DECOY', keys: 'E' } as { label: string; keys: string; dim?: boolean; bold?: boolean }]
       : []),
-    { label: 'SHOP', keys: 'TAB · U — AT HOME STAR' },
-    { label: 'UPGRADES', keys: '1 – 5' },
+    { label: 'REPAIR', keys: 'R' },
+    { label: 'SHOP', keys: 'U — AT HOME STAR' },
+    { label: 'UPGRADES', keys: 'SHIFT + 1 – 5' },
   ];
 
   // Minimap logic
@@ -1345,7 +1349,7 @@ export const HUD: React.FC<HUDProps> = ({
             onClick={onDeployDecoy}
             className="hud-panel px-3 py-1.5 rounded border border-pink-500 font-mono text-[10px] sm:text-[11px] font-bold tracking-wider text-pink-400 shadow-[0_0_10px_rgba(219,39,119,0.35)]"
           >
-            📡 DEPLOY DECOY [X]
+            📡 DEPLOY DECOY [E]
           </button>
         </div>
       )}
@@ -1458,11 +1462,44 @@ export const HUD: React.FC<HUDProps> = ({
                 {def ? `${def.icon} ${def.name}` : '— EMPTY —'}
               </div>
               {isDecoy && (
-                <div className="text-[7px] sm:text-[8px] font-mono text-pink-300 whitespace-nowrap">{decoyActive ? 'BEACON LIVE' : 'PRESS X / PILL'}</div>
+                <div className="text-[7px] sm:text-[8px] font-mono text-pink-300 whitespace-nowrap">{decoyActive ? 'BEACON LIVE' : 'PRESS E / PILL'}</div>
               )}
             </div>
           );
         })}
+        <div className="w-px bg-zinc-800 mx-0.5" />
+        {/* WEAPON SELECTOR (Adam's settled map; CONTROLS.md): the
+            strip IS the map. Six chips in the fixed registry
+            order — digits 1-5 and T — each a live button (this
+            strip is the phone's selector too: tap = select).
+            The grey law is the press's own gate
+            (weaponIdForSelectSlot): unowned ghosts, owned-but-
+            unmountable reads NO MOUNT, the selected chip carries
+            F's verb by content (FIRE / LAY / CHARGE). */}
+        {WEAPON_SELECT_ORDER.map((wid, i) => {
+          const wdef = getLoadoutItem(wid);
+          const owned = (arsenal[wid] || 0) > 0;
+          const selectable = weaponIdForSelectSlot(ship, i) !== null;
+          const selected = loadout.weapon === wid;
+          const verb = wid === 'mine_layer' ? 'LAY' : wid === 'rail_lance' ? 'CHARGE' : 'FIRE';
+          return (
+            <button key={wid} onClick={() => onSelectWeaponSlot(i)}
+              className={`hud-panel px-1.5 py-0.5 rounded border text-center min-w-[44px] pointer-events-auto touch-manipulation active:scale-95 ${selected ? 'border-[#33ff33] shadow-[0_0_8px_rgba(51,255,51,0.35)]' : selectable ? 'border-zinc-700' : 'border-zinc-800 opacity-45'}`}>
+              <div className="text-[8px] sm:text-[9px] font-mono text-zinc-300 tracking-widest whitespace-nowrap">{i < 5 ? i + 1 : 'T'} · {wdef?.icon ?? '?'}</div>
+              <div className={`text-[7px] sm:text-[8px] font-mono font-bold uppercase leading-tight whitespace-nowrap ${selected ? 'text-[#33ff33]' : selectable ? 'text-zinc-300' : 'text-zinc-500'}`}>
+                {selected ? `F · ${verb}` : owned ? (selectable ? 'READY' : 'NO MOUNT') : '—'}
+              </div>
+            </button>
+          );
+        })}
+        {/* ABILITY — the signature slot's ghost seat (CONTROLS.md):
+            C is reserved and shown dormant until signatures land,
+            so no system steals the key and the map never lies
+            about a verb that doesn't exist yet. */}
+        <div className="hud-panel px-1.5 py-0.5 rounded border border-zinc-800 text-center min-w-[56px] opacity-50">
+          <div className="text-[8px] sm:text-[9px] font-mono text-zinc-500 tracking-widest whitespace-nowrap">C · ABILITY</div>
+          <div className="text-[8px] sm:text-[10px] font-mono font-bold uppercase leading-tight whitespace-nowrap text-zinc-500">✦ DORMANT</div>
+        </div>
       </div>
 
       {/* Workshop Overlay (Responsive for both Mobile and Desktop) */}

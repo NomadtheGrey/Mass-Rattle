@@ -85,6 +85,7 @@ export default function App() {
     undock,
     setHarborOpen,
     undockGuest,
+    selectWeaponSlot,
     repurchaseShip,
     feedCargo,
     depositBank, 
@@ -275,6 +276,7 @@ export default function App() {
         onUndock={undock}
         onSetHarborOpen={setHarborOpen}
         onUndockGuest={undockGuest}
+        onSelectWeaponSlot={selectWeaponSlot}
         ship={state.ship}
         drones={state.drones}
         escorts={state.escorts}

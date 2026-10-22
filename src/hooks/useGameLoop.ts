@@ -1191,16 +1191,33 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       keys.current.add(e.code);
       
-      // Upgrade Hotkeys
-      if (e.code === 'Digit1') upgrade('thrust');
-      if (e.code === 'Digit2') upgrade('handling');
-      if (e.code === 'Digit3') upgrade('attractor');
-      if (e.code === 'Digit4') upgrade('fuel');
-      if (e.code === 'Digit5') upgrade('cargo');
+      // THE SETTLED KEY MAP (Adam, 2026-10-22; CONTROLS.md is
+      // the spec of record): digits SELECT weapons in the fixed
+      // registry order (selection IS an equip — swap fee on
+      // change); the same digits SHIFTED buy the standard
+      // upgrade tracks (Shift is the buying layer). T is the
+      // sixth weapon's only key. E deploys the item (X is
+      // retired); R toggles Damage Control; U alone works the
+      // workshop — Tab's toggle duty retired with its
+      // reassignment to TARGET CYCLE, which binds when the
+      // lightning lock's target state lands in the sim. SPACE
+      // IS NEVER FIRE: it is the scrap key (jettison), owned by
+      // the adapter; this handler must never claim it.
+      const slotDigits = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'];
+      const slotIdx = slotDigits.indexOf(e.code);
+      if (slotIdx >= 0) {
+        if (e.shiftKey) {
+          const tracks = ['thrust', 'handling', 'attractor', 'fuel', 'cargo'] as const;
+          upgrade(tracks[slotIdx]);
+        } else {
+          selectWeaponSlot(slotIdx);
+        }
+      }
+      if (e.code === 'KeyT') selectWeaponSlot(5);
       if (e.code === 'KeyG') toggleGauges();
-      if (e.code === 'KeyX') deployDecoy();
-      if (e.code === 'KeyU' || e.code === 'Tab') {
-        if (e.code === 'Tab') e.preventDefault();
+      if (e.code === 'KeyE') deployDecoy();
+      if (e.code === 'KeyR') setRepairing(stateRef.current.ship.repairing === false);
+      if (e.code === 'KeyU') {
         setState(prev => {
           // Same shop-well gate as toggleShop (Adam's pin, 2026-10-19).
           if (!prev.isShopOpen && !inTeamWell(prev.seats, prev.ship)) {
@@ -1240,7 +1257,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       window.removeEventListener('blur', releaseAllInputs);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [upgrade, deployDecoy]);
+  }, [upgrade, deployDecoy, selectWeaponSlot, setRepairing, toggleGauges]);
 
   useEffect(() => {
     let frameId: number;
