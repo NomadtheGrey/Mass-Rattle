@@ -492,7 +492,9 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       ship.attractRadius = attractRadiusForShip(ship.upgrades.attractor, ship.line, ship.typeTier);
       return {
         ...prev, ship,
-        drones: rec.soldDroneIds.length ? prev.drones.filter(d => !rec.soldDroneIds.includes(d.id)) : prev.drones,
+        drones: prev.drones
+          .filter(d => !rec.soldDroneIds.includes(d.id))
+          .map(d => rec.liquidateDroneIds.includes(d.id) ? { ...d, liquidating: true } : d),
         escorts: rec.soldEscortIds.length ? prev.escorts.filter(e => !rec.soldEscortIds.includes(e.id)) : prev.escorts,
         bankedScrap: payment.banked + rec.refund,
         glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now(),
@@ -570,7 +572,9 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       ship.attractRadius = attractRadiusForShip(ship.upgrades.attractor, ship.line, ship.typeTier);
       return {
         ...prev, ship,
-        drones: rec.soldDroneIds.length ? prev.drones.filter(d => !rec.soldDroneIds.includes(d.id)) : prev.drones,
+        drones: prev.drones
+          .filter(d => !rec.soldDroneIds.includes(d.id))
+          .map(d => rec.liquidateDroneIds.includes(d.id) ? { ...d, liquidating: true } : d),
         escorts: rec.soldEscortIds.length ? prev.escorts.filter(e => !rec.soldEscortIds.includes(e.id)) : prev.escorts,
         bankedScrap: payment.banked + rec.refund,
         glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now(),
@@ -649,7 +653,10 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // drones are built at home
       // Harvesters only (Arsenal slice 3): defense-mode drones are
       // a separate complement and never eat workforce slots.
-      const fielded = prev.drones.filter(d => d.owner === 'player' && d.mode !== 'defense' && !d.starFleet).length;
+      // (Liquidating drones don't hold slots either — they are
+      // sold and flying their last trip; the replacement may be
+      // built while they are still on the road.)
+      const fielded = prev.drones.filter(d => d.owner === 'player' && d.mode !== 'defense' && !d.starFleet && !d.liquidating).length;
       if (fielded >= typeFor(prev.ship.line, prev.ship.typeTier).dronesFielded) return prev;
       const payment = walletPay(prev.ship.carrying, prev.bankedScrap, DRONE_PRICE, inTeamWell(prev.seats, prev.ship));
       if (!payment) return prev;
