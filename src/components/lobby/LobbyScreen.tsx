@@ -249,13 +249,15 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   if (room) {
     const iAmHost = myPlayerId !== null && room.hostPlayerId === myPlayerId;
     const mySeat = room.seats.find(seat => seat.occupant.playerId !== null && seat.occupant.playerId === myPlayerId) ?? null;
-    // RESERVED-NAME OUTCOME: I asked for the reserved name and the
-    // seat came back suffixed — a suffixed seat is the only feedback
-    // the claim ever gives (no error, by design), so the room says
-    // it plainly and offers the claim again right here.
-    const issuedCallsign = mySeat?.occupant.callsign ?? null;
-    const reservedSuffixed = asksReserved && issuedCallsign !== null && issuedCallsign.toLowerCase() !== 'nomad';
-    const claimTried = callsignPassword.trim() !== '';
+    // RESERVED-NAME OUTCOMES (Adam's ruling change, 2026-10-21 —
+    // the suffix path died): a refused claim seats NOBODY and speaks
+    // through the terminal error banner ('THAT NAME IS RESERVED —
+    // PICK ANOTHER'); a refused RENAME of a seated player keeps the
+    // current name and speaks through the notice banner above. A
+    // proven claim issues exactly the requested name. There is no
+    // suffixed-consolation state left for a room-view block to
+    // explain — the suffix-era block that lived here was removed
+    // with the law that created it.
     return (
       <div className="fixed inset-0 z-[100] overflow-y-auto glass-modal text-[#33ff33] flex justify-center p-3 sm:p-6">
       {closeButton}
@@ -281,32 +283,6 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             </div>
           )}
 
-          {reservedSuffixed && (
-            <div className="hud-panel px-3 py-3 rounded border-2 border-amber-500 bg-amber-950/30 flex flex-col gap-2">
-              <span className="text-[11px] font-mono font-bold text-amber-300 text-center leading-snug">
-                {claimTried ? "THAT PASSWORD DIDN'T CLAIM THE NAME" : 'THE NAME NOMAD IS RESERVED'} — YOU FLY AS {issuedCallsign}
-              </span>
-              <div className="flex gap-1.5">
-                <input
-                  type="password"
-                  value={callsignPassword}
-                  onChange={e => setCallsignPassword(e.target.value)}
-                  maxLength={64}
-                  placeholder="ITS PASSWORD"
-                  autoComplete="off"
-                  className="flex-1 min-w-0 rounded px-3 py-2 bg-zinc-900 border border-amber-700 font-mono text-sm text-zinc-50 placeholder:text-zinc-600 outline-none focus:border-amber-400"
-                />
-                <button
-                  type="button"
-                  onClick={() => callbacks.onJoin(room.code, callsign.trim(), callsignPassword || undefined)}
-                  className="cta-go shrink-0 px-4 py-2 rounded font-bold text-xs tracking-widest touch-manipulation active:scale-95"
-                >
-                  CLAIM IT
-                </button>
-              </div>
-              <span className="text-[9px] font-mono text-zinc-500 leading-snug text-center">Claims are timed — if a try just missed, wait a few seconds before trying again.</span>
-            </div>
-          )}
 
           <WinConditions />
           <div className="md:hidden">
