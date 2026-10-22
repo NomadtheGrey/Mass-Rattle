@@ -405,6 +405,10 @@ export const HUD: React.FC<HUDProps> = ({
     }
     return best;
   })();
+  // The phone center stack (composition fix, 2026-10-22): below
+  // md the hauler's ORDERS flip survives as a lone pill (slot 1)
+  // and the DOCK pill / DOCKED chip take slot 2 beneath it.
+  const ordersPillShown = canOrder && bankInWell && !isShopOpen;
   const caps = capsFor(shipLine, typeTier);
   const switchCost = switchToll({ lineSwitchesUsed, typeTier });
   // Gauge scales follow the ship as upgraded (audit, 2026-10-20): the
@@ -1310,7 +1314,7 @@ export const HUD: React.FC<HUDProps> = ({
           glow but clicks pass through to the canvas (Adam's bug report,
           2026-10-20). The DECOY pill below needs the same class. */}
       {bankInWell && !isShopOpen && (
-        <div className="fixed top-[38%] left-1/2 -translate-x-1/2 z-[56] flex gap-2 pointer-events-auto">
+        <div className="fixed top-[38%] left-1/2 -translate-x-1/2 z-[56] flex gap-2 pointer-events-auto max-md:hidden">
           <button
             onClick={onFeedCargo}
             disabled={carrying <= 0}
@@ -1342,11 +1346,28 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
       )}
 
+      {/* ORDERS PILL — PHONE FORM (the center-stack fix): below
+          md the dock row hides — FEED / BANK / WORKSHOP live in
+          the mobile in-well tile column — but the hauler's order
+          flip has NO tile twin, so it survives as a lone pill in
+          the center stack (slot 1). md:hidden: exactly one form
+          of the flip exists per device. */}
+      {ordersPillShown && (
+        <div className="fixed top-[252px] left-1/2 -translate-x-1/2 z-[56] pointer-events-auto md:hidden">
+          <button
+            onClick={() => onSetDeliveryMode(deliveryMode === 'feed' ? 'deposit' : 'feed')}
+            className="hud-panel px-3 py-1.5 rounded border border-indigo-400 font-mono text-[10px] font-bold tracking-wider text-indigo-300 shadow-[0_0_10px_rgba(129,140,248,0.35)]"
+          >
+            🚁 ORDERS: {deliveryMode === 'feed' ? '⭐ FEED' : '🏦 BANK'}
+          </button>
+        </div>
+      )}
+
       {/* DECOY PILL: the beacon is a field tool, so its one-tap deploy
           lives outside the well-gated dock pills. Shows only while the
           Decoy Beacon is the equipped defense and none is live. */}
       {loadout.defense === 'decoy_beacon' && !decoyActive && (
-        <div className="fixed bottom-[104px] sm:bottom-[76px] left-1/2 -translate-x-1/2 z-[56] pointer-events-auto">
+        <div className="fixed bottom-[76px] left-1/2 -translate-x-1/2 z-[56] pointer-events-auto max-md:hidden">
           <button
             onClick={onDeployDecoy}
             className="hud-panel px-3 py-1.5 rounded border border-pink-500 font-mono text-[10px] sm:text-[11px] font-bold tracking-wider text-pink-400 shadow-[0_0_10px_rgba(219,39,119,0.35)]"
@@ -1363,7 +1384,7 @@ export const HUD: React.FC<HUDProps> = ({
           your host, your posture aboard (your repair toggle is
           still yours), and the door out. */}
       {(dockTarget || ship.dockedTo) && (
-        <div className={`fixed ${loadout.defense === 'decoy_beacon' && !decoyActive ? 'bottom-[176px] sm:bottom-[148px]' : 'bottom-[140px] sm:bottom-[112px]'} left-1/2 -translate-x-1/2 z-[56] pointer-events-auto`}>
+        <div className={`fixed ${ordersPillShown ? 'max-md:top-[290px]' : 'max-md:top-[252px]'} ${loadout.defense === 'decoy_beacon' && !decoyActive ? 'md:bottom-[148px]' : 'md:bottom-[112px]'} left-1/2 -translate-x-1/2 z-[56] pointer-events-auto`}>
           {ship.dockedTo ? (
             <div className="hud-panel px-3 py-1.5 rounded border border-sky-400 flex items-center gap-2">
               <span className="font-mono text-[10px] sm:text-[11px] font-bold tracking-wider text-sky-300">
@@ -1388,7 +1409,7 @@ export const HUD: React.FC<HUDProps> = ({
           is a standing discipline (burn the hold on patches, or
           don't), so it rides beside the decoy pill, stacked above
           it when both show. State reads on the pill itself. */}
-      <div className={`fixed ${loadout.defense === 'decoy_beacon' && !decoyActive ? 'bottom-[140px] sm:bottom-[112px]' : 'bottom-[104px] sm:bottom-[76px]'} left-1/2 -translate-x-1/2 z-[56] pointer-events-auto`}>
+      <div className={`fixed ${loadout.defense === 'decoy_beacon' && !decoyActive ? 'md:bottom-[112px]' : 'md:bottom-[76px]'} max-md:hidden left-1/2 -translate-x-1/2 z-[56] pointer-events-auto`}>
         <button
           onClick={() => onSetRepairing(!repairingOn)}
           className={`hud-panel px-3 py-1.5 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider ${activelyRepairing ? 'border-[#33ff33] text-[#33ff33] shadow-[0_0_10px_rgba(51,255,51,0.35)]' : repairingOn ? 'border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.3)]' : 'border-zinc-700 text-zinc-500'}`}
@@ -1441,7 +1462,7 @@ export const HUD: React.FC<HUDProps> = ({
           { icon: '📦', name: 'HOLD', lvl: upgrades.cargo, cap: caps.cargo, stat: `${PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS}U` },
         ].map(t => (
           <div key={t.name} className="hud-panel px-1.5 py-0.5 rounded border border-zinc-800 text-center min-w-[56px]">
-            <div className="text-[8px] sm:text-[9px] font-mono text-zinc-300 tracking-widest whitespace-nowrap">{t.icon} {t.name} · L{t.lvl}/{t.cap}</div>
+            <div className="text-[8px] sm:text-[9px] font-mono text-zinc-300 tracking-widest whitespace-nowrap">{t.icon} {t.name}<span className="max-sm:hidden"> · L{t.lvl}/{t.cap}</span></div>
             <div className="text-[9px] sm:text-[11px] font-mono font-bold text-zinc-50 leading-tight whitespace-nowrap">{t.stat}</div>
           </div>
         ))}
@@ -1486,10 +1507,10 @@ export const HUD: React.FC<HUDProps> = ({
           const verb = wid === 'mine_layer' ? 'LAY' : wid === 'rail_lance' ? 'CHARGE' : 'FIRE';
           return (
             <button key={wid} onClick={() => onSelectWeaponSlot(i)}
-              className={`hud-panel px-1.5 py-0.5 rounded border text-center min-w-[44px] pointer-events-auto touch-manipulation active:scale-95 ${selected ? 'border-[#33ff33] shadow-[0_0_8px_rgba(51,255,51,0.35)]' : selectable ? 'border-zinc-700' : 'border-zinc-800 opacity-45'}`}>
+              className={`hud-panel px-1.5 py-0.5 rounded border text-center min-w-[34px] sm:min-w-[44px] pointer-events-auto touch-manipulation active:scale-95 ${selected ? 'border-[#33ff33] shadow-[0_0_8px_rgba(51,255,51,0.35)]' : selectable ? 'border-zinc-700' : 'border-zinc-800 opacity-45'}`}>
               <div className="text-[8px] sm:text-[9px] font-mono text-zinc-300 tracking-widest whitespace-nowrap">{i < 5 ? i + 1 : 'T'} · {wdef?.icon ?? '?'}</div>
               <div className={`text-[7px] sm:text-[8px] font-mono font-bold uppercase leading-tight whitespace-nowrap ${selected ? 'text-[#33ff33]' : selectable ? 'text-zinc-300' : 'text-zinc-500'}`}>
-                {selected ? `F · ${verb}` : owned ? (selectable ? 'READY' : 'NO MOUNT') : '—'}
+                {selected ? `F · ${verb}` : owned ? (selectable ? <><span className="max-sm:hidden">READY</span><span className="sm:hidden">T{arsenal[wid]}</span></> : <><span className="max-sm:hidden">NO MOUNT</span><span className="sm:hidden">T{arsenal[wid]} ✕</span></>) : '—'}
               </div>
             </button>
           );
@@ -1498,9 +1519,9 @@ export const HUD: React.FC<HUDProps> = ({
             C is reserved and shown dormant until signatures land,
             so no system steals the key and the map never lies
             about a verb that doesn't exist yet. */}
-        <div className="hud-panel px-1.5 py-0.5 rounded border border-zinc-800 text-center min-w-[56px] opacity-50">
+        <div className="hud-panel px-1.5 py-0.5 rounded border border-zinc-800 text-center min-w-[42px] sm:min-w-[56px] opacity-50">
           <div className="text-[8px] sm:text-[9px] font-mono text-zinc-500 tracking-widest whitespace-nowrap">C · ABILITY</div>
-          <div className="text-[8px] sm:text-[10px] font-mono font-bold uppercase leading-tight whitespace-nowrap text-zinc-500">✦ DORMANT</div>
+          <div className="text-[8px] sm:text-[10px] font-mono font-bold uppercase leading-tight whitespace-nowrap text-zinc-500"><span className="max-sm:hidden">✦ DORMANT</span><span className="sm:hidden">✦</span></div>
         </div>
       </div>
 
