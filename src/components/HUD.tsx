@@ -357,6 +357,33 @@ export const HUD: React.FC<HUDProps> = ({
     if (shopNoticeTimer.current) window.clearTimeout(shopNoticeTimer.current);
     shopNoticeTimer.current = window.setTimeout(() => setShopNotice(null), 2800);
   };
+  // SHELVE CONFIRMATION (slice 4 close-out, on BackGround's flag,
+  // 2026-10-21): the switch buttons WARN before the toll; this
+  // confirms AFTER. switchLine (c7d69fa) shelves an unmountable
+  // equipped weapon — slot nulls, arsenal untouched. The trigger is
+  // that exact transition and nothing looser: the LINE changed, the
+  // weapon slot went non-null -> null, and the lost weapon does not
+  // mount on the new hull. Death/respawn nulls never change the
+  // line, so they cannot false-fire it. A debug jump produces the
+  // same transition, so when armed the note ALSO lands in the DEV
+  // section's own line (the workshop notice is invisible from
+  // inside SysCfg).
+  const prevFrameRef = React.useRef<{ line: ShipLine | null; weapon: string | null }>({ line: shipLine, weapon: loadout.weapon });
+  React.useEffect(() => {
+    const prev = prevFrameRef.current;
+    prevFrameRef.current = { line: shipLine, weapon: loadout.weapon };
+    if (prev.line !== null && shipLine !== null && shipLine !== prev.line
+      && prev.weapon && loadout.weapon === null
+      && !canMountWeapon(shipLine, typeTier, prev.weapon)) {
+      const name = getLoadoutItem(prev.weapon)?.name.toUpperCase() ?? 'WEAPON';
+      const msg = `⚠ ${name} SHELVED — NOT MOUNTABLE ON THE ${shipLine.toUpperCase()} HULL · STAYS OWNED, RE-EQUIPS ON A HULL THAT MOUNTS IT`;
+      flashShopNotice(msg);
+      if (DEBUG_ARMED) setDevNote(msg);
+    }
+    // flashShopNotice/setDevNote are stable-enough HUD locals; the
+    // transition inputs are the real dependencies.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shipLine, typeTier, loadout.weapon]);
   const [localRadarOpen, setLocalRadarOpen] = React.useState(false);
 
   const radarActive = isMobileRadarOpen || localRadarOpen;
