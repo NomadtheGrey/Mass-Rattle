@@ -34,8 +34,9 @@
 
 import { PHYSICS } from '../constants';
 import { weaponStatsFor } from '../loadout';
-import { EXTRA_MOUNT_DAMAGE, typeFor } from '../shipProgression';
+import { EXTRA_MOUNT_DAMAGE, typeFor, healCapPctFor, healRateFor } from '../shipProgression';
 import { isVisibleTo } from './stealth';
+import { repairFrame } from './repair';
 import { areHostile, type TeamSeatLike } from './teams';
 import type {
   Harvester,
@@ -152,6 +153,17 @@ export const stepBotShip = (
   if (!ship || seat.eliminated) return EMPTY_RESULT;
   const ownStar = world.stars.find(s => s.ownerId === seat.ownerId);
   if (!ownStar) return EMPTY_RESULT;
+
+  // SCRAP HEALING (RULED, src/sim/repair.ts): the toggle
+  // DEFAULTS ON for bots as for captains until the bot
+  // program's disposition policy (B1/B2 — Adam's health-graded
+  // chance: 5% at 95% health, 80% at 20%) starts writing the
+  // flag per pilot; the tick honors the flag exactly as a
+  // captain's ship does, from its own hold.
+  if (ship.repairing !== false) {
+    const ceiling = ship.maxHealth * healCapPctFor(ship.line, ship.typeTier);
+    repairFrame(ship, ship, ceiling, (healRateFor(ship.line, ship.typeTier) / 60) * dtFrames);
+  }
 
   const result: BotStepResult = {
     collectedScrapIds: [],
@@ -338,6 +350,7 @@ export const stepBotShip = (
     let fireTarget: { x: number; y: number } | null = null;
     let bestD = BOT_DRIVER.FIRE_RANGE;
     for (const d of world.drones) {
+      if (d.state === 'docked') continue; // inside its ship
       if (!areHostile(world.seats, d.ownerId, seat.ownerId)) continue;
       const dd = Math.hypot(d.pos.x - ship.pos.x, d.pos.y - ship.pos.y);
       if (dd < bestD) {

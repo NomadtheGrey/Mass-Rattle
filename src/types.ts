@@ -32,6 +32,16 @@ export interface Ship extends GameObject {
   maxFuel: number;
   health: number;
   maxHealth: number;
+  /**
+   * SCRAP HEALING (RULED, src/sim/repair.ts): the captain's
+   * repair toggle, DEFAULT ON — undefined reads as ON; false
+   * is the captain's opt-out (scrap discipline). The heal
+   * engine converts hold scrap to hull up to this hull's
+   * type/tier cap whenever the mode stands.
+   */
+  repairing?: boolean;
+  /** The heal engine's whole-scrap credit (src/sim/repair.ts). */
+  repairCredit?: number;
   attractRadius: number;
   /** Seat-scoped ownerId (Phase 2, src/sim/ownership.ts): the seat
    * that owns this entity for the whole match, whoever controls it. */
@@ -179,6 +189,12 @@ export interface Star extends GameObject {
   cmeNextAt?: number;
   cmeChargeEndsAt?: number;
   cmeAimAngle?: number;
+  /** Star-fleet bookkeeping (2026-10-22, src/starFleet.ts): frames
+   *  accrued toward the next fleet birth/regrowth, and the birth
+   *  sequence that keeps fleet drone ids unique. Runtime fields on
+   *  the star, like the CME timers above. */
+  starDroneTimerFrames?: number;
+  starDroneSeq?: number;
 }
 
 /**
@@ -221,8 +237,9 @@ export interface DeployedCargo extends Scrap {
 
 export interface Harvester {
   id: string;
-  // Drones gain health with the Arsenal slices: ship weapons need something
-  // to damage. 100 = a fresh drone; destroyed drones drop their cargo as scrap.
+  // The airframe's hull is DRONE_MAX_HEALTH (shipProgression.ts —
+  // Adam's 2½-bolt-shots pin, 2026-10-22); a fresh drone reads it
+  // full. Destroyed drones drop their cargo as scrap.
   health: number;
   pos: Vector2D;
   vel: Vector2D;
@@ -234,13 +251,32 @@ export interface Harvester {
   /** Seat-scoped ownerId (Phase 2, src/sim/ownership.ts): the seat
    * that owns this entity for the whole match, whoever controls it. */
   ownerId: string;
-  state: 'searching' | 'collecting' | 'returning';
+  state: 'searching' | 'collecting' | 'returning' | 'docked';
+  /** The heal engine's whole-scrap credit while docked (repair.ts). */
+  repairCredit?: number;
   /** Defense mode (Arsenal slice 3, 2026-10-21): a drone with
    *  mode 'defense' never harvests — it stations on its owner's
    *  ship (or home star) and engages hostiles in range (see
    *  sim/drones.ts + DEFENSE_DRONE in shipProgression.ts). Absent
    *  = an ordinary harvester; every pre-slice-3 drone is one. */
   mode?: 'defense';
+  /** Star fleet (2026-10-22): the star's OWN harvester, not the
+   *  captain's — born with the star (matchAssembly's birth drone),
+   *  grown and regrown by the star itself as it evolves
+   *  (src/starFleet.ts). Excluded from every ship-workforce count;
+   *  persists across the captain ship's death; the fleet's life is
+   *  the star's. Absent = a ship's drone, as every pre-fleet drone
+   *  was. */
+  starFleet?: boolean;
+  /**
+   * THE LAST TRIP (Adam, 2026-10-22): set by a hull switch that
+   * liquidated this harvester. The drone abandons its work and
+   * flies one last trip to its star, where its cargo AND its
+   * own value sell into the seat's bank and it disappears.
+   * Killed en route, it dies an ordinary drone death — a drone
+   * that never arrives was never sold.
+   */
+  liquidating?: boolean;
   /** Ion Blaster effect: frames remaining where this drone is rebooting (no movement). */
   stunFrames?: number;
   /** Kill attribution (Phase 2, P2-2b): the ownerId of the seat whose
@@ -277,8 +313,23 @@ export interface SeatSimState {
   star: Star;
   /** This seat's banked scrap. Only the local seat's bank is wired to
    * the workshop economy in P2-2b; bot seats bank nothing (their drone
-   * and ship deliveries infuse their star directly). */
+   * and ship deliveries infuse their star directly). A seat under a
+   * DEPOSIT workforce order banks its workforce's loads here instead
+   * (WORKFORCE ORDERS, 2026-10-22, below). */
   bankedScrap: number;
+  /** WORKFORCE ORDERS (Adam, 2026-10-22): the captain's standing
+   * order for her workforce's deliveries — 'feed' (loads infuse the
+   * star; the game's original behavior) or 'deposit' (loads bank
+   * into this seat's bankedScrap at the well; no infusion, no
+   * delivery heal, no teamScrap accrual — banking is not
+   * nourishment). A HAULER-line capability in v1 (the order is her
+   * workforce crown's third face — canOrderWorkforce in
+   * shipProgression.ts); the STAR FLEET is never under orders and
+   * always feeds. The order persists on the seat across line
+   * switches and death but BINDS only while the seat's current
+   * ship is a hauler hull — shelved, never stripped, like every
+   * line capability in the game. Default 'feed'. */
+  deliveryMode: 'feed' | 'deposit';
   /** Mirror of star.totalScrapInfused, refreshed by the loop each
    * frame — the star's field is the single source of truth. */
   fedTotal: number;

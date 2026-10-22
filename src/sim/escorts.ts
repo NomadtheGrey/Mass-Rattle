@@ -32,8 +32,9 @@
 
 import { BOT_DRIVER } from './botDriver';
 import { weaponStatsFor } from '../loadout';
-import { EXTRA_MOUNT_DAMAGE, typeFor } from '../shipProgression';
+import { EXTRA_MOUNT_DAMAGE, typeFor, healCapPctFor, healRateFor } from '../shipProgression';
 import { isVisibleTo } from './stealth';
+import { repairFrame, ESCORT_DOCK_PAD } from './repair';
 import { areHostile, type TeamSeatLike } from './teams';
 import type {
   EscortShip,
@@ -105,6 +106,50 @@ export const stepEscorts = (ctx: EscortStepContext): EscortShip[] => {
     const wing = wingOf.get(escort.ownerId)!;
     const slot = wing.indexOf(escort);
 
+    // ESCORT DOCKING (the harvester-docking law read across —
+    // RULED family, 2026-10-22): while the escort's health sits
+    // below its REPAIR CAP (its kind's, off the heal table),
+    // its carrier — a living SHIP; the star is no dock — is its
+    // whole world: it flies the road home (no acquisition, no
+    // fire), then rides alongside inside dock range, out of the
+    // fight, healing from the carrier's hold at its kind's rate
+    // up to its kind's cap. The cap is the threshold AND the
+    // ceiling, so no kind can dock-loop. Alongside is not
+    // inside: a docked escort remains targetable.
+    const carrier = seat.ship ?? null;
+    if (carrier && escort.health < escort.maxHealth * healCapPctFor(escort.line, escort.typeTier)) {
+      const ceiling = escort.maxHealth * healCapPctFor(escort.line, escort.typeTier);
+      const distToCarrier = Math.hypot(escort.pos.x - carrier.pos.x, escort.pos.y - carrier.pos.y);
+      if (distToCarrier <= carrier.size + ESCORT_DOCK_PAD) {
+        const a = (Math.PI * 2 * slot) / Math.max(1, wing.length);
+        escort.pos.x = carrier.pos.x + Math.cos(a) * (carrier.size + 14);
+        escort.pos.y = carrier.pos.y + Math.sin(a) * (carrier.size + 14);
+        escort.vel.x = carrier.vel.x;
+        escort.vel.y = carrier.vel.y;
+        escort.angle = a;
+        repairFrame(escort, carrier, ceiling, healRateFor(escort.line, escort.typeTier) / 60);
+        survivors.push(escort);
+        continue;
+      }
+      const want = Math.atan2(carrier.pos.y - escort.pos.y, carrier.pos.x - escort.pos.x);
+      escort.angle = angleLerp(escort.angle, want, BOT_DRIVER.TURN_RATE);
+      escort.vel.x += Math.cos(escort.angle) * BOT_DRIVER.ACCEL;
+      escort.vel.y += Math.sin(escort.angle) * BOT_DRIVER.ACCEL;
+      escort.vel.x *= BOT_DRIVER.FRICTION;
+      escort.vel.y *= BOT_DRIVER.FRICTION;
+      const sp = Math.hypot(escort.vel.x, escort.vel.y);
+      if (sp > BOT_DRIVER.MAX_SPEED) {
+        const r = BOT_DRIVER.MAX_SPEED / sp;
+        escort.vel.x *= r;
+        escort.vel.y *= r;
+      }
+      escort.pos.x += escort.vel.x;
+      escort.pos.y += escort.vel.y;
+      escort.thrust = sp > 0.4;
+      survivors.push(escort);
+      continue;
+    }
+
     // --- Target acquisition (5a discipline, leashed) -------------
     let target: { x: number; y: number } | null = null;
     let targetDist = Infinity;
@@ -117,6 +162,7 @@ export const stepEscorts = (ctx: EscortStepContext): EscortShip[] => {
       targetDist = d;
     };
     for (const d of next.drones) {
+      if (d.state === 'docked') continue; // inside its ship
       if (areHostile(seats, d.ownerId, escort.ownerId)) consider(d.pos);
     }
     if (!target) {

@@ -26,6 +26,9 @@ interface MobileControlsProps {
   decoyEquipped: boolean;
   decoyActive: boolean;
   onDeployDecoy: () => void;
+  repairing: boolean;
+  activelyRepairing: boolean;
+  onToggleRepair: () => void;
 }
 
 export const MobileControls: React.FC<MobileControlsProps> = ({
@@ -46,6 +49,9 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
   decoyEquipped,
   decoyActive,
   onDeployDecoy,
+  repairing,
+  activelyRepairing,
+  onToggleRepair,
 }) => {
   const weaponDef = getLoadoutItem(weaponId);
   const isMineLayer = weaponDef?.id === 'mine_layer';
@@ -384,6 +390,17 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
               >
                 <Magnet size={16} className="text-[#33ff33]" />
                 <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">VAC PULL</span>
+              </button>
+
+              {/* REPAIR toggle tile — Damage Control's in-play
+                  switch (the workshop carries the full law; the
+                  tile just turns the mode and reads its state). */}
+              <button
+                onClick={() => { triggerHaptic(20); onToggleRepair(); }}
+                className={`w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 active:scale-95 flex flex-col items-center justify-center transition-all touch-none ${activelyRepairing ? 'border-[#33ff33] bg-emerald-950/40 text-[#33ff33] shadow-[0_0_12px_rgba(51,255,51,0.3)]' : repairing ? 'border-cyan-600/80 bg-cyan-950/30 text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.2)]' : 'border-zinc-700 bg-zinc-950/40 text-zinc-500'}`}
+              >
+                <Wrench size={16} />
+                <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">{activelyRepairing ? 'PATCHING' : repairing ? 'REPAIR ON' : 'REPAIR OFF'}</span>
               </button>
 
               {/* DECOY deploy tile — the one manual deployable wears its own

@@ -2,6 +2,10 @@ import { motion } from 'motion/react';
 import React from 'react';
 import { PHYSICS } from '../constants';
 import { milestonesForInfused, progressIntoNextMilestone, nextMilestoneCost, cumulativeCostForMilestones } from '../starGrowth';
+import { starDroneTargetForMilestones, starDroneRangeForTarget } from '../starFleet';
+import { reconcileSwitch } from '../switchReconcile';
+import { ESCORT_DOCK_PAD } from '../sim/repair';
+import type { Ship, Harvester, EscortShip } from '../types';
 import { stageStateForInfused, type StarStageState } from '../sim/starStages';
 import { BUILD_HISTORY, LATEST_BUILD } from '../buildHistory';
 import { useUiOptions, setUiOption, resetUiOptions, type UiOptions } from '../uiOptions';
@@ -11,7 +15,7 @@ import { STAGE_LABELS, TEAM_LABELS, TEAM_COLORS } from './lobby/lobbyTypes';
 import type { TeamId } from '../net/protocol';
 import { MechanicsGuide } from './MechanicsGuide';
 import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor, MOUNT_ACCESS, canMountWeapon, weaponClassFor, type WeaponClass } from '../loadout';
-import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, autoGunCapFor, turretMountPriceFor, effectiveAutoGuns, DEFENSE_DRONE_PRICE, ESCORT_KIND_DEFS, ESCORT_KINDS, escortCapFor, escortWingSize, type EscortKind, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
+import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, autoGunCapFor, turretMountPriceFor, effectiveAutoGuns, DEFENSE_DRONE_PRICE, ESCORT_KIND_DEFS, ESCORT_KINDS, escortCapFor, escortWingSize, escortKindOf, canOrderWorkforce, healCapPctFor, healRateFor, type EscortKind, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
 
 // One-line summary of what a type's frame DOES, read off its capability
 // fields — the workshop sells the special in the type's own numbers.
@@ -184,6 +188,14 @@ interface HUDProps {
   playerDefenseDrones: number;
   onBuildDefenseDrone: () => void;
   escortCounts: { skiff: number; stinger: number; lancer: number };
+  starFleetCount: number;
+  enemyStarFleetCount: number;
+  deliveryMode: 'feed' | 'deposit';
+  onSetDeliveryMode: (mode: 'feed' | 'deposit') => void;
+  onSetRepairing: (on: boolean) => void;
+  ship: Ship;
+  drones: Harvester[];
+  escorts: EscortShip[];
   onBuildEscort: (kind: EscortKind) => void;
   onDebugGrantScrap?: (amount: number) => void;
   onDebugGrantFed?: (amount: number) => void;
@@ -247,6 +259,14 @@ export const HUD: React.FC<HUDProps> = ({
   playerDefenseDrones,
   onBuildDefenseDrone,
   escortCounts,
+  starFleetCount,
+  enemyStarFleetCount,
+  deliveryMode,
+  onSetDeliveryMode,
+  onSetRepairing,
+  ship,
+  drones,
+  escorts,
   onBuildEscort,
   onDebugGrantScrap,
   onDebugGrantFed,
@@ -264,6 +284,77 @@ export const HUD: React.FC<HUDProps> = ({
   // Progression reads come from the ONE table (src/shipProgression.ts):
   // the current type's def, its per-track caps, and the line-switch toll.
   const progType = typeFor(shipLine, typeTier);
+  // WORKFORCE ORDERS gate (shipProgression.canOrderWorkforce): the
+  // hauler line's crown in v1 — the switch surfaces key off this one
+  // read, never the line's name inlined here.
+  const canOrder = canOrderWorkforce(shipLine);
+
+  // FORCED SELL previews (Adam's pin, 2026-10-22; the pure helper
+  // in src/switchReconcile.ts is the SAME code the switch verbs
+  // execute, so a preview here is the outcome, not an estimate):
+  // for every other line — the SWITCH target (same tier) and the
+  // CHOICE target off the Skiff (T2) — plus the within-line CLIMB.
+  // The switch buttons warn from these, and the confirmation
+  // effect below announces from the previous frame's set.
+  const previewFor = (line: ShipLine | null, tier: TypeTier) => {
+    const rec = reconcileSwitch(ship, drones, escorts, line, tier);
+    // THE LAST TRIP (Adam's final shape): liquidated harvesters
+    // are not in the instant refund — each banks DRONE_PRICE +
+    // its cargo on arrival, and only if it makes it home (killed
+    // en route, it dies unsold). The en-route figure is computed
+    // from the helper's own marks, so preview and outcome agree.
+    const liq = new Set(rec.liquidateDroneIds);
+    const enRoute = drones.reduce((sum, d) => liq.has(d.id) ? sum + DRONE_PRICE + (d.carrying || 0) : sum, 0);
+    return { refund: rec.refund, sold: rec.sold, enRoute, liquidateIds: rec.liquidateDroneIds };
+  };
+  type SellPreview = ReturnType<typeof previewFor>;
+  const hasSales = (p: SellPreview | undefined): boolean => !!p && (p.sold.weapons.length > 0 || p.sold.drones > 0 || p.sold.defenseDrones > 0 || p.sold.mounts > 0 || p.sold.escorts > 0);
+  const sellSummary = (p: SellPreview): string => {
+    const parts: string[] = p.sold.weapons.map(w => (getLoadoutItem(w)?.name ?? w).toUpperCase());
+    if (p.sold.drones > 0) parts.push(`${p.sold.drones} DRONE${p.sold.drones > 1 ? 'S' : ''}`);
+    if (p.sold.defenseDrones > 0) parts.push(`${p.sold.defenseDrones} DEFENSE DRONE${p.sold.defenseDrones > 1 ? 'S' : ''}`);
+    if (p.sold.mounts > 0) parts.push(`${p.sold.mounts} MOUNT${p.sold.mounts > 1 ? 'S' : ''}`);
+    if (p.sold.escorts > 0) parts.push(`${p.sold.escorts} ESCORT${p.sold.escorts > 1 ? 'S' : ''}`);
+    return parts.join(' · ');
+  };
+  const sellMoneyLine = (p: SellPreview): string => {
+    const parts: string[] = [];
+    if (p.refund > 0) parts.push(`+${p.refund}U TO BANK`);
+    if (p.enRoute > 0) parts.push(`+${p.enRoute}U IF THE LAST TRIP${p.sold.drones > 1 ? 'S MAKE' : ' MAKES'} IT HOME`);
+    return parts.join(' · ');
+  };
+  const switchPreviews: Partial<Record<ShipLine, SellPreview>> = {};
+  const choicePreviews: Partial<Record<ShipLine, SellPreview>> = {};
+  for (const ln of Object.keys(SHIP_LINES) as ShipLine[]) {
+    if (ln === shipLine) continue;
+    switchPreviews[ln] = previewFor(ln, typeTier);
+    choicePreviews[ln] = previewFor(ln, 2);
+  }
+  const climbPreview: SellPreview | null = shipLine !== null && typeTier < 5 ? previewFor(shipLine, (typeTier + 1) as TypeTier) : null;
+
+  // DAMAGE CONTROL reads (Adam, 2026-10-22; src/sim/repair.ts):
+  // the ceiling mirrors the loop's own math (maxHealth x
+  // healCapPctFor); the toggle DEFAULTS ON — ship.repairing ===
+  // false is the only opt-out. Docked counts read the sim's own
+  // marks: harvesters carry state 'docked' exactly; escorts carry
+  // no flag, so theirs is the sim's geometry (alongside ring at
+  // ship.size + ESCORT_DOCK_PAD, health below the kind's cap).
+  const repairCapPct = healCapPctFor(shipLine, typeTier);
+  const repairCeilingPct = Math.round(repairCapPct * 100);
+  const repairRate = healRateFor(shipLine, typeTier);
+  const repairingOn = ship.repairing !== false;
+  const activelyRepairing = repairingOn && shipHealth < repairCeilingPct && carrying > 0;
+  const dockedWorkforce = drones.filter(d => d.ownerId === ship.ownerId && !d.starFleet && d.mode !== 'defense' && d.state === 'docked').length;
+  const escortDockedFor = (kind: EscortKind): number => escorts.filter(e => e.ownerId === ship.ownerId && escortKindOf(e) === kind
+    && e.health < e.maxHealth * healCapPctFor(e.line, e.typeTier)
+    && Math.hypot(e.pos.x - shipPos.x, e.pos.y - shipPos.y) <= ship.size + ESCORT_DOCK_PAD).length;
+  // The dock's other half (BackGround's exact read): a below-cap
+  // escort with a living carrier is ALWAYS either alongside
+  // healing or ON THE ROAD home — never on ordinary duty. The
+  // road count is the same test with the range flipped.
+  const escortRoadFor = (kind: EscortKind): number => escorts.filter(e => e.ownerId === ship.ownerId && escortKindOf(e) === kind
+    && e.health < e.maxHealth * healCapPctFor(e.line, e.typeTier)
+    && Math.hypot(e.pos.x - shipPos.x, e.pos.y - shipPos.y) > ship.size + ESCORT_DOCK_PAD).length;
   const caps = capsFor(shipLine, typeTier);
   const switchCost = switchToll({ lineSwitchesUsed, typeTier });
   // Gauge scales follow the ship as upgraded (audit, 2026-10-20): the
@@ -330,6 +421,15 @@ export const HUD: React.FC<HUDProps> = ({
   const stageBandSize = homeField.bandSize;
   const nextStage = homeField.next;
   const enemyField = stageFieldFor(enemyTotalInfused);
+  // STAR FLEET reads (src/starFleet.ts): the star's own harvesters,
+  // grown by her milestones — target and leash are pure reads off
+  // the same totals the field groups above carry; the counts arrive
+  // by prop (App filters state.drones on the starFleet flag). The
+  // fleet is NOT the captain's workforce and never counts there.
+  const homeFleetTarget = starDroneTargetForMilestones(milestonesForInfused(totalScrapInfused));
+  const homeFleetRange = starDroneRangeForTarget(homeFleetTarget);
+  const enemyFleetTarget = starDroneTargetForMilestones(milestonesForInfused(enemyTotalInfused));
+  const enemyFleetRange = starDroneRangeForTarget(enemyFleetTarget);
   const [showSysCfg, setShowSysCfg] = React.useState(false);
   // TESTER KIT feedback line (SysCfg DEV section): the kit's actions
   // confirm in place — the workshop's notice line is not visible
@@ -361,23 +461,60 @@ export const HUD: React.FC<HUDProps> = ({
     if (shopNoticeTimer.current) window.clearTimeout(shopNoticeTimer.current);
     shopNoticeTimer.current = window.setTimeout(() => setShopNotice(null), 2800);
   };
-  // SHELVE CONFIRMATION (slice 4 close-out, on BackGround's flag,
-  // 2026-10-21): the switch buttons WARN before the toll; this
-  // confirms AFTER. switchLine (c7d69fa) shelves an unmountable
-  // equipped weapon — slot nulls, arsenal untouched. The trigger is
-  // that exact transition and nothing looser: the LINE changed, the
-  // weapon slot went non-null -> null, and the lost weapon does not
-  // mount on the new hull. Death/respawn nulls never change the
-  // line, so they cannot false-fire it. A debug jump produces the
-  // same transition, so when armed the note ALSO lands in the DEV
-  // section's own line (the workshop notice is invisible from
-  // inside SysCfg).
-  const prevFrameRef = React.useRef<{ line: ShipLine | null; weapon: string | null }>({ line: shipLine, weapon: loadout.weapon });
+  // SWITCH CONFIRMATION — THE FORCED SELL, AND THE ONE
+  // REMAINING SHELVE (2026-10-22): a real hull change SELLS what
+  // the new hull can't hold, at full price into the bank. The
+  // manifest announced is the preview computed from the PREVIOUS
+  // frame's state for exactly this target (the same pure code
+  // the verbs execute), and it announces only when the outcome
+  // verifies against the new state: a sold weapon is GONE from
+  // the arsenal, and the entity counts fell by the manifest's
+  // total. The DEBUG JUMP still shelves (a tester teleport is
+  // not a transaction): there the weapon stays owned with its
+  // slot emptied, the sell verification fails on exactly that
+  // fact, and the shelve line below runs as it always has —
+  // mirrored to the DEV note when armed, since the workshop
+  // notice is invisible from inside SysCfg. Death/respawn
+  // changes neither line nor tier and cannot false-fire either.
+  const prevSwitchRef = React.useRef<{
+    line: ShipLine | null; tier: TypeTier; weapon: string | null;
+    switchPreviews: Partial<Record<ShipLine, SellPreview>>; choicePreviews: Partial<Record<ShipLine, SellPreview>>; climbPreview: SellPreview | null;
+    drones: number; defenseDrones: number; escorts: number; mounts: number;
+  }>({ line: shipLine, tier: typeTier, weapon: loadout.weapon, switchPreviews: {}, choicePreviews: {}, climbPreview: null, drones: playerDrones, defenseDrones: playerDefenseDrones, escorts: 0, mounts: turretMounts });
   React.useEffect(() => {
-    const prev = prevFrameRef.current;
-    prevFrameRef.current = { line: shipLine, weapon: loadout.weapon };
-    if (prev.line !== null && shipLine !== null && shipLine !== prev.line
-      && prev.weapon && loadout.weapon === null
+    const prev = prevSwitchRef.current;
+    const escortTotal = escortCounts.skiff + escortCounts.stinger + escortCounts.lancer;
+    prevSwitchRef.current = { line: shipLine, tier: typeTier, weapon: loadout.weapon, switchPreviews, choicePreviews, climbPreview, drones: playerDrones, defenseDrones: playerDefenseDrones, escorts: escortTotal, mounts: turretMounts };
+    const lineChanged = prev.line !== shipLine;
+    const tierChanged = prev.tier !== typeTier;
+    if (!lineChanged && !tierChanged) return;
+    let manifest: SellPreview | undefined;
+    if (lineChanged && shipLine !== null) manifest = prev.line === null ? prev.choicePreviews[shipLine] : prev.switchPreviews[shipLine];
+    else if (!lineChanged && tierChanged) manifest = prev.climbPreview ?? undefined;
+    let announced = false;
+    if (manifest && hasSales(manifest)) {
+      const weaponVerified = manifest.sold.weapons.length === 0
+        || (prev.weapon !== null && manifest.sold.weapons.includes(prev.weapon) && !arsenal[prev.weapon]);
+      // Instant property verifies by counts falling; liquidated
+      // harvesters verify by their ids STILL FLYING (the last
+      // trip) — they vanish only when they settle at the star.
+      const instantDelta = (prev.defenseDrones - playerDefenseDrones) + (prev.escorts - escortTotal) + (prev.mounts - turretMounts);
+      const instantTotal = manifest.sold.defenseDrones + manifest.sold.mounts + manifest.sold.escorts;
+      const dronesVerified = manifest.sold.drones === 0
+        || (manifest.liquidateIds.length === manifest.sold.drones && manifest.liquidateIds.every(id => drones.some(d => d.id === id)));
+      if (weaponVerified && dronesVerified && instantDelta >= instantTotal) {
+        let msg = `💰 SOLD ON THE SWITCH: ${sellSummary(manifest)}`;
+        if (manifest.refund > 0) msg += ` — +${manifest.refund}U TO YOUR BANK`;
+        if (manifest.enRoute > 0) msg += manifest.sold.drones > 1
+          ? ` · THE HARVESTERS FLY ONE LAST TRIP APIECE: +${manifest.enRoute}U BANKS IF THEY MAKE IT HOME`
+          : ` · THE HARVESTER FLIES ONE LAST TRIP: +${manifest.enRoute}U BANKS IF IT MAKES IT HOME`;
+        flashShopNotice(msg);
+        if (DEBUG_ARMED) setDevNote(msg);
+        announced = true;
+      }
+    }
+    if (!announced && prev.line !== null && shipLine !== null && shipLine !== prev.line
+      && prev.weapon && loadout.weapon === null && arsenal[prev.weapon]
       && !canMountWeapon(shipLine, typeTier, prev.weapon)) {
       const name = getLoadoutItem(prev.weapon)?.name.toUpperCase() ?? 'WEAPON';
       const msg = `⚠ ${name} SHELVED — NOT MOUNTABLE ON THE ${shipLine.toUpperCase()} HULL · STAYS OWNED, RE-EQUIPS ON A HULL THAT MOUNTS IT`;
@@ -625,11 +762,12 @@ export const HUD: React.FC<HUDProps> = ({
                 CARGO {carrying}/{PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS}
               </span>
             </div>
-            <div className="vu-meter h-2 bg-zinc-900 border border-zinc-800">
+            <div className="vu-meter h-2 bg-zinc-900 border border-zinc-800 relative">
               <motion.div 
                 className={`h-full ${shipHealth < 30 ? 'bg-red-600' : 'bg-cyan-500 shadow-[0_0_6px_cyan]'}`}
                 animate={{ width: `${shipHealth}%` }}
               />
+              <div className="absolute top-0 bottom-0 w-[2px] bg-amber-400" style={{ left: `${repairCeilingPct}%` }} />
             </div>
           </div>
 
@@ -728,6 +866,11 @@ export const HUD: React.FC<HUDProps> = ({
                   ? `TO ${STAGE_LABELS[nextStage]}: ${stageFedInBand}/${stageBandSize}U FED`
                   : 'CRITICAL MASS — COLLAPSE ENDS THE MATCH'}
               </div>
+              <div className="flex justify-between text-[10px] mt-1.5 pt-1.5 border-t border-zinc-800/70">
+                <span className="text-zinc-300">⭐ STAR FLEET</span>
+                <span className="text-zinc-200 font-bold">{starFleetCount}/{homeFleetTarget} · RANGE {homeFleetRange}U</span>
+              </div>
+              <div className="text-[8px] font-mono text-zinc-500 leading-snug">HER OWN HARVESTERS (✦ ON CANVAS) — THEY FEED HER UNATTENDED AND REGROW WHEN LOST. NOT YOUR WORKFORCE.</div>
             </div>
 
             <div>
@@ -770,6 +913,10 @@ export const HUD: React.FC<HUDProps> = ({
                   ? `TO ${STAGE_LABELS[enemyField.next]}: ${enemyField.fedInBand}/${enemyField.bandSize}U FED`
                   : 'CRITICAL MASS — COLLAPSE ENDS THE MATCH'}
               </div>
+              <div className="flex justify-between text-[10px] mt-1.5 pt-1.5 border-t border-red-950/70">
+                <span className="text-zinc-300">⭐ STAR FLEET</span>
+                <span className="text-zinc-200 font-bold">{enemyStarFleetCount}/{enemyFleetTarget} · RANGE {enemyFleetRange}U</span>
+              </div>
             </div>
 
             <div className="flex flex-col gap-2 items-center">
@@ -788,13 +935,14 @@ export const HUD: React.FC<HUDProps> = ({
               <div className="mb-4">
                 <div className="flex justify-between text-[9px] mb-1">
                   <span className={shipHealth < 30 ? 'text-red-500 animate-pulse' : 'text-zinc-200'}>HULL_INTEGRITY</span>
-                  <span>{Math.floor(shipHealth)}%</span>
+                  <span>{Math.floor(shipHealth)}% · CAP {repairCeilingPct}%</span>
                 </div>
-                <div className="vu-meter h-3 bg-zinc-900 border border-zinc-800">
+                <div className="vu-meter h-3 bg-zinc-900 border border-zinc-800 relative">
                   <motion.div 
                     className={`h-full ${shipHealth < 30 ? 'bg-red-600' : 'bg-cyan-600 shadow-[0_0_8px_cyan]'}`}
                     animate={{ width: `${shipHealth}%` }}
                   />
+                  <div className="absolute top-0 bottom-0 w-[2px] bg-amber-400" style={{ left: `${repairCeilingPct}%` }} />
                 </div>
               </div>
               {velocity > 4 && <p className="text-red-400">[WARN] SPEED EXCEEDS BUFFER</p>}
@@ -1129,6 +1277,14 @@ export const HUD: React.FC<HUDProps> = ({
           >
             🔧 WORKSHOP
           </button>
+          {canOrder && (
+            <button
+              onClick={() => onSetDeliveryMode(deliveryMode === 'feed' ? 'deposit' : 'feed')}
+              className="hud-panel px-3 py-1.5 rounded border border-indigo-400 font-mono text-[10px] sm:text-[11px] font-bold tracking-wider text-indigo-300 shadow-[0_0_10px_rgba(129,140,248,0.35)]"
+            >
+              🚁 ORDERS: {deliveryMode === 'feed' ? '⭐ FEED' : '🏦 BANK'}
+            </button>
+          )}
         </div>
       )}
 
@@ -1145,6 +1301,19 @@ export const HUD: React.FC<HUDProps> = ({
           </button>
         </div>
       )}
+
+      {/* REPAIR PILL: Damage Control's in-play switch — the mode
+          is a standing discipline (burn the hold on patches, or
+          don't), so it rides beside the decoy pill, stacked above
+          it when both show. State reads on the pill itself. */}
+      <div className={`fixed ${loadout.defense === 'decoy_beacon' && !decoyActive ? 'bottom-[140px] sm:bottom-[112px]' : 'bottom-[104px] sm:bottom-[76px]'} left-1/2 -translate-x-1/2 z-[56] pointer-events-auto`}>
+        <button
+          onClick={() => onSetRepairing(!repairingOn)}
+          className={`hud-panel px-3 py-1.5 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider ${activelyRepairing ? 'border-[#33ff33] text-[#33ff33] shadow-[0_0_10px_rgba(51,255,51,0.35)]' : repairingOn ? 'border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.3)]' : 'border-zinc-700 text-zinc-500'}`}
+        >
+          🔧 REPAIR {activelyRepairing ? '· PATCHING' : repairingOn ? '· ON' : '· OFF'}
+        </button>
+      </div>
 
       {/* STATUS STRIP — slim indicators, TOP band (Adam, 2026-10-21:
           moved up from bottom-center, where it sat over the SHIP
@@ -1441,10 +1610,13 @@ export const HUD: React.FC<HUDProps> = ({
                       const afford = funds >= price;
                       return (
                         <button key={ln} onClick={() => afford ? onBuyType(ln) : flashShopNotice(`NOT ENOUGH SCRAP — ${ln.toUpperCase()} → ${t2.name} COSTS ${price}U · YOU HAVE ${funds}U`)}
-                          className={`pitted-metal px-3 py-2 rounded flex items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
+                          className={`pitted-metal px-3 py-2 rounded flex flex-wrap items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
                           <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">{ln} → {t2.name}</span>
                           <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(t2)}</span>
                           <span className="text-[10px] sm:text-xs font-mono font-bold text-pink-400">{price}U</span>
+                          {hasSales(choicePreviews[ln]) && (
+                            <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-amber-400">⚠ SELLS: {sellSummary(choicePreviews[ln]!)} ({sellMoneyLine(choicePreviews[ln]!)})</span>
+                          )}
                         </button>
                       );
                     })}
@@ -1457,10 +1629,13 @@ export const HUD: React.FC<HUDProps> = ({
                   const afford = funds >= price;
                   return (
                     <button onClick={() => afford ? onBuyType() : flashShopNotice(`NOT ENOUGH SCRAP — CLIMB TO ${next.name} COSTS ${price}U · YOU HAVE ${funds}U`)}
-                      className={`pitted-metal px-3 py-2 rounded flex items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
+                      className={`pitted-metal px-3 py-2 rounded flex flex-wrap items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
                       <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">⬆ CLIMB → {next.name} (T{typeTier + 1})</span>
                       <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(next)} · HULL CAP {next.hullStepCap}</span>
                       <span className="text-[10px] sm:text-xs font-mono font-bold text-pink-400">{price}U</span>
+                      {hasSales(climbPreview ?? undefined) && (
+                        <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-amber-400">⚠ SELLS: {sellSummary(climbPreview!)} ({sellMoneyLine(climbPreview!)})</span>
+                      )}
                     </button>
                   );
                 })()}
@@ -1475,18 +1650,20 @@ export const HUD: React.FC<HUDProps> = ({
                     <div className="flex gap-1.5 flex-wrap">
                       {(Object.keys(SHIP_LINES) as ShipLine[]).filter(ln => ln !== shipLine).map(ln => {
                         const afford = funds >= switchCost;
-                        const equippedCls = weaponClassFor(loadout.weapon);
-                        // Slice 4's close (BackGround, c7d69fa): a weapon
-                        // the target hull can't mount SHELVES on the
-                        // switch — slot empties, item stays owned. The
-                        // warning names that outcome before the toll.
-                        const targetGateWarn = !!equippedCls && !lineMountsClass(ln, typeTier, equippedCls);
+                        // THE FORCED SELL (Adam, 2026-10-22): holdings
+                        // the target hull can't hold SELL at full
+                        // price into the bank. The warning is the
+                        // reconcile preview for this exact target —
+                        // the same pure code the verb will run, so
+                        // what it names is what will happen.
+                        const targetPreview = switchPreviews[ln];
+                        const targetSellWarn = hasSales(targetPreview);
                         return (
                           <button key={ln} onClick={() => afford ? onSwitchLine(ln) : flashShopNotice(`NOT ENOUGH SCRAP — THE SWITCH TOLL IS ${switchCost}U · YOU HAVE ${funds}U`)}
                             className={`flex-1 min-w-[86px] px-2 py-1.5 rounded text-[9px] sm:text-[10px] font-mono font-bold border touch-manipulation active:scale-95 flex flex-col items-center justify-center gap-0.5 ${afford ? 'bg-zinc-900 text-zinc-200 border-zinc-600' : 'bg-zinc-900 text-zinc-500 border-zinc-800 cursor-not-allowed'}`}>
                             <span>⇄ {ln.toUpperCase()} · {switchCost === 0 ? 'FREE' : `${switchCost}U`}</span>
-                            {targetGateWarn && (
-                              <span className="text-[7px] sm:text-[8px] text-amber-400 tracking-normal">⚠ EQUIPPED {equippedCls!.toUpperCase()} SHELVES THERE — STAYS OWNED, RE-EQUIPS ON A HULL THAT MOUNTS IT</span>
+                            {targetSellWarn && (
+                              <span className="text-[7px] sm:text-[8px] text-amber-400 tracking-normal">⚠ SELLS THERE: {sellSummary(targetPreview!)} ({sellMoneyLine(targetPreview!)})</span>
                             )}
                           </button>
                         );
@@ -1511,7 +1688,7 @@ export const HUD: React.FC<HUDProps> = ({
                   <button onClick={() => playerDrones >= progType.dronesFielded ? flashShopNotice(`DRONE COMPLEMENT FULL — ${progType.dronesFielded} FIELDED ON THIS FRAME`) : funds >= DRONE_PRICE ? onBuildDrone() : flashShopNotice(`NOT ENOUGH SCRAP — A DRONE COSTS ${DRONE_PRICE}U · YOU HAVE ${funds}U`)}
                     className={`flex-1 min-w-[150px] pitted-metal px-3 py-2 rounded text-left touch-manipulation active:scale-[0.98] ${playerDrones < progType.dronesFielded && funds >= DRONE_PRICE ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
                     <div className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🤖 BUILD DRONE — {playerDrones}/{progType.dronesFielded} FIELDED</div>
-                    <div className="text-[8px] sm:text-[9px] font-mono text-zinc-400">HARVESTER DRONE, REPLACES LOSSES · <span className="text-pink-400 font-bold">{DRONE_PRICE}U</span></div>
+                    <div className="text-[8px] sm:text-[9px] font-mono text-zinc-400">HARVESTER DRONE, REPLACES LOSSES · <span className="text-pink-400 font-bold">{DRONE_PRICE}U</span>{dockedWorkforce > 0 && <> · <span className="text-emerald-400">{dockedWorkforce} DOCKED — REPAIRING IN THE HULL</span></>}</div>
                   </button>
                 </div>
 
@@ -1519,10 +1696,12 @@ export const HUD: React.FC<HUDProps> = ({
                     frame's autoGuns field is a CAP — mounts are bought
                     one at a time to fill it, and only min(cap, owned)
                     fire (effectiveAutoGuns — the loop and the canvas
-                    barrel tells read the same number). Owned mounts
-                    ride across line switches; on a shallower frame the
-                    excess shelves (amber pips) until a deeper hull
-                    carries it again. Mounts die with the ship. */}
+                    barrel tells read the same number). On a hull
+                    change, mounts over the new frame's cap SELL at
+                    their curve prices (the forced sell, 2026-10-22)
+                    — owned never exceeds cap in play; the amber pips
+                    below remain only as a defensive read. Mounts die
+                    with the ship. */}
                 {(() => {
                   const mountCap = autoGunCapFor(shipLine, typeTier);
                   const firing = effectiveAutoGuns({ line: shipLine, typeTier, turretMounts });
@@ -1542,7 +1721,6 @@ export const HUD: React.FC<HUDProps> = ({
                       </div>
                       <p className="text-[8px] sm:text-[9px] font-mono text-zinc-400 leading-snug">
                         SHIPBOARD AUTO-TURRETS ON BOUGHT MOUNTS — THEY FIRE ON HOSTILES IN RANGE, NO HANDS NEEDED. THE FRAME SETS THE CAP; EACH MOUNT IS FITTED AT THE DOCK AND DIES WITH THE SHIP.
-                        {turretMounts > mountCap && <span className="text-amber-400"> {turretMounts - mountCap} MOUNT{turretMounts - mountCap > 1 ? 'S' : ''} SHELVED ON THIS FRAME — THEY RIDE ACROSS AND WAKE ON A DEEPER HULL.</span>}
                       </p>
                       {atCap ? (
                         <div className="text-[10px] sm:text-xs font-mono text-amber-400">MOUNTS FULL FOR {progType.name} — A DEEPER FRAME CARRIES MORE</div>
@@ -1557,6 +1735,42 @@ export const HUD: React.FC<HUDProps> = ({
                   );
                 })()}
 
+                {/* DAMAGE CONTROL (Adam, 2026-10-22; the engine is
+                    src/sim/repair.ts): the captain's repair toggle
+                    + this frame's cap and rate, with the law in the
+                    surface's words — hold only, never the bank; guns
+                    stay up; below-cap damage is permanent. The
+                    toggle defaults ON (undefined reads as on); OFF
+                    is the opt-out, and it governs the HULL — a
+                    docked harvester patches itself from the hold on
+                    its own law, which the OFF line says out loud. */}
+                <div className="pitted-metal px-3 py-2 rounded border border-zinc-700 flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🔧 DAMAGE CONTROL — {activelyRepairing ? 'PATCHING' : repairingOn ? 'ON' : 'OFF'}</span>
+                    <span className="text-[9px] sm:text-[10px] font-mono text-zinc-400">CAP {repairCeilingPct}% · {repairRate} HP/S</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button onClick={() => onSetRepairing(true)}
+                      className={`px-3 py-2 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider touch-manipulation active:scale-[0.98] ${repairingOn ? 'border-cyan-400 text-cyan-300 bg-cyan-950/30' : 'border-zinc-700 text-zinc-400 bg-zinc-900'}`}>
+                      🔧 REPAIRS ON
+                    </button>
+                    <button onClick={() => onSetRepairing(false)}
+                      className={`px-3 py-2 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider touch-manipulation active:scale-[0.98] ${!repairingOn ? 'border-red-400 text-red-300 bg-red-950/30' : 'border-zinc-700 text-zinc-400 bg-zinc-900'}`}>
+                      REPAIRS OFF
+                    </button>
+                  </div>
+                  <p className="text-[8px] sm:text-[9px] font-mono text-zinc-400 leading-snug">
+                    {activelyRepairing
+                      ? `PATCHING FROM THE HOLD NOW — ${repairRate} HP/S UNTIL THE CAP OR AN EMPTY HOLD.`
+                      : !repairingOn
+                        ? 'REPAIRS OFF — YOUR HULL WILL NOT PATCH. NOTE: A DOCKED HARVESTER STILL DRAWS THE HOLD TO PATCH ITSELF; THE TOGGLE GOVERNS YOUR HULL, NOT THE DOCK.'
+                        : shipHealth >= repairCeilingPct
+                          ? 'NOTHING TO PATCH — THE HULL STANDS AT ITS REPAIR CAP. DAMAGE BELOW THE CAP NEVER HEALS.'
+                          : 'HOLD EMPTY — NOTHING TO PATCH WITH. CARRY SCRAP AND THE CREWS GO TO WORK.'}
+                  </p>
+                  <p className="text-[8px] sm:text-[9px] font-mono text-zinc-500 leading-snug">CREWS WORK FROM THE HOLD ONLY (1 SCRAP = 2 HP) — NEVER THE BANK — AND YOUR GUNS STAY UP WHILE THEY WORK. THE CAP IS THE FRAME'S LAW: {progType.name} PATCHES TO {repairCeilingPct}% OF MAX HULL.</p>
+                </div>
+
                 {/* CREW — THE DEFENSE PAIR (Arsenal slice 3, 2026-10-21):
                     the hauler's couple of guard drones. The block exists
                     only on frames whose defenseDrones cap is above zero
@@ -1570,6 +1784,48 @@ export const HUD: React.FC<HUDProps> = ({
                     WORKFORCE QUALITY ON THIS FRAME: <span className="text-zinc-200">+{progType.droneSpeedPct}% DRONE SPEED · +{progType.droneCarryBonus} CARRY PER DRONE</span> — THE CREW GETS BETTER AS THE FRAME CLIMBS.
                   </p>
                 )}
+                {/* WORKFORCE ORDERS (Adam, 2026-10-22): the hauler's
+                    standing order to her harvesters, read by the sim
+                    at every delivery (SeatSimState.deliveryMode).
+                    FEED is the old road — loads feed the star.
+                    DEPOSIT banks them at the well instead, and the
+                    copy carries the law in the surface's own words:
+                    banking is not nourishment (no growth, no mending,
+                    no milestone credit until withdrawn and fed by
+                    hand). The star's own fleet is never under orders.
+                    The block keys off canOrderWorkforce — the gate,
+                    not the line's name. THE EDGE (BackGround's
+                    32e8eda, on this lane's question): the order
+                    persists on the seat across switches and death
+                    but BINDS only on a hauler hull — off-hull it
+                    shelves (the crew feeds) and binds again when a
+                    hauler returns, no re-issuing; the note below
+                    keeps a shelved DEPOSIT visible from any frame,
+                    the MUSTER precedent. */}
+                {canOrder ? (
+                  <div className="pitted-metal px-3 py-2 rounded border border-zinc-700 flex flex-col gap-1.5">
+                    <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🚁 WORKFORCE ORDERS — {deliveryMode === 'feed' ? '⭐ FEED THE STAR' : '🏦 DEPOSIT TO BANK'}</span>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button onClick={() => onSetDeliveryMode('feed')}
+                        className={`px-3 py-2 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider touch-manipulation active:scale-[0.98] ${deliveryMode === 'feed' ? 'border-amber-400 text-amber-300 bg-amber-950/30' : 'border-zinc-700 text-zinc-400 bg-zinc-900'}`}>
+                        ⭐ FEED THE STAR
+                      </button>
+                      <button onClick={() => onSetDeliveryMode('deposit')}
+                        className={`px-3 py-2 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider touch-manipulation active:scale-[0.98] ${deliveryMode === 'deposit' ? 'border-[#33ff33] text-[#33ff33] bg-emerald-950/30' : 'border-zinc-700 text-zinc-400 bg-zinc-900'}`}>
+                        🏦 DEPOSIT TO BANK
+                      </button>
+                    </div>
+                    <p className="text-[8px] sm:text-[9px] font-mono text-zinc-400 leading-snug">
+                      {deliveryMode === 'feed'
+                        ? 'YOUR HARVESTERS FLY EVERY LOAD STRAIGHT INTO THE STAR: IT FEEDS HER — GROWTH, MILESTONES, AND A LITTLE MENDING PER LOAD. NOTHING IS BANKED.'
+                        : 'YOUR HARVESTERS BANK EVERY LOAD AT THE WELL INSTEAD. BANKED SCRAP IS NOT FOOD: NO GROWTH, NO MENDING, NO MILESTONE CREDIT — UNTIL YOU WITHDRAW IT AND FEED IT BY HAND.'}
+                    </p>
+                    <p className="text-[8px] sm:text-[9px] font-mono text-zinc-500 leading-snug">THE ORDER STANDS UNTIL YOU CHANGE IT. OFF A HAULER HULL IT SHELVES — YOUR CREW FEEDS — AND BINDS AGAIN WHEN A HAULER HULL RETURNS, NO RE-ISSUING. THE STAR'S OWN FLEET (✦) TAKES NO ORDERS — GLEANERS ALWAYS FEED.</p>
+                  </div>
+                ) : deliveryMode === 'deposit' ? (
+                  <p className="text-[8px] sm:text-[9px] font-mono text-zinc-500 leading-snug border border-zinc-800 rounded px-2 py-1.5">🚁 WORKFORCE ORDER SHELVED — 🏦 DEPOSIT STANDS ON YOUR SEAT BUT BINDS ONLY ON A HAULER HULL. YOUR CREW FEEDS MEANWHILE; THE ORDER RETURNS WITH THE HULL, NO RE-ISSUING.</p>
+                ) : null}
+
                 {progType.defenseDrones > 0 && (() => {
                   const defenseCap = progType.defenseDrones;
                   const full = playerDefenseDrones >= defenseCap;
@@ -1627,6 +1883,8 @@ export const HUD: React.FC<HUDProps> = ({
                         if (cap <= 0 && count <= 0) return null;
                         const full = cap > 0 && count >= cap;
                         const afford = funds >= def.price;
+                        const docked = escortDockedFor(kind);
+                        const road = escortRoadFor(kind);
                         return (
                           <div key={kind} className="flex items-center gap-2 flex-wrap">
                             <span className="text-[9px] sm:text-[10px] font-mono font-bold text-zinc-200 w-[128px]">{def.label} <span className="text-zinc-500 font-normal">· {def.line ? `${def.line.toUpperCase()} T${def.typeTier} HULL` : 'SHARED T1 HULL'}</span></span>
@@ -1636,6 +1894,8 @@ export const HUD: React.FC<HUDProps> = ({
                               ))}
                             </span>
                             <span className="text-[9px] font-mono text-zinc-400">{count}/{cap} FLYING</span>
+                            {docked > 0 && <span className="text-[9px] font-mono text-emerald-400">{docked} DOCKED — REPAIRING</span>}
+                            {road > 0 && <span className="text-[9px] font-mono text-amber-400">{road} ON THE ROAD HOME</span>}
                             {cap > 0 && (full ? (
                               <span className="ml-auto text-[9px] sm:text-[10px] font-mono text-amber-400">{def.label} COMPLEMENT FULL</span>
                             ) : (

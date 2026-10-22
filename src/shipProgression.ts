@@ -414,6 +414,18 @@ export const switchToll = (s: { lineSwitchesUsed: number; typeTier: TypeTier }):
 export const DRONE_PRICE = 75;
 
 /**
+ * The harvester AIRFRAME's hull (Adam's pin, 2026-10-22:
+ * 'maybe 2½ shots or so from the standard gun' — drafted
+ * exact off the Bolt Cannon's real base damage, 12: 2.5 x 12
+ * = 30, so two bolts leave a drone at 6 and the third kills.
+ * Speed stays their primary armor; the hull only keeps a
+ * drone from disintegrating on first contact. One hull for
+ * the whole airframe — workforce, star fleet, and the
+ * defense mode alike. DRAFT for the pin pass.
+ */
+export const DRONE_MAX_HEALTH = 30;
+
+/**
  * Turret mounts (Arsenal slice 2, 2026-10-21 — Adam's universal
  * turret purchase): every type's autoGuns value is a CAP; a ship
  * buys mounts one at a time up to it and fires what it owns. The
@@ -479,6 +491,61 @@ export const DEFENSE_DRONE = {
   fireChance: 0.01, // per frame while a hostile is in range
   range: 320, // engagement range, measured from the drone
 };
+
+// ---------------------------------------------------------------------
+// WORKFORCE ORDERS (Adam, 2026-10-22): the captain's standing order
+// for her workforce's deliveries — FEED the star, or DEPOSIT the
+// loads into her bank at the well (SeatSimState.deliveryMode; the
+// delivery read lives in src/sim/drones.ts). In v1 the order is
+// the HAULER line's crown capability: her workforce already owns
+// number (the deep ladder) and quality (the speed/carry axis) —
+// orders are its third face, and every other line's workforce
+// stays feed-only. The gate is this one function so widening the
+// order to other lines later is a table change, not a rebuild.
+export const canOrderWorkforce = (line: ShipLine | null): boolean =>
+  line === 'hauler';
+
+/**
+ * SCRAP HEALING TABLES (RULED by Adam, 2026-10-22; figures DRAFT
+ * for the numbers pass): the heal CAP (the fraction of its own
+ * max hull a ship may repair TO — damage below the cap is
+ * permanent until death) and the heal RATE (hull per second while
+ * repair is toggled on and the hold has scrap) are set by ship
+ * TYPE and TIER. The doctrine is the lines' peaks, as everywhere:
+ * the HAULER is the great repairer (her fiction carries the
+ * workshop — the highest caps, near-full at her crown), the
+ * FIGHTER caps lightest (glass cannon; she trades repair depth
+ * for the arsenal), the SKIFF heals a little — even a skiff, up
+ * to its small cap. The engine (conversion, credit, the spend)
+ * is src/sim/repair.ts. Escorts read the same rows by their
+ * kind's line/tier — a Stinger escort repairs like a Stinger.
+ */
+const HEAL_TABLE: Record<string, { capPct: number[]; ratePerSec: number[] }> = {
+  // index 0 = tier 1 … index 4 = tier 5
+  skiff:     { capPct: [0.40], ratePerSec: [1.5] },
+  fighter:   { capPct: [0.35, 0.42, 0.48, 0.53, 0.58], ratePerSec: [2, 2.5, 3, 3.5, 4] },
+  minelayer: { capPct: [0.40, 0.46, 0.52, 0.57, 0.62], ratePerSec: [2, 2.5, 3, 3.5, 4] },
+  hauler:    { capPct: [0.55, 0.65, 0.75, 0.85, 0.95], ratePerSec: [3, 3.5, 4, 5, 6] },
+  drone:     { capPct: [0.45, 0.52, 0.60, 0.66, 0.72], ratePerSec: [2.5, 3, 3.5, 4.5, 5] },
+  cruiser:   { capPct: [0.50, 0.57, 0.64, 0.72, 0.80], ratePerSec: [2, 2.5, 3, 3.5, 4.5] },
+};
+
+const healRow = (line: ShipLine | null, tier: number): { capPct: number; ratePerSec: number } => {
+  const row = HEAL_TABLE[line ?? 'skiff'] ?? HEAL_TABLE.skiff;
+  const idx = Math.min(Math.max(tier, 1), 5) - 1;
+  return {
+    capPct: row.capPct[Math.min(idx, row.capPct.length - 1)],
+    ratePerSec: row.ratePerSec[Math.min(idx, row.ratePerSec.length - 1)],
+  };
+};
+
+/** The fraction of its max hull this type/tier may repair TO. */
+export const healCapPctFor = (line: ShipLine | null, tier: number): number =>
+  healRow(line, tier).capPct;
+
+/** Hull per second this type/tier repairs while toggled on. */
+export const healRateFor = (line: ShipLine | null, tier: number): number =>
+  healRow(line, tier).ratePerSec;
 
 // ---------------------------------------------------------------------
 // THE CARRIER WING (Arsenal slice 5b, 2026-10-21 — the program's

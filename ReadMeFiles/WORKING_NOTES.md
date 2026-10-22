@@ -2,14 +2,19 @@ Mass Rattle — Working Notes
 The local customs of this repo: how work lands, how it ships, and who
 does what. The constitution is CODE_MANIFESTO.md (same folder); this
 page is the practice that has grown up around it. Brief and factual.
-Last updated 2026-10-21.
+Last updated 2026-10-22 (the ledger + index practice folded in).
 
 Branches & landings
 - ALL work stages on the `WIP` branch. `main` is production and
-  changes only through a WIP → main merge, so each landing is one
+  changes only through a WIP → main merge, so each merge is one
   reviewable delta and one production build.
 - Merges are collaborative, per-landing decisions (Adam's word, made
   with the lanes) — there is no standing merge order.
+- Merges run in BATCHES (Adam, 2026-10-21): landings accumulate on
+  WIP one at a time and main moves when he calls the batch, so
+  Cloudflare rebuilds only on batch-changes, not per landing. A
+  merge's title names the batch; the PR's file list is the batch's
+  manifest.
 - One logical landing = one push carrying all of its files (one
   commit per landing keeps rollback and verification clean).
 - After a merge, main is reverse-synced back into WIP and the tree
@@ -27,6 +32,10 @@ Verification (a tool's "OK" is never the verdict)
   against the pure modules.
 
 Shipping to production
+- The LAST commit on WIP before a merge is a prepend to
+  src/buildHistory.ts: one entry (date, batch title in the batch's
+  own words, one-sentence detail) citing the merge PR — so the PR
+  is opened first, the entry lands citing it, then the merge runs.
 - GitHub pushes do NOT auto-build this repo (the webhook has never
   fired). After each WIP → main merge, the production build is
   triggered manually through the Cloudflare Builds API and monitored
@@ -47,6 +56,21 @@ Lanes (who owns what)
 - Cross-lane work starts with a claim naming every file the landing
   will touch; shared files (App.tsx, useGameLoop.ts, types.ts,
   protocol.ts) are claimed before they are edited.
+
+The ledger (ReadMeFiles is the shared memory)
+- One system, one home (Adam, 2026-10-22): similarly grouped ideas
+  share ONE document; scattered ideas are never joined into one.
+  The per-system documents are the record of what was ruled — a
+  ruling that lives only in a chat does not live.
+- INDEX.md routes lookups: grep the folder first, then read the
+  ONE document the index names. Nobody reads all the files.
+- The index and OPEN_REGISTER.md carry pointers only; substance
+  lives in the system documents, and a pointer that seems to
+  disagree with its document is the pointer's bug.
+- Every lane keeps the ledger true: whoever finds a document
+  misstating its system fixes it, or strikes it to the lane that
+  holds the pen, in the same breath as finding it. Doc changes
+  land docs-alone (markdown is watch-path-excluded: zero builds).
 
 Game truths a new reader needs
 - Single player is the shipped game and the regression law: every
