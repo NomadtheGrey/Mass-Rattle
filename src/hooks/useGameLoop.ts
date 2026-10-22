@@ -23,6 +23,8 @@ import {
   physicalSizeForStar,
 } from '../sim/starStages';
 import { stepDrones } from '../sim/drones';
+import { repairFrame } from '../sim/repair';
+import { reconcileSwitch } from '../switchReconcile';
 import { stepEscorts } from '../sim/escorts';
 import { stepMines, stepProjectiles } from '../sim/projectiles';
 import { isStealthShip, isVisibleTo, PERISCOPE_REVEAL_S } from '../sim/stealth';
@@ -33,7 +35,7 @@ import { applyDeathLoss, botRepurchaseDue, completeRespawn, respawnDue, tryRepur
 import { appendEventRecords, EventFeedEntry } from '../sim/eventFeed';
 import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, turretAngleAt, targetInTurretArc, applyDeliveryHeal } from '../starDefense';
 import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, thornDamageFor, aegisAbsorbFor } from '../loadout';
-import { ShipLine, TypeTier, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, DEFENSE_DRONE_PRICE, EXTRA_MOUNT_DAMAGE, AUTO_GUN, autoGunCapFor, effectiveAutoGuns, turretMountPriceFor, ESCORT_KIND_DEFS, escortCapFor, escortKindOf, canOrderWorkforce, type EscortKind } from '../shipProgression';
+import { ShipLine, TypeTier, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, DEFENSE_DRONE_PRICE, EXTRA_MOUNT_DAMAGE, AUTO_GUN, autoGunCapFor, effectiveAutoGuns, turretMountPriceFor, ESCORT_KIND_DEFS, escortCapFor, escortKindOf, canOrderWorkforce, healCapPctFor, healRateFor, type EscortKind } from '../shipProgression';
 
 /**
  * SHIP PROGRESSION (Phase 3, src/shipProgression.ts — DRAFT numbers):
@@ -465,6 +467,26 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   // is WELL-GATED — progression is bought at the home dock, never in
   // the field — and pays through the combined wallet (hold, then bank).
   // ------------------------------------------------------------------
+  /**
+   * Sold drones' undelivered cargo becomes loose scrap where
+   * they stood (the drone-death precedent from the death sweep,
+   * same jitter and palette) — never banked: it was never
+   * delivered. (src/switchReconcile.ts decides the drops.)
+   */
+  const expandCargoDrops = (drops: { x: number; y: number; count: number }[]) => {
+    const out: { id: string; pos: { x: number; y: number }; color: string }[] = [];
+    for (const drop of drops) {
+      for (let i = 0; i < drop.count; i++) {
+        out.push({
+          id: Math.random().toString(),
+          pos: { x: drop.x + (Math.random() - 0.5) * 30, y: drop.y + (Math.random() - 0.5) * 30 },
+          color: COLORS.SCRAP[Math.floor(Math.random() * COLORS.SCRAP.length)],
+        });
+      }
+    }
+    return out;
+  };
+
   const buyType = useCallback((line?: ShipLine) => {
     setState(prev => {
       if (!inTeamWell(prev.seats, prev.ship)) return prev; // types are bought at home
@@ -477,11 +499,25 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       const payment = walletPay(prev.ship.carrying, prev.bankedScrap, cost, inTeamWell(prev.seats, prev.ship));
       if (!payment) return prev;
 
-      const ship = { ...prev.ship, carrying: payment.carrying, line: targetLine, typeTier: (prev.ship.typeTier + 1) as TypeTier };
+      const newTier = (prev.ship.typeTier + 1) as TypeTier;
+      // THE FORCED SELL (Adam, 2026-10-22; src/switchReconcile.ts):
+      // caps grow on a climb WITHIN a line, but choosing a line off
+      // the Skiff can SHRINK them (the Skiff fields more drones
+      // than a young carrier) — the same sell-down runs, so no
+      // hull change ever leaves a holding its hull can't hold.
+      const rec = reconcileSwitch(prev.ship, prev.drones, prev.escorts, targetLine, newTier);
+      const ship = { ...prev.ship, carrying: payment.carrying, line: targetLine, typeTier: newTier, arsenal: rec.arsenal, loadout: rec.loadout, turretMounts: rec.turretMounts };
       // Hull steps persist (caps only grow with tier, so no clamp is
       // needed); the VAC bonus may have changed with the new type.
       ship.attractRadius = attractRadiusForShip(ship.upgrades.attractor, ship.line, ship.typeTier);
-      return { ...prev, ship, bankedScrap: payment.banked, glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
+      return {
+        ...prev, ship,
+        drones: rec.soldDroneIds.length ? prev.drones.filter(d => !rec.soldDroneIds.includes(d.id)) : prev.drones,
+        escorts: rec.soldEscortIds.length ? prev.escorts.filter(e => !rec.soldEscortIds.includes(e.id)) : prev.escorts,
+        scrap: rec.cargoDrops.length ? [...prev.scrap, ...expandCargoDrops(rec.cargoDrops)] : prev.scrap,
+        bankedScrap: payment.banked + rec.refund,
+        glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now(),
+      };
     });
   }, []);
 
@@ -545,12 +581,22 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       // amounts) changes. If hullSteps exceeds the new line/type's cap,
       // the steps STAY; the cap only refuses buying more (same rule as
       // track caps). The VAC bonus follows the new line immediately.
-      // The equipped weapon rides through mountableLoadout (slice 4):
-      // a weapon this hull cannot mount is SHELVED on the switch —
-      // slot emptied, ownership kept — never left live in the slot.
-      const ship = { ...prev.ship, carrying: payment.carrying, line, lineSwitchesUsed: prev.ship.lineSwitchesUsed + 1, loadout: mountableLoadout(line, prev.ship.typeTier, prev.ship.loadout) };
+      // THE FORCED SELL (Adam, 2026-10-22; src/switchReconcile.ts):
+      // holdings the new hull cannot hold SELL at full price into
+      // the bank — weapons it can't mount, drones/mounts/escorts
+      // over its caps. Slice 4's shelve is superseded for
+      // property; it survives only in the debug jump.
+      const rec = reconcileSwitch(prev.ship, prev.drones, prev.escorts, line, prev.ship.typeTier);
+      const ship = { ...prev.ship, carrying: payment.carrying, line, lineSwitchesUsed: prev.ship.lineSwitchesUsed + 1, arsenal: rec.arsenal, loadout: rec.loadout, turretMounts: rec.turretMounts };
       ship.attractRadius = attractRadiusForShip(ship.upgrades.attractor, ship.line, ship.typeTier);
-      return { ...prev, ship, bankedScrap: payment.banked, glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now() };
+      return {
+        ...prev, ship,
+        drones: rec.soldDroneIds.length ? prev.drones.filter(d => !rec.soldDroneIds.includes(d.id)) : prev.drones,
+        escorts: rec.soldEscortIds.length ? prev.escorts.filter(e => !rec.soldEscortIds.includes(e.id)) : prev.escorts,
+        scrap: rec.cargoDrops.length ? [...prev.scrap, ...expandCargoDrops(rec.cargoDrops)] : prev.scrap,
+        bankedScrap: payment.banked + rec.refund,
+        glitchActive: true, lastGlitchTime: performance.now(), lastUpgradeTime: performance.now(),
+      };
     });
   }, []);
 
@@ -722,6 +768,16 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
    * the local/host path, and the B2 bot policy will set the same
    * field for bot haulers.
    */
+  /**
+   * SCRAP HEALING (RULED, src/sim/repair.ts): the captain's
+   * repair toggle — DEFAULT ON; this verb is the opt-out (and
+   * the way back). While the mode stands, the loop's frame tick
+   * converts the ship's hold scrap into hull up to its cap.
+   */
+  const setRepairing = useCallback((on: boolean) => {
+    setState(prev => ({ ...prev, ship: { ...prev.ship, repairing: on } }));
+  }, []);
+
   const setDeliveryMode = useCallback((mode: 'feed' | 'deposit') => {
     setState(prev => {
       if (!canOrderWorkforce(prev.ship.line)) return prev;
@@ -1320,6 +1376,15 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           }
         } else if (ship.shield) {
           ship.shield = 0;
+        }
+        // SCRAP HEALING (RULED, src/sim/repair.ts): the repair
+        // toggle DEFAULTS ON (undefined reads as on) — a hurt,
+        // loaded ship heals at its hull's rate up to its
+        // type/tier cap whenever the mode stands; at the cap or
+        // on an empty hold the engine simply idles.
+        if (ship.repairing !== false) {
+          const ceiling = ship.maxHealth * healCapPctFor(ship.line, ship.typeTier);
+          repairFrame(ship, ship, ceiling, healRateFor(ship.line, ship.typeTier) / 60);
         }
         const gravFactor = defId === 'grav_dampers' ? gravFactorFor(defTier) : 1;
         const thrustFactor = defId === 'armor_plating' ? armorThrustFactor(defTier) : 1;
@@ -1923,6 +1988,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
             if (dd < bestD) { bestD = dd; hitProj = p; hitDrone = null; zapTarget = p.pos; }
           });
           next.drones.forEach(d => {
+            if (d.state === 'docked') return; // inside its ship
             if (!areHostile(simSeats, d.ownerId, ship.ownerId)) return;
             const dd = Math.hypot(d.pos.x - ship.pos.x, d.pos.y - ship.pos.y);
             if (dd < bestD) { bestD = dd; hitDrone = d; hitProj = null; zapTarget = d.pos; }
@@ -1958,6 +2024,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           // (TEAMS: hostile TEAM throughout — drones and the star
           // fallback alike.)
           next.drones.forEach(d => {
+            if (d.state === 'docked') return; // inside its ship
             if (!areHostile(simSeats, d.ownerId, ship.ownerId)) return;
             const dd = Math.hypot(d.pos.x - ship.pos.x, d.pos.y - ship.pos.y);
             if (dd < gunBestD) { gunBestD = dd; gunTarget = d.pos; }
@@ -2367,6 +2434,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     buildDrone,
     buildDefenseDrone,
     setDeliveryMode,
+    setRepairing,
     buildEscort,
     debugGrantScrap,
     debugGrantFed,
