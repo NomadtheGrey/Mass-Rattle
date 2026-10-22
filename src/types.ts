@@ -267,6 +267,15 @@ export interface Harvester {
    *  the star's. Absent = a ship's drone, as every pre-fleet drone
    *  was. */
   starFleet?: boolean;
+  /**
+   * THE LAST TRIP (Adam, 2026-10-22): set by a hull switch that
+   * liquidated this harvester. The drone abandons its work and
+   * flies one last trip to its star, where its cargo AND its
+   * own value sell into the seat's bank and it disappears.
+   * Killed en route, it dies an ordinary drone death — a drone
+   * that never arrives was never sold.
+   */
+  liquidating?: boolean;
   /** Ion Blaster effect: frames remaining where this drone is rebooting (no movement). */
   stunFrames?: number;
   /** Kill attribution (Phase 2, P2-2b): the ownerId of the seat whose

@@ -18,7 +18,7 @@ import { STAR_DRONE_RESPAWN_FRAMES, starDroneRangeFor, starDroneTargetFor } from
 import { applyDeliveryHeal } from '../starDefense';
 import { areHostile } from './teams';
 import { repairFrame, DRONE_DOCK_HEALTH, DRONE_DOCK_RATE_PER_SEC } from './repair';
-import { AUTO_GUN, DEFENSE_DRONE, canOrderWorkforce, typeFor } from '../shipProgression';
+import { AUTO_GUN, DEFENSE_DRONE, DRONE_PRICE, canOrderWorkforce, typeFor } from '../shipProgression';
 import type { GameState, Harvester, SeatSimState, Star, Vector2D } from '../types';
 
 export interface DroneStepContext {
@@ -47,6 +47,10 @@ export const stepDrones = (ctx: DroneStepContext): DroneStepResult => {
   let teamScrap = ctx.teamScrap;
   // TEAMS hostility reads (the seat table, as a list).
   const simSeats = [...seatByOwnerId.values()];
+  // THE LAST TRIP (Adam, 2026-10-22): ids of liquidated
+  // harvesters whose sale settled this frame — filtered out of
+  // the step's result below, once the map has run.
+  const settledSales = new Set<string>();
   // 5. Drones Logic
   const drones = (next.drones || []).map(drone => {
     // Home star by ownerId (P2-2b): the drone's seat's star.
@@ -78,6 +82,16 @@ export const stepDrones = (ctx: DroneStepContext): DroneStepResult => {
     // within its star's current fleet range — young stars glean
     // near, old stars sweep far (src/starFleet.ts).
     const fleetRange = drone.starFleet ? starDroneRangeFor(droneStar) : Infinity;
+
+    // THE LAST TRIP (Adam's final shape, 2026-10-22): a
+    // liquidated harvester abandons everything — its work, the
+    // decoy, the dock — and flies home to be sold. Forcing its
+    // state to 'returning' hands it to the ordinary return
+    // steering below (a docked drone undocks into the trip);
+    // the arrival there settles the SALE, not a delivery.
+    if (drone.liquidating && drone.state !== 'returning') {
+      drone.state = 'returning';
+    }
 
     // DEFENSE MODE (Arsenal slice 3 — Adam's hauler pair): a
     // defense drone never harvests. It holds a station off its
@@ -213,7 +227,7 @@ export const stepDrones = (ctx: DroneStepContext): DroneStepResult => {
     // it. (Hostile = TEAMS: not the decoy's TEAM; in SP, the
     // enemy's.) The STAR FLEET never chases: they are gleaners,
     // not guards — the defense pair does the guarding.
-    if (!drone.starFleet && next.decoy && areHostile(simSeats, drone.ownerId, next.decoy.ownerId)) {
+    if (!drone.starFleet && !drone.liquidating && next.decoy && areHostile(simSeats, drone.ownerId, next.decoy.ownerId)) {
       const bx = next.decoy.pos.x - drone.pos.x;
       const by = next.decoy.pos.y - drone.pos.y;
       const bd = Math.hypot(bx, by);
@@ -289,14 +303,34 @@ export const stepDrones = (ctx: DroneStepContext): DroneStepResult => {
       const dx = droneStar.pos.x - drone.pos.x;
       const dy = droneStar.pos.y - drone.pos.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      
+
       const targetAngle = Math.atan2(dy, dx);
-      drone.angle += (targetAngle - drone.angle) * PHYSICS.DRONES.ROTATE_SPEED;
+      // The diff wraps (the docking precedent, 2026-10-22): the
+      // LAST TRIP rides this steering, and a liquidated drone
+      // whose heading sits on the atan2 seam would otherwise
+      // loop the long way home — or never arrive to be sold.
+      let returnDiff = targetAngle - drone.angle;
+      while (returnDiff > Math.PI) returnDiff -= Math.PI * 2;
+      while (returnDiff < -Math.PI) returnDiff += Math.PI * 2;
+      drone.angle += returnDiff * PHYSICS.DRONES.ROTATE_SPEED;
       
       drone.pos.x += Math.cos(drone.angle) * droneSpeed;
       drone.pos.y += Math.sin(drone.angle) * droneSpeed;
 
       if (dist < droneStar.size + PHYSICS.DRONES.DEPOSIT_RADIUS) {
+        // THE LAST TRIP SETTLES (Adam, 2026-10-22): a liquidated
+        // harvester's arrival is a SALE, not a delivery — its
+        // cargo banks at face and the drone's own value banks
+        // with it; the standing FEED/DEPOSIT order does not
+        // govern a sale (no infusion, no heal, no teamScrap),
+        // and the drone disappears (filtered from the result).
+        if (drone.liquidating) {
+          const saleSeat = seatByOwnerId.get(drone.ownerId);
+          if (saleSeat) saleSeat.bankedScrap += drone.carrying + DRONE_PRICE;
+          settledSales.add(drone.id);
+          drone.carrying = 0;
+          return drone;
+        }
         const amount = drone.carrying;
         // WORKFORCE ORDERS (Adam, 2026-10-22): under a DEPOSIT
         // order the load BANKS into the seat's balance instead of
@@ -336,6 +370,13 @@ export const stepDrones = (ctx: DroneStepContext): DroneStepResult => {
 
     return drone;
   });
+  // Settled last-trip sales leave the world here (their banks
+  // were credited in the map, at the arrival).
+  if (settledSales.size) {
+    for (let i = drones.length - 1; i >= 0; i--) {
+      if (settledSales.has(drones[i].id)) drones.splice(i, 1);
+    }
+  }
   // STAR FLEET growth + regrowth (2026-10-22, src/starFleet.ts):
   // each living seat's star rebuilds its own fleet toward the
   // target its evolution sets — one birth per respawn interval,
