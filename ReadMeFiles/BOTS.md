@@ -19,7 +19,7 @@ a human drop-in inherits a ship, never a posture.
    retreat under home turrets. With Damage Control this buys
    real recovery — get under the guns, spend the hold, return
    at the cap. An empty-hold bot gets cover only; posture
-   weighs what's carried; damage below the repair cap never
+   weighs what's carried; hull lost ABOVE the cap line never
    heals (DAMAGE_CONTROL.md).
 2. **DEFEND** — hostile within 900 (DRAFT) of home star, or
    engaging the seat's harvesters/fleet: intercept the threat

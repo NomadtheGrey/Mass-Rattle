@@ -28,8 +28,9 @@ One roll per wreck, % of basis:
 | 80% | 1.4% |
 | 90% | 1.0% |
 
-Geometric decay ≈ ×0.7 per rung; the 10% floor is guaranteed
-and absorbs the leftover probability mass; the table sums to
+The tail decays ≈ ×0.7 per rung below the floor; the 10%
+floor is guaranteed and absorbs the leftover probability
+mass (it is the fat remainder, not a decay step); the table sums to
 100.0 and its expected value is ≈ 20.8% of basis. The 90%
 freak, in Adam's fiction: "the hit penetrated the weakest
 spot and took out the crew (very low chance) with minimal

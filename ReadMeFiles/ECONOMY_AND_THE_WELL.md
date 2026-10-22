@@ -48,9 +48,13 @@ from home."
 ## Death economy
 
 PINNED set. Death tax 25% of bank; repurchase = 20% of
-post-loss bank × 0.85^deaths; FREE at zero bank; respawn wait
-drafted 5s + 1s/death with Adam's provisional 30-second cap
-("IF it becomes a problem, we'll remove the cap"); 60s of
+post-loss bank × 0.85^(deaths−1) — the first repurchase takes
+no discount step (`src/sim/deathEconomy.ts`); FREE at zero
+bank; respawn wait drafted 5s + 1s/death (the base and step
+are DRAFTS) under a 30-second cap that is itself PINNED
+(RESPAWN_WAIT_MAX_MS, binding from death 26; Adam's framing
+when he set it: "IF it becomes a problem, we'll remove the
+cap"); 60s of
 survival forgives one wait-step (banked across lives; the
 price reads raw deaths); free-floor repurchase is instant.
 Forfeit after paying does not refund it. Death surfaces must

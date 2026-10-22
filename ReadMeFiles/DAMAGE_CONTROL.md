@@ -7,7 +7,9 @@ RULED by Adam 2026-10-22; engine and surfaces built on WIP
 
 - **Ships heal by consuming scrap from the HOLD** — tiered
   heal RATE and heal CAP by ship type and tier; even a Skiff
-  heals, to a small cap. Damage below the cap is permanent.
+  heals, to a small cap. Healing stops AT the cap: hull above
+  the cap line, once lost, is permanent until death;
+  everything below the line heals up to it.
   The player-facing exchange: **1 scrap = 2 HP**. All rate
   and cap values DRAFT for the numbers pass.
 - **The toggle is the captain's, and it defaults ON** (Adam's

@@ -30,15 +30,17 @@ Adam ever wants it.
 
 **Defense pair** (arsenal slice 3): drone mode for the
 Hauler — cap 1 at T2, 2 from T3, other lines 0. Guards fire
-light bolts at hostiles within 320, drones first. Price 100
-DRAFT (drone 75 + mount step 25). Fielded count excludes
+light bolts at hostiles within 320, drones first. Price a
+flat 100, DRAFT (DEFENSE_DRONE_PRICE). Fielded count excludes
 defense drones; their salvage basis differs
 (WRECK_SALVAGE.md).
 
 ## The star fleet
 
-PINNED shape, DRAFT magnitudes; built on WIP
-(`Harvester.starFleet`).
+SOFT-PINNED shape (Adam's "perhaps" — provenance kept in
+code for the numbers pass to revisit), DRAFT magnitudes;
+built on WIP (`Harvester.starFleet`). The hard pin is the
+range AXIS below, not the cap count.
 
 - **Cap = 1 per lifecycle stage** (Adam's amendment,
   2026-10-22 — growth rides STAR EVOLUTION, not the clock):
