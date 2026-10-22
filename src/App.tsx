@@ -16,6 +16,7 @@ import { ChatPanel } from './components/ChatPanel';
 import { useNetClient, NetSessionContext } from './net/useNetClient';
 import { RepurchaseOverlay } from './components/RepurchaseOverlay';
 import { repurchasePriceFor } from './sim/deathEconomy';
+import { escortKindOf } from './shipProgression';
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -75,6 +76,7 @@ export default function App() {
     debugGrantScrap,
     debugGrantFed,
     debugJumpTo,
+    buildEscort,
     switchLine,
     buildDrone,
     repurchaseShip,
@@ -254,6 +256,8 @@ export default function App() {
         onDebugGrantScrap={debugGrantScrap}
         onDebugGrantFed={debugGrantFed}
         onDebugJumpTo={debugJumpTo}
+        escortCounts={{ skiff: state.escorts.filter(e => e.ownerId === state.ship.ownerId && escortKindOf(e) === 'skiff').length, stinger: state.escorts.filter(e => e.ownerId === state.ship.ownerId && escortKindOf(e) === 'stinger').length, lancer: state.escorts.filter(e => e.ownerId === state.ship.ownerId && escortKindOf(e) === 'lancer').length }}
+        onBuildEscort={buildEscort}
         onBuyType={buyType}
         onBuyHullStep={buyHullStep}
         onBuyTurretMount={buyTurretMount}

@@ -1353,6 +1353,58 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       if (platesOn) plateFor(ship.pos.x, ship.pos.y, ship.size, ship.ownerId);
     }
 
+    // ESCORTS — THE WING (Arsenal slice 5b, UI draw): real little
+    // hulls out of state.escorts, each flying a table hull (shared
+    // Skiff / fighter Stinger / fighter Lancer). They wear the
+    // remote ships' treatment — the painted sprite washed toward
+    // their seat's team color (solo: the home green), vector
+    // outline as the fallback — but no nameplates (they are not
+    // seats) and no cloak (no escort hull is a stealth line). A
+    // damage tick rides a hurt escort: its live health at a glance.
+    // Hit-flash tracking is NOT keyed here — that ledger is keyed
+    // by seat ownerId and the wing shares its carrier's.
+    for (const e of state.escorts || []) {
+      const eLabel = seatLabels?.[e.ownerId];
+      const eColor = eLabel ? eLabel.color : (e.ownerId === ship.ownerId ? COLORS.CRT_GLOW : '#f43f5e');
+      ctx.save();
+      ctx.translate(e.pos.x, e.pos.y);
+      ctx.rotate(e.angle);
+      if (e.thrust) {
+        ctx.fillStyle = '#ff6600';
+        ctx.beginPath();
+        ctx.moveTo(-e.size * 0.8, 0);
+        ctx.lineTo(-e.size * 1.8 - Math.random() * 10, (Math.random() - 0.5) * 6);
+        ctx.lineTo(-e.size * 0.8, (Math.random() - 0.5) * 3);
+        ctx.fill();
+      }
+      const eSprite = tintedShipSprite(e.line, e.typeTier, eColor);
+      if (eSprite) {
+        ctx.save();
+        ctx.rotate(Math.PI / 2);
+        const S = e.size * SPRITE_SCALE;
+        ctx.drawImage(eSprite, -S / 2, -S / 2, S, S);
+        ctx.restore();
+      } else {
+        ctx.fillStyle = '#1a1a1c';
+        ctx.strokeStyle = eColor;
+        ctx.lineWidth = 2;
+        traceOutline(ctx, hullOutlineFor(e.line, e.typeTier, e.size));
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
+      if (e.maxHealth > 0 && e.health < e.maxHealth) {
+        const w = Math.max(18, e.size * 1.6);
+        const frac = Math.max(0, Math.min(1, e.health / e.maxHealth));
+        ctx.save();
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+        ctx.fillRect(e.pos.x - w / 2, e.pos.y - e.size - 11, w, 3);
+        ctx.fillStyle = eColor;
+        ctx.fillRect(e.pos.x - w / 2, e.pos.y - e.size - 11, w * frac, 3);
+        ctx.restore();
+      }
+    }
+
     ctx.restore(); // End Camera space
 
     // OFF-SCREEN CHARGE CUE: the HUD banner says a CME is charging, but not

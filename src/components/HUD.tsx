@@ -11,7 +11,7 @@ import { STAGE_LABELS, TEAM_LABELS, TEAM_COLORS } from './lobby/lobbyTypes';
 import type { TeamId } from '../net/protocol';
 import { MechanicsGuide } from './MechanicsGuide';
 import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor, MOUNT_ACCESS, canMountWeapon, weaponClassFor, type WeaponClass } from '../loadout';
-import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, autoGunCapFor, turretMountPriceFor, effectiveAutoGuns, DEFENSE_DRONE_PRICE, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
+import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, autoGunCapFor, turretMountPriceFor, effectiveAutoGuns, DEFENSE_DRONE_PRICE, ESCORT_KIND_DEFS, ESCORT_KINDS, escortCapFor, escortWingSize, type EscortKind, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
 
 // One-line summary of what a type's frame DOES, read off its capability
 // fields — the workshop sells the special in the type's own numbers.
@@ -183,6 +183,8 @@ interface HUDProps {
   playerDrones: number;
   playerDefenseDrones: number;
   onBuildDefenseDrone: () => void;
+  escortCounts: { skiff: number; stinger: number; lancer: number };
+  onBuildEscort: (kind: EscortKind) => void;
   onDebugGrantScrap?: (amount: number) => void;
   onDebugGrantFed?: (amount: number) => void;
   onDebugJumpTo?: (line: ShipLine | null, tier: TypeTier) => void;
@@ -244,6 +246,8 @@ export const HUD: React.FC<HUDProps> = ({
   playerDrones,
   playerDefenseDrones,
   onBuildDefenseDrone,
+  escortCounts,
+  onBuildEscort,
   onDebugGrantScrap,
   onDebugGrantFed,
   onDebugJumpTo,
@@ -1591,6 +1595,60 @@ export const HUD: React.FC<HUDProps> = ({
                           <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🛡️ BUILD DEFENSE DRONE {playerDefenseDrones + 1} OF {defenseCap}</span>
                           <span className="float-right text-[10px] sm:text-xs font-mono font-bold text-pink-400">{DEFENSE_DRONE_PRICE}U</span>
                         </button>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* MUSTER — THE WING (Arsenal slice 5b, 2026-10-21):
+                    the drone line's face. The block keys off the
+                    frame's escortWing composition (escortCapFor /
+                    escortWingSize — the data decides), and ALSO
+                    renders when a wing exists on a frame that fields
+                    none: the wing is a seat asset that persists
+                    through death and line changes, so its roster must
+                    never go invisible just because this hull can't
+                    add to it. Each kind is a table hull (shared T1
+                    Skiff / fighter Stinger / fighter Lancer) and
+                    builds at the well for its DRAFT price. */}
+                {(escortWingSize(shipLine, typeTier) > 0 || escortCounts.skiff + escortCounts.stinger + escortCounts.lancer > 0) && (() => {
+                  const wingSize = escortWingSize(shipLine, typeTier);
+                  const wingCount = escortCounts.skiff + escortCounts.stinger + escortCounts.lancer;
+                  return (
+                    <div className="pitted-metal px-3 py-2 rounded border border-zinc-700 flex flex-col gap-1.5">
+                      <div className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">🪽 MUSTER — THE WING · {wingCount}/{Math.max(wingSize, wingCount)} ON THE RING</div>
+                      <p className="text-[8px] sm:text-[9px] font-mono text-zinc-400 leading-snug">
+                        REAL SHIPS, NOT DRONES — THE WING GUARDS: IT RINGS YOU (YOUR STAR WHILE YOU'RE DOWN) AND ENGAGES HOSTILES ON ITS LEASH. NO HARVESTING, NO SIEGE. A WRECK DROPS A SALVAGE SCRAP AND REBUILDS HERE. THE WING OUTLIVES YOUR SHIP AND FLIES ON THROUGH LINE CHANGES.
+                      </p>
+                      {ESCORT_KINDS.map(kind => {
+                        const def = ESCORT_KIND_DEFS[kind];
+                        const cap = escortCapFor(shipLine, typeTier, kind);
+                        const count = escortCounts[kind];
+                        if (cap <= 0 && count <= 0) return null;
+                        const full = cap > 0 && count >= cap;
+                        const afford = funds >= def.price;
+                        return (
+                          <div key={kind} className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[9px] sm:text-[10px] font-mono font-bold text-zinc-200 w-[128px]">{def.label} <span className="text-zinc-500 font-normal">· {def.line ? `${def.line.toUpperCase()} T${def.typeTier} HULL` : 'SHARED T1 HULL'}</span></span>
+                            <span className="flex gap-1" aria-hidden="true">
+                              {Array.from({ length: Math.max(cap, count) }, (_, i) => (
+                                <span key={i} className={`w-2 h-2 rounded-full ${i < count ? 'bg-[#33ff33]' : 'bg-zinc-700'}`} />
+                              ))}
+                            </span>
+                            <span className="text-[9px] font-mono text-zinc-400">{count}/{cap} FLYING</span>
+                            {cap > 0 && (full ? (
+                              <span className="ml-auto text-[9px] sm:text-[10px] font-mono text-amber-400">{def.label} COMPLEMENT FULL</span>
+                            ) : (
+                              <button onClick={() => afford ? onBuildEscort(kind) : flashShopNotice(`NOT ENOUGH SCRAP — A ${def.label} ESCORT COSTS ${def.price}U · YOU HAVE ${funds}U`)}
+                                className={`ml-auto px-2.5 py-1.5 rounded text-[9px] sm:text-[10px] font-mono font-bold border touch-manipulation active:scale-95 ${afford ? 'bg-zinc-900 border-zinc-600 text-[#33ff33]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 cursor-not-allowed'}`}>
+                                🪽 {count > 0 ? 'REBUILD' : 'BUILD'} {def.label} · {def.price}U
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })}
+                      {wingSize === 0 && wingCount > 0 && (
+                        <p className="text-[8px] sm:text-[9px] font-mono font-bold text-amber-400 leading-snug">THIS FRAME FIELDS NO NEW ESCORTS — THE WING FLIES ON; A DRONE-LINE FRAME REOPENS THE MUSTER.</p>
                       )}
                     </div>
                   );
