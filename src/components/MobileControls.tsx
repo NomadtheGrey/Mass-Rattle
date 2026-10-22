@@ -154,7 +154,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
   return (
     <div className="fixed inset-x-0 bottom-0 pointer-events-none z-40 pb-2 px-2 sm:px-4 md:hidden select-none">
       {/* Top Mobile Quick Actions Row */}
-      <div className="flex justify-between items-center mb-2 px-1 pointer-events-auto">
+      <div className="flex justify-start items-center mb-2 px-1 pointer-events-auto">
         {/* Radar & Gauges toggles */}
         <div className="flex gap-2">
           <button
@@ -194,18 +194,12 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
           </button>
         </div>
 
-        {/* Workshop button */}
-        <button
-          onClick={() => {
-            triggerHaptic(20);
-            onOpenWorkshop();
-          }}
-          className="pitted-metal px-3 py-1.5 flex items-center gap-2 border border-pink-700/60 bg-pink-950/40 text-pink-400 text-[10px] font-mono font-bold active:scale-95 transition-transform shadow-lg rounded animate-pulse"
-        >
-          <Wrench size={13} className="text-pink-400" />
-          <span>WORKSHOP [{carrying}U]</span>
-        </button>
       </div>
+      {/* (The WORKSHOP door left this row in the smear fix — see
+          the dock column. This row's right side stays empty: on
+          short landscape screens the sheet grows tall enough for
+          its top row to reach the top bar, and anything printed
+          here on the right collides with SYS / GUIDE.) */}
 
       {/* Touch-controls legend — the phone CONTROLS card. Rows describe
           the tiles as they actually behave now (contextual included):
@@ -330,8 +324,8 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
           {inWell ? (
             /* Column 1 (docked): THE CHOICE (Adam's pin, 2026-10-20) —
                FEED the star or BANK the load, both one tap, both only
-               inside the well anyway. The WORKSHOP button in the top row
-               opens the (well-gated) shop itself. */
+               inside the well anyway. The WORKSHOP tile at the column's
+               foot opens the (well-gated) shop itself. */
             <div className="flex flex-col gap-2">
               {carrying > 0 && (
                 <button
@@ -369,6 +363,21 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                   <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">DOCKED</span>
                 </div>
               )}
+              {/* WORKSHOP tile — the shop's phone door lives IN the
+                  dock column (smear fix, 2026-10-22): it used to ride
+                  the sheet's top quick row, and on short landscape
+                  screens the sheet's height carried it up into the
+                  top bar, printing over SYS / GUIDE at the right
+                  edge. A dock verb belongs with the dock verbs; the
+                  quick row's right side stays empty now. */}
+              <button
+                onClick={() => { triggerHaptic(20); onOpenWorkshop(); }}
+                className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-pink-600/80 bg-pink-950/40 text-pink-400 active:bg-pink-900/60 active:scale-95 flex flex-col items-center justify-center shadow-[0_0_12px_rgba(236,72,153,0.3)] touch-none"
+              >
+                <Wrench size={16} className="text-pink-400" />
+                <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">WORKSHOP</span>
+                <span className="text-[8px] font-mono">{carrying + bankedScrap}U TO SPEND</span>
+              </button>
             </div>
           ) : (
             /* Column 1 (field): EJECT only while carrying, VAC always,
