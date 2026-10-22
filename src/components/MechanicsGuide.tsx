@@ -27,15 +27,21 @@ const Row: React.FC<{ k: string; v: string; color?: string }> = ({ k, v, color }
   </div>
 );
 
-export const MechanicsGuide: React.FC<{ onClose: () => void; onOpenOptions?: () => void }> = ({ onClose, onOpenOptions }) => (
+export const MechanicsGuide: React.FC<{ onClose: () => void; onOpenOptions?: () => void; embedded?: boolean }> = ({ onClose, onOpenOptions, embedded }) => (
   <div
-    onClick={onClose}
-    className="fixed inset-0 z-[105] flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-md pointer-events-auto"
+    onClick={embedded ? undefined : onClose}
+    className={embedded ? '' : 'fixed inset-0 z-[105] flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-md pointer-events-auto'}
   >
     <div
       onClick={(e: React.MouseEvent) => e.stopPropagation()}
-      className="hud-panel hud-panel-deep w-full max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6 border-4 bg-zinc-950/80 rounded-lg shadow-[0_0_50px_rgba(51,255,51,0.15)]"
+      className={embedded ? '' : 'hud-panel hud-panel-deep w-full max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6 border-4 bg-zinc-950/80 rounded-lg shadow-[0_0_50px_rgba(51,255,51,0.15)]'}
     >
+      {/* EMBEDDED (Adam's cabinet ruling, 2026-10-22): inside the
+          ESC modal's GUIDE tab the cabinet supplies the frame,
+          the close, and the OPTIONS door (its own tab) — so the
+          header, the door button, and the footer all stand down
+          and only the sections render. */}
+      {!embedded && (
       <div className="flex items-start justify-between mb-4">
         <div>
           <h2 className="text-lg font-black font-mono tracking-widest text-zinc-50">FIELD MANUAL</h2>
@@ -49,6 +55,7 @@ export const MechanicsGuide: React.FC<{ onClose: () => void; onOpenOptions?: () 
           [X]
         </button>
       </div>
+      )}
 
       {/* OPTIONS door (Adam, 2026-10-21): placement pinned to the
           FIELD MANUAL — Options opens as its own layer above this
@@ -120,7 +127,9 @@ export const MechanicsGuide: React.FC<{ onClose: () => void; onOpenOptions?: () 
         </Section>
       </div>
 
+      {!embedded && (
       <div className="text-center text-[9px] font-mono text-zinc-600 mt-5 tracking-widest">[ ESC / X TO CLOSE ]</div>
+      )}
     </div>
   </div>
 );
