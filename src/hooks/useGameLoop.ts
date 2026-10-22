@@ -24,6 +24,7 @@ import {
 } from '../sim/starStages';
 import { stepDrones } from '../sim/drones';
 import { repairFrame } from '../sim/repair';
+import { stepHarbors, canDockAt, HARBOR_DOCK_RANGE } from '../sim/harbor';
 import { reconcileSwitch } from '../switchReconcile';
 import { stepEscorts } from '../sim/escorts';
 import { stepMines, stepProjectiles } from '../sim/projectiles';
@@ -763,6 +764,47 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     setState(prev => ({ ...prev, ship: { ...prev.ship, repairing: on } }));
   }, []);
 
+  /**
+   * ALLY DOCKING verbs (src/sim/harbor.ts): berth at an allied
+   * harbor in reach (canDockAt is the one gate — teammates,
+   * hosting line, open harbor, capacity), leave a berth, work
+   * your own HARBOR switch, or undock one of your guests
+   * (gently — they keep their current health; the pass spills
+   * the rest when a harbor closes or a host dies).
+   */
+  const dockToHost = useCallback((hostOwnerId: string) => {
+    setState(prev => {
+      const hostSeat = prev.seats.find(s => s.ownerId === hostOwnerId);
+      const host = hostSeat?.ship;
+      if (!host || prev.ship.dockedTo) return prev;
+      if (!canDockAt(prev.seats, prev.ship, host)) return prev;
+      const d = Math.hypot(prev.ship.pos.x - host.pos.x, prev.ship.pos.y - host.pos.y);
+      if (d > host.size + HARBOR_DOCK_RANGE) return prev;
+      return { ...prev, ship: { ...prev.ship, dockedTo: hostOwnerId } };
+    });
+  }, []);
+
+  const undock = useCallback(() => {
+    setState(prev => (prev.ship.dockedTo
+      ? { ...prev, ship: { ...prev.ship, dockedTo: undefined } }
+      : prev));
+  }, []);
+
+  const setHarborOpen = useCallback((open: boolean) => {
+    setState(prev => ({ ...prev, ship: { ...prev.ship, harborOpen: open } }));
+  }, []);
+
+  const undockGuest = useCallback((guestOwnerId: string) => {
+    setState(prev => {
+      const seats = prev.seats.map(seat => {
+        const gs = seat.ship;
+        if (!gs || seat.ownerId !== guestOwnerId || gs.dockedTo !== prev.ship.ownerId) return seat;
+        return { ...seat, ship: { ...gs, dockedTo: undefined } };
+      });
+      return { ...prev, seats };
+    });
+  }, []);
+
   const setDeliveryMode = useCallback((mode: 'feed' | 'deposit') => {
     setState(prev => {
       if (!canOrderWorkforce(prev.ship.line)) return prev;
@@ -1367,7 +1409,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         // loaded ship heals at its hull's rate up to its
         // type/tier cap whenever the mode stands; at the cap or
         // on an empty hold the engine simply idles.
-        if (ship.repairing !== false) {
+        if (ship.repairing !== false && !ship.dockedTo) {
           const ceiling = ship.maxHealth * healCapPctFor(ship.line, ship.typeTier);
           repairFrame(ship, ship, ceiling, healRateFor(ship.line, ship.typeTier) / 60);
         }
@@ -1596,7 +1638,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           // Stats and tier scaling: src/loadout.ts WEAPON_STATS.
           const weaponId = s.loadout.weapon;
           const wStats = weaponStatsFor(weaponId, weaponId ? (s.arsenal[weaponId] || 0) : 0);
-          if (input.wantsFire && wStats && time >= (s.fireReadyAt || 0)) {
+          if (!s.dockedTo && input.wantsFire && wStats && time >= (s.fireReadyAt || 0)) {
             const cost = wStats.scrapCost || 0;
             if (wStats.kind === 'mine') {
               // Mine Layer: no projectile — mines drop at the ship's tail.
@@ -1944,6 +1986,12 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           if (next.decoy.lifeFrames <= 0) next.decoy = null;
         }
 
+        // ALLY DOCKING (src/sim/harbor.ts): docked guests ride
+        // their hosts and heal from the hosts' holds BEFORE
+        // weapons resolve, so this frame's positions and the
+        // cannot-be-hit reads all see the berth as it stands.
+        stepHarbors(simSeats);
+
         // MINES — the step lives in src/sim/projectiles.ts
         // (dedicated split), called here in the shipped position.
         next.mines = stepMines({ next, simSeats, time });
@@ -2002,7 +2050,8 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         // with drones too — that's their job). The count is
         // effectiveAutoGuns: the type's CAP bounded by mounts OWNED —
         // an unbought cap fires nothing.
-        const autoGunCount = effectiveAutoGuns(ship);
+        // ALLY DOCKING: a docked ship cannot fire — mounts too.
+        const autoGunCount = ship.dockedTo ? 0 : effectiveAutoGuns(ship);
         if (!localSeatDead && autoGunCount > 0) {
           let gunTarget: Vector2D | null = null;
           let gunBestD = AUTO_GUN.range;
@@ -2420,6 +2469,10 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     buildDefenseDrone,
     setDeliveryMode,
     setRepairing,
+    dockToHost,
+    undock,
+    setHarborOpen,
+    undockGuest,
     buildEscort,
     debugGrantScrap,
     debugGrantFed,
