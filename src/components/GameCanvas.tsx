@@ -1302,6 +1302,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       for (const seat of state.seats) {
         const rs = seat.ship;
         if (!rs || seat.ownerId === ship.ownerId) continue;
+        // ALLY DOCKING (2026-10-22): a docked guest rides its host
+        // EXACTLY (the harbor pass pins its position to the host's)
+        // — drawing it stacks a second hull and nameplate on the
+        // host's point. Berthed ships are not drawn; the host's
+        // hull is the visual, and the guest's own DOCKED chip and
+        // the host's manifest carry the fact.
+        if (rs.dockedTo) continue;
         noteHealth(rs.ownerId, rs.health);
         const label = seatLabels[seat.ownerId];
         // Reveal IS the sim's alpha (src/sim/stealth.ts — one

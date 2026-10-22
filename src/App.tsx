@@ -81,6 +81,10 @@ export default function App() {
     buildDrone,
     setDeliveryMode,
     setRepairing,
+    dockToHost,
+    undock,
+    setHarborOpen,
+    undockGuest,
     repurchaseShip,
     feedCargo,
     depositBank, 
@@ -265,6 +269,12 @@ export default function App() {
         deliveryMode={state.seats.find(se => se.ownerId === state.ship.ownerId)?.deliveryMode ?? 'feed'}
         onSetDeliveryMode={setDeliveryMode}
         onSetRepairing={setRepairing}
+        seats={state.seats}
+        seatLabels={seatLabels}
+        onDockToHost={dockToHost}
+        onUndock={undock}
+        onSetHarborOpen={setHarborOpen}
+        onUndockGuest={undockGuest}
         ship={state.ship}
         drones={state.drones}
         escorts={state.escorts}
