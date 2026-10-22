@@ -1,10 +1,11 @@
 Mass Rattle — Design & Practices
-Adam's game-design constitution for this repo. The CODE_MANIFESTO.md
+Adam's game-design constitution for THIS repo. The CODE_MANIFESTO.md
 (same folder) is pure code-shape law; the design and practice material
-lives here. Part V is observed pattern — Adam's common features across
-his games (BioForge and Mass Rattle as witnesses), drafted from what
-the games themselves repeatedly do.
-Last updated 2026-10-21.
+lives here. Part V is observed pattern — the features this game
+itself repeatedly builds, drafted from what Mass Rattle does, in
+Mass Rattle's own material. (Adam shares a design philosophy with
+his other work; this document speaks only for this game.)
+Last updated 2026-10-22.
 
 ## PART I — LAWS OF THE GAME
 
@@ -53,40 +54,48 @@ Last updated 2026-10-21.
    held the other players' ships, and no renderer drew them, because
    everyone assumed it did. Check the instrument, not the memory of
    it.
-9. **Family playtests are real QA.** Playtesting by the people the
-   game is FOR outranks synthetic coverage. Clarissa's saves caught
-   real bugs in both games' worlds — a stuck exit in BioForge, the
-   tame-persistence loss — that no test suite wrote itself toward.
-   Treat those saves and reports as the highest-grade signal there
-   is.
+9. **Playtests are real QA.** Play by the people the game is FOR
+   outranks synthetic coverage — and the designer's own memory of
+   playing is an instrument too: Adam's recollection that Space
+   threw scrap, checked against the code after two audits had
+   misstated it, was right. Treat hands-on reports as the
+   highest-grade signal there is, and verify the instruments
+   against them, not the other way round.
 
-## PART V — THE COMMON FEATURES
+## PART V — THIS GAME'S OWN FEATURES
 
-The patterns Adam builds into his games, noticed across both:
+The patterns Mass Rattle itself builds, noticed across its
+systems:
 
-- **A living thing you TEND and grow at the center.** A star you feed
-  through its lifecycle stages; a world you grow. The player is a
-  CARETAKER — Adam's own word for Mass Rattle's winners, recorded on
-  the standings.
-- **A ROSTER to collect and complete.** Nearly 200 tameable creatures
-  in BioForge; five ship lines flown to their flagships in Mass
-  Rattle. The collection is a reason to keep playing after the loop
-  is learned.
+- **A living thing you TEND and grow at the center.** A star you
+  feed through its lifecycle stages — dwarf to giant to neutron
+  star to the black hole that ends the match. The player is a
+  CARETAKER — Adam's own word for the winners, recorded on the
+  standings.
+- **A ROSTER to collect and complete.** Five ship lines flown to
+  their crowns, six weapons, three drone populations, an escort
+  wing to muster. The collection is a reason to keep playing
+  after the loop is learned.
 - **SEEDED PROCEDURAL worlds.** Variation comes from systems, not
-  hand-placed content — emergence over scripting: the One Law of
-  Life, flora propagation, biome hybrids; Mass Rattle's seeded rooms
-  and id-seeded CME streamers.
-- **A GATHER → BUILD economy.** The loop is harvest, carry, invest:
-  scrap into upgrades, ships, and the star; bio-matter into crafting
-  and growth. What you gather is what you become.
-- **NEVER ALONE, NEVER EMPTY.** Bots and AI inhabitants fill the
-  world and the seats; a match is alive whether or not another human
-  is in it. And co-op with family is the north star — BioForge's
-  multiplayer exists so Adam can play with his daughter.
-- **PROTECT THE PLAYER'S INVESTMENT.** Tamed creatures and planted
-  work are spared by cleanup systems; saves and cloud words guard
-  progress; penalties tax the player but never confiscate the way
-  back — the free floor is this pattern wearing numbers.
-- **NAMES ARE DESIGN.** Skiff, caretakers, the Leafpaw, galactic
-  room names — naming is treated as a first-class craft, not labels.
+  hand-placed content — emergence over scripting: seeded rooms,
+  id-seeded CME streamers, per-seat seeded bot progression so
+  no two bot fields mirror each other.
+- **A GATHER → BUILD economy.** The loop is harvest, carry,
+  invest: scrap into upgrades, ships, escorts — and into the
+  star itself. What you gather is what you become, and the
+  biggest thing you build is the one that can kill you last.
+- **NEVER ALONE, NEVER EMPTY.** Bots fill the unclaimed seats
+  from the first frame; a match is alive whether or not another
+  human is in it, and a human arriving inherits a flying ship,
+  never an empty chair.
+- **PROTECT THE PLAYER'S INVESTMENT.** Nothing is confiscated:
+  hull switches SELL what they displace at full price instead
+  of deleting it; displaced harvesters get their last trip home
+  with the money on arrival; grace holds your seat, your name,
+  and your star while you're gone; penalties tax the player but
+  never confiscate the way back — the free floor under the
+  death economy is this pattern wearing numbers.
+- **NAMES ARE DESIGN.** Skiff and Mothership, caretakers,
+  galactic two-word room names, a reserved name guarded by a
+  hash — naming is treated as a first-class craft, not labels.
   A name is part of the thing it names.
