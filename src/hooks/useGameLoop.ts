@@ -35,6 +35,15 @@ import { areHostile, areTeammates } from '../sim/teams';
 import { applyDeathLoss, botRepurchaseDue, completeRespawn, respawnDue, tryRepurchase } from '../sim/deathEconomy';
 import { walletPay, inTeamWell, attractRadiusForShip } from '../sim/seatShop';
 import { stepBotEconomy } from '../sim/botEconomy';
+import {
+  WRECK_DRIFT_DECAY,
+  WRECK_MARKER_MS,
+  cargoDropScrap,
+  droneSalvageBasis,
+  rollSalvageValue,
+  shipSalvageBasis,
+  wreckShardScrap,
+} from '../sim/salvage';
 import { appendEventRecords, EventFeedEntry } from '../sim/eventFeed';
 import { turretsForMilestones, turretRingRadius, turretDamageFor, turretFireChanceFor, turretAngleAt, targetInTurretArc, applyDeliveryHeal } from '../starDefense';
 import { weaponStatsFor, shieldMaxFor, shieldRechargePerFrame, armorHullFor, armorThrustFactor, PD_RANGE, PD_COOLDOWN_MS, pdDamageFor, decoyHealthFor, decoyLifeFramesFor, gravFactorFor, thornDamageFor, aegisAbsorbFor } from '../loadout';
@@ -124,6 +133,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     eventFeed: [],
     matchEnd: null,
     scrap: [],
+    wrecks: [],
     deployedCargo: [],
     projectiles: [],
     mines: [],
@@ -1600,8 +1610,13 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
             }
 
             if (dDistSq < (PHYSICS.AUTO_COLLECT_RADIUS ** 2)) {
-              if (s.carrying < totalCapacity) {
-                s.carrying += 1;
+              // WRECK SALVAGE: a value shard is a pile — it banks
+              // whole when the hold has room for all of it, and
+              // stays on the field when it doesn't (plain scrap
+              // is worth 1, exactly as shipped).
+              const pieceValue = d.value ?? 1;
+              if (s.carrying + pieceValue <= totalCapacity) {
+                s.carrying += pieceValue;
                 return false;
               }
             }
@@ -1758,6 +1773,18 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         const isVacActive = localFrame.isVacActive;
         next.lastEjectTime = localFrame.ejectAt;
         let newScrap = localFrame.scrap;
+        // WRECK SALVAGE: shards drift gently apart from the
+        // destruction point (velocity decays per frame), and
+        // tombstones stand only until their expiresAt — both on
+        // the sim's own clock, applied once here.
+        for (const piece of newScrap) {
+          if (!piece.vel) continue;
+          piece.pos.x += piece.vel.x;
+          piece.pos.y += piece.vel.y;
+          piece.vel.x *= WRECK_DRIFT_DECAY;
+          piece.vel.y *= WRECK_DRIFT_DECAY;
+        }
+        next.wrecks = (next.wrecks ?? []).filter(w => time < w.expiresAt);
 
         if (newScrap.length < 180 && Math.random() < 0.08) {
           // Spawn clusters biased toward player movement or rich veins
@@ -2144,13 +2171,14 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         // the event feed only; drops and shake are exactly as shipped.)
         next.drones = next.drones.filter(d => {
           if (d.health > 0) return true;
-          for (let di = 0; di < d.carrying + 1; di++) {
-            newScrap.push({
-              id: Math.random().toString(),
-              pos: { x: d.pos.x + (Math.random() - 0.5) * 30, y: d.pos.y + (Math.random() - 0.5) * 30 },
-              color: COLORS.SCRAP[Math.floor(Math.random() * COLORS.SCRAP.length)],
-            });
-          }
+          // WRECK SALVAGE (the flat +1 retires): the hold drops
+          // WHOLE as plain pieces, and the airframe rolls the
+          // ladder against its purchase price (75; a defense-mode
+          // drone 100; a star-fleet gleaner the same 75). A
+          // liquidating drone killed on its last trip dies under
+          // this same law — no sale settles.
+          newScrap.push(...cargoDropScrap(d.pos, d.carrying));
+          newScrap.push(...wreckShardScrap(d.pos, rollSalvageValue(droneSalvageBasis(d))));
           const killerOwnerId =
             d.lastHitByOwnerId && d.lastHitByOwnerId !== d.ownerId
               ? d.lastHitByOwnerId
@@ -2201,6 +2229,27 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
             victimKind: 'ship',
             at: time,
           });
+          // WRECK SALVAGE: the hull relinquishes its CARGO WHOLE
+          // and rolls the ladder against its INVESTED VALUE (the
+          // destroyed set only — shipSalvageBasis). The shards
+          // carry the tombstone's id; the marker stands in
+          // next.wrecks for WRECK_MARKER_MS, dressing only. No
+          // killer ownership: the field is the prize, and the
+          // respawn timer is the owner's handicap.
+          if (bs.carrying > 0) newScrap.push(...cargoDropScrap(bs.pos, bs.carrying));
+          const rolled = rollSalvageValue(shipSalvageBasis(bs));
+          if (rolled > 0) {
+            const wreckId = Math.random().toString();
+            newScrap.push(...wreckShardScrap(bs.pos, rolled, wreckId));
+            (next.wrecks ??= []).push({
+              id: wreckId,
+              pos: { ...bs.pos },
+              bornAt: time,
+              expiresAt: time + WRECK_MARKER_MS,
+              seed: Math.random(),
+              value: rolled,
+            });
+          }
           const cascade = applyDeathLoss(seat.bankedScrap, seat.deaths ?? 0);
           seat.bankedScrap = cascade.bankAfter;
           seat.deaths = cascade.deathsAfter;
