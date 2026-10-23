@@ -424,10 +424,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       ctx.arc(0, 0, s.size, 0, Math.PI * 2);
       ctx.fill();
 
-      // Label
-      ctx.fillStyle = isHome ? '#33ff33' : '#f43f5e';
-      ctx.font = '10px monospace';
-      ctx.fillText(isHome ? 'SYS: HOME_STAR_CORE' : 'SYS: ENEMY_STAR_CORE', -30, -s.size - 20);
+      // (The SYS: *_STAR_CORE canvas label was removed in the
+      // field-visible slice, 2026-10-22: world-space text over
+      // every star collided with HUD text on phones and told the
+      // player nothing the star's color + the astro panel don't.)
 
       // Turret Hubs — read straight from state (Phase 1c): star.turrets
       // is the ladder's list ({shell, angle, tier} per turret, a pure
