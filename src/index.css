@@ -111,6 +111,16 @@ body {
 }
 }
 
+/* SHORT-SCREEN TILE RULE (lab round 2, 2026-10-22): on short
+   landscape phones the control sheet's contextual tile columns
+   are its height — five field tiles at full height carry the
+   sheet's top (and its quick row) into the top bar's airspace.
+   Under 500px of height the tiles give up 8px each. Unlayered
+   on purpose: it must beat the h-12/h-14 utilities. */
+@media (max-height: 500px) {
+  .mc-sheet .mc-tile { height: 2.5rem; }
+}
+
 /* Pitted Metal Filter */
 @keyframes flicker {
   0% { opacity: 0.8; }

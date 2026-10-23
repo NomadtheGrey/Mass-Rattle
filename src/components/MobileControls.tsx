@@ -152,7 +152,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
   const rightHandlers = createTouchButtonHandler('rotateRight');
 
   return (
-    <div className="fixed inset-x-0 bottom-0 pointer-events-none z-40 pb-2 px-2 sm:px-4 md:hidden select-none">
+    <div className="mc-sheet fixed inset-x-0 bottom-0 pointer-events-none z-40 pb-2 px-2 sm:px-4 md:hidden select-none">
       {/* Top Mobile Quick Actions Row */}
       <div className="flex justify-start items-center mb-2 px-1 pointer-events-auto">
         {/* Radar & Gauges toggles */}
@@ -205,7 +205,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
           the tiles as they actually behave now (contextual included):
           if a tile is not on screen, it is not usable right now. */}
       {showHelp && uiOptions.controlsCard && (
-        <div className="mx-1 mb-2 pitted-metal border border-zinc-700 bg-zinc-950/85 rounded p-3 pointer-events-auto shadow-2xl">
+        <div className="fixed left-2 right-[104px] bottom-[150px] max-h-[46vh] overflow-y-auto z-40 pitted-metal border border-zinc-700 bg-zinc-950/85 rounded p-3 pointer-events-auto shadow-2xl">
           <div className="text-[8px] font-mono font-bold tracking-[0.25em] text-zinc-500 mb-1.5">TOUCH CONTROLS</div>
           <div className="flex flex-col gap-1">
             {[
@@ -326,11 +326,11 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                FEED the star or BANK the load, both one tap, both only
                inside the well anyway. The WORKSHOP tile at the column's
                foot opens the (well-gated) shop itself. */
-            <div className="flex flex-col gap-2">
+            <div className="grid grid-cols-2 gap-1.5">
               {carrying > 0 && (
                 <button
                   onClick={() => { triggerHaptic(20); onFeedCargo(); }}
-                  className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-amber-500/80 bg-amber-950/25 text-amber-300 active:bg-amber-900/40 active:scale-95 flex flex-col items-center justify-center shadow-[0_0_12px_rgba(251,191,36,0.3)] touch-none"
+                  className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal mc-tile rounded-lg border-2 border-amber-500/80 bg-amber-950/25 text-amber-300 active:bg-amber-900/40 active:scale-95 flex flex-col items-center justify-center shadow-[0_0_12px_rgba(251,191,36,0.3)] touch-none"
                 >
                   <Star size={16} className="text-amber-300" />
                   <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">FEED</span>
@@ -340,7 +340,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
               {carrying > 0 && (
                 <button
                   onClick={() => { triggerHaptic(20); onDepositBank(); }}
-                  className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-pink-600/80 bg-pink-950/25 text-pink-400 active:bg-pink-900/40 active:scale-95 flex flex-col items-center justify-center shadow-[0_0_12px_rgba(236,72,153,0.3)] touch-none"
+                  className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal mc-tile rounded-lg border-2 border-pink-600/80 bg-pink-950/25 text-pink-400 active:bg-pink-900/40 active:scale-95 flex flex-col items-center justify-center shadow-[0_0_12px_rgba(236,72,153,0.3)] touch-none"
                 >
                   <Download size={16} className="text-pink-400" />
                   <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">BANK</span>
@@ -350,7 +350,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
               {bankedScrap > 0 && (
                 <button
                   onClick={() => { triggerHaptic(20); onWithdrawBank(); }}
-                  className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-cyan-600/80 bg-cyan-950/25 text-cyan-300 active:bg-cyan-900/40 active:scale-95 flex flex-col items-center justify-center shadow-[0_0_12px_rgba(34,211,238,0.25)] touch-none"
+                  className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal mc-tile rounded-lg border-2 border-cyan-600/80 bg-cyan-950/25 text-cyan-300 active:bg-cyan-900/40 active:scale-95 flex flex-col items-center justify-center shadow-[0_0_12px_rgba(34,211,238,0.25)] touch-none"
                 >
                   <Upload size={16} className="text-cyan-300" />
                   <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">WITHDRAW</span>
@@ -358,7 +358,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                 </button>
               )}
               {carrying <= 0 && bankedScrap <= 0 && (
-                <div className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-zinc-800 bg-zinc-950/30 text-zinc-500 flex flex-col items-center justify-center">
+                <div className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal mc-tile rounded-lg border-2 border-zinc-800 bg-zinc-950/30 text-zinc-500 flex flex-col items-center justify-center">
                   <Landmark size={16} />
                   <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">DOCKED</span>
                 </div>
@@ -372,11 +372,11 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                   quick row's right side stays empty now. */}
               <button
                 onClick={() => { triggerHaptic(20); onOpenWorkshop(); }}
-                className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-pink-600/80 bg-pink-950/25 text-pink-400 active:bg-pink-900/40 active:scale-95 flex flex-col items-center justify-center shadow-[0_0_12px_rgba(236,72,153,0.3)] touch-none"
+                className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal mc-tile rounded-lg border-2 border-pink-600/80 bg-pink-950/25 text-pink-400 active:bg-pink-900/40 active:scale-95 flex flex-col items-center justify-center shadow-[0_0_12px_rgba(236,72,153,0.3)] touch-none"
               >
                 <Wrench size={16} className="text-pink-400" />
                 <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">WORKSHOP</span>
-                <span className="text-[8px] font-mono">{carrying + bankedScrap}U TO SPEND</span>
+                <span className="text-[8px] font-mono whitespace-nowrap">{carrying + bankedScrap}U</span>
               </button>
             </div>
           ) : (
@@ -387,7 +387,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
               {carrying > 0 && (
                 <button
                   {...jettisonHandlers}
-                  className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-red-600 bg-red-950/25 text-red-400 active:bg-red-900 active:scale-95 flex flex-col items-center justify-center transition-all touch-none shadow-[0_0_12px_rgba(239,68,68,0.3)]"
+                  className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal mc-tile rounded-lg border-2 border-red-600 bg-red-950/25 text-red-400 active:bg-red-900 active:scale-95 flex flex-col items-center justify-center transition-all touch-none shadow-[0_0_12px_rgba(239,68,68,0.3)]"
                 >
                   <Disc size={16} className="text-red-400 animate-spin" />
                   <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">EJECT</span>
@@ -401,7 +401,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
               {carrying > 0 && (
                 <button
                   {...jettisonAllHandlers}
-                  className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-orange-600 bg-orange-950/25 text-orange-400 active:bg-orange-900 active:scale-95 flex flex-col items-center justify-center transition-all touch-none shadow-[0_0_12px_rgba(249,115,22,0.3)]"
+                  className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal mc-tile rounded-lg border-2 border-orange-600 bg-orange-950/25 text-orange-400 active:bg-orange-900 active:scale-95 flex flex-col items-center justify-center transition-all touch-none shadow-[0_0_12px_rgba(249,115,22,0.3)]"
                 >
                   <Disc size={16} className="text-orange-400" />
                   <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">DUMP</span>
@@ -411,7 +411,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
               {/* VAC Button */}
               <button
                 {...vacHandlers}
-                className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 border-emerald-600/80 bg-emerald-950/20 text-[#33ff33] active:bg-emerald-900/40 active:border-[#33ff33] active:scale-95 flex flex-col items-center justify-center shadow-[0_0_12px_rgba(51,255,51,0.2)] touch-none"
+                className="w-14 h-12 sm:w-16 sm:h-14 pitted-metal mc-tile rounded-lg border-2 border-emerald-600/80 bg-emerald-950/20 text-[#33ff33] active:bg-emerald-900/40 active:border-[#33ff33] active:scale-95 flex flex-col items-center justify-center shadow-[0_0_12px_rgba(51,255,51,0.2)] touch-none"
               >
                 <Magnet size={16} className="text-[#33ff33]" />
                 <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">VAC PULL</span>
@@ -422,7 +422,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                   tile just turns the mode and reads its state). */}
               <button
                 onClick={() => { triggerHaptic(20); onToggleRepair(); }}
-                className={`w-14 h-12 sm:w-16 sm:h-14 pitted-metal rounded-lg border-2 active:scale-95 flex flex-col items-center justify-center transition-all touch-none ${activelyRepairing ? 'border-[#33ff33] bg-emerald-950/25 text-[#33ff33] shadow-[0_0_12px_rgba(51,255,51,0.3)]' : repairing ? 'border-cyan-600/80 bg-cyan-950/20 text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.2)]' : 'border-zinc-700 bg-zinc-950/25 text-zinc-500'}`}
+                className={`w-14 h-12 sm:w-16 sm:h-14 pitted-metal mc-tile rounded-lg border-2 active:scale-95 flex flex-col items-center justify-center transition-all touch-none ${activelyRepairing ? 'border-[#33ff33] bg-emerald-950/25 text-[#33ff33] shadow-[0_0_12px_rgba(51,255,51,0.3)]' : repairing ? 'border-cyan-600/80 bg-cyan-950/20 text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.2)]' : 'border-zinc-700 bg-zinc-950/25 text-zinc-500'}`}
               >
                 <Wrench size={16} />
                 <span className="text-[9px] font-mono font-bold uppercase tracking-tight mt-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">{activelyRepairing ? 'PATCHING' : repairing ? 'REPAIR ON' : 'REPAIR OFF'}</span>
