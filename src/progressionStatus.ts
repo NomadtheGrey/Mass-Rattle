@@ -20,6 +20,7 @@
  */
 import {
   SHIP_LINES, typeFor, capsFor, typeStepPrice, healCapPctFor, healRateFor,
+  escortWingSize,
   type ShipLine, type TypeTier, type TrackCaps,
 } from './shipProgression';
 import { MOUNT_ACCESS, type WeaponClass } from './loadout';
@@ -95,6 +96,9 @@ export type NextStep =
        * per-line form from the SKIFF, whose step price varies by line. */
       options: NextStepOption[];
       anyAffordable: boolean;
+      /** [cheapest, dearest] across the five lines — the plate's
+       * range form of the same offers, never a single fake price. */
+      priceRange: [number, number];
     }
   | {
       kind: 'climb';
@@ -128,7 +132,13 @@ export const nextStep = (
       const price = typeStepPrice(line, 1);
       return { line, toName: typeFor(line, 2).name, price, affordable: funds >= price };
     });
-    return { kind: 'firstStep', options, anyAffordable: options.some(o => o.affordable) };
+    const prices = options.map(o => o.price);
+    return {
+      kind: 'firstStep',
+      options,
+      anyAffordable: options.some(o => o.affordable),
+      priceRange: [Math.min(...prices), Math.max(...prices)],
+    };
   }
   const line = ship.line;
   const toTier = (ship.typeTier + 1) as TypeTier;
@@ -164,6 +174,14 @@ export interface UnlockDiff {
   droneCarryBonus: StepChange | null;
   cargoBonus: StepChange | null;
   vacBonus: StepChange | null;
+  /** The carrier wing's shape after the climb (drone line only;
+   * totals via escortWingSize — the wing IS that line's headline). */
+  escortWing: {
+    from: { skiff: number; stinger: number; lancer: number };
+    to: { skiff: number; stinger: number; lancer: number };
+    fromTotal: number;
+    toTotal: number;
+  } | null;
   /** Weapon classes this climb newly mounts (MOUNT_ACCESS diff). */
   mountClasses: WeaponClass[];
   /** Repair ceiling / rate after the climb (repair.ts reads these). */
@@ -203,6 +221,10 @@ export const unlockDiff = (line: ShipLine, tier: TypeTier): UnlockDiff | null =>
     .filter(c => c.from !== c.to);
   const mountBefore = MOUNT_ACCESS[line][tier];
   const mountClasses = MOUNT_ACCESS[line][toTier].filter(c => !mountBefore.includes(c));
+  const wingChanged =
+    fromDef.escortWing.skiff !== toDef.escortWing.skiff ||
+    fromDef.escortWing.stinger !== toDef.escortWing.stinger ||
+    fromDef.escortWing.lancer !== toDef.escortWing.lancer;
   return {
     toTier,
     toName: toDef.name,
@@ -217,6 +239,14 @@ export const unlockDiff = (line: ShipLine, tier: TypeTier): UnlockDiff | null =>
     droneCarryBonus: change(fromDef.droneCarryBonus, toDef.droneCarryBonus),
     cargoBonus: change(fromDef.cargoBonus, toDef.cargoBonus),
     vacBonus: change(fromDef.vacBonus, toDef.vacBonus),
+    escortWing: wingChanged
+      ? {
+          from: { ...fromDef.escortWing },
+          to: { ...toDef.escortWing },
+          fromTotal: escortWingSize(line, tier),
+          toTotal: escortWingSize(line, toTier),
+        }
+      : null,
     mountClasses,
     healCapPct: change(healCapPctFor(line, tier), healCapPctFor(line, toTier)),
     healRate: change(healRateFor(line, tier), healRateFor(line, toTier)),
@@ -224,4 +254,46 @@ export const unlockDiff = (line: ShipLine, tier: TypeTier): UnlockDiff | null =>
       !isStealthShip({ line, typeTier: tier }) && isStealthShip({ line, typeTier: toTier }),
     harborBerths: change(harborCapacityFor(line, tier), harborCapacityFor(line, toTier)),
   };
+};
+
+/** Display names for the formatted lines — the caps table's own words. */
+const TRACK_LABEL: Record<TrackKey, string> = {
+  thrust: 'THRUST',
+  handling: 'HANDLING',
+  attractor: 'VAC',
+  fuelCap: 'FUEL',
+  cargo: 'CARGO',
+};
+
+/**
+ * WHAT A CLIMB BUYS, pre-formatted — unlockDiff rendered as short
+ * lines a surface can join verbatim ('THRUST CAP 6 · HEAVY MOUNTS ·
+ * GOES SUBMARINE'). The formatting lives HERE, with the law, so every
+ * surface speaks identically; the structured diff stays available for
+ * any surface that needs more than words. Only real changes appear,
+ * in a stable order: caps, hull, mounts, workforce, wing, specials.
+ * Returns null at T5 (no climb, no lines).
+ */
+export const unlockLines = (line: ShipLine, tier: TypeTier): string[] | null => {
+  const d = unlockDiff(line, tier);
+  if (!d) return null;
+  const lines: string[] = [];
+  for (const c of d.trackCaps) lines.push(`${TRACK_LABEL[c.track]} CAP ${c.to}`);
+  if (d.hullStepCap) lines.push(`HULL STEPS ${d.hullStepCap.to}`);
+  if (d.hardPoints) lines.push(`WEAPON MOUNTS ${d.hardPoints.to}`);
+  if (d.autoGuns) lines.push(`TURRET MOUNTS ${d.autoGuns.to}`);
+  if (d.mountClasses.includes('heavy')) lines.push('HEAVY MOUNTS');
+  if (d.minesPerDrop) lines.push(`MINES ${d.minesPerDrop.to}/DROP`);
+  if (d.dronesFielded) lines.push(`WORKFORCE ${d.dronesFielded.to}`);
+  if (d.defenseDrones) lines.push(`DEFENSE DRONES ${d.defenseDrones.to}`);
+  if (d.droneSpeedPct) lines.push(`DRONE SPEED +${d.droneSpeedPct.to}%`);
+  if (d.droneCarryBonus) lines.push(`DRONE CARRY +${d.droneCarryBonus.to}`);
+  if (d.escortWing) lines.push(`WING ${d.escortWing.toTotal}`);
+  if (d.cargoBonus) lines.push(`HOLD +${d.cargoBonus.to}`);
+  if (d.vacBonus) lines.push(`VAC +${d.vacBonus.to}`);
+  if (d.healCapPct) lines.push(`HEAL CAP ${Math.round(d.healCapPct.to * 100)}%`);
+  if (d.healRate) lines.push(`HEAL RATE ${d.healRate.to}/S`);
+  if (d.stealth) lines.push('GOES SUBMARINE');
+  if (d.harborBerths) lines.push(`BERTHS ${d.harborBerths.to}`);
+  return lines;
 };
