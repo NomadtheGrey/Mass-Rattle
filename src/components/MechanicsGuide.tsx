@@ -1,4 +1,5 @@
 import React from 'react';
+import { SHIP_LINES, type ShipLine } from '../shipProgression';
 
 /**
  * Mechanics guide (Adam, 2026-10-21) — the deep version of the lobby's
@@ -96,8 +97,15 @@ export const MechanicsGuide: React.FC<{ onClose: () => void; onOpenOptions?: () 
           <p>A fed star grows <span className="text-zinc-100">defense turrets</span> that shoot hostile ships. Turret fire <span className="text-zinc-100 font-bold">never hurts a star</span> — only a ship's own weapons can damage one. To kill a star, a ship has to do it personally.</p>
         </Section>
 
+        <Section title="🛸 SHIP FRAMES — YOUR FIRST CLIMB">
+          <p><span className="text-zinc-100 font-bold">YOU START IN A T1 SKIFF.</span> Every pilot launches in the same small all-rounder — it belongs to no line yet. The SKIFF is a beginning, not a choice.</p>
+          <p><span className="text-zinc-100 font-bold">THE FIRST STEP.</span> Dock at your star and open the WORKSHOP's SHIP FRAME: five T2 frames wait there, and buying one CHOOSES your line — {(Object.keys(SHIP_LINES) as ShipLine[]).map(ln => `${ln.toUpperCase()} → ${SHIP_LINES[ln].types[1].name} ${SHIP_LINES[ln].stepPrices[0]}U`).join(' · ')}.</p>
+          <p><span className="text-zinc-100 font-bold">CLIMBING.</span> From T2 up, you CLIMB inside your line whenever you can pay — at your star, in the workshop. Nothing else gates it: you do NOT have to max anything first. Each tier raises the ceilings — track caps, hull-step room, mounts and crew — and deepens the line's special: the minelayer goes submarine at T2, the carrier's wing musters, berths open on the host lines. Growing the hull between tiers is its own verb (GROW HULL, priced per step).</p>
+          <p>Anything the new frame can't hold sells back into your bank at the switch, at the posted rates — a climb never strands your property. And your frame, its tier, and the next climb's price ride on your status readout at all times: when a climb is payable, the game tells you.</p>
+        </Section>
+
         <Section title="🚀 SHIPS & THE WORKSHOP">
-          <p>Five ship lines — <span className="text-zinc-100">FIGHTER</span> (more hard points), <span className="text-zinc-100">MINELAYER</span> (more mines per drop — and the game's submarine, below), <span className="text-zinc-100">HAULER</span> (cargo + tractor reach), <span className="text-zinc-100">DRONE</span> (up to a Mothership), <span className="text-zinc-100">CRUISER</span> (up to a Dreadnought, with shipboard guns). Each line climbs types, and types cap your hull size and upgrade tracks — max a type out and the next frame up is a bigger type.</p>
+          <p>Five ship lines — <span className="text-zinc-100">FIGHTER</span> (more hard points), <span className="text-zinc-100">MINELAYER</span> (more mines per drop — and the game's submarine, below), <span className="text-zinc-100">HAULER</span> (cargo + tractor reach), <span className="text-zinc-100">DRONE</span> (up to a Mothership), <span className="text-zinc-100">CRUISER</span> (up to a Dreadnought, with shipboard guns). Each line climbs types (T2 through T5), and the frame sets your ceilings — hull size, track caps, mounts, crew. How climbing works is its own section, above.</p>
           <p>A line's special is a <span className="text-zinc-100">peak, not a lock</span>: any ship can carry mines or guns, the specialist just carries more. Switching lines costs a toll that grows with the tier you leave. The workshop (in the well) sells track upgrades, weapons, defenses, and hybrids; swapping arsenal gear costs scrap by tier.</p>
         </Section>
 

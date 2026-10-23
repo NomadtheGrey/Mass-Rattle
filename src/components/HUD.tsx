@@ -17,6 +17,7 @@ import { STAGE_LABELS, TEAM_LABELS, TEAM_COLORS } from './lobby/lobbyTypes';
 import type { TeamId } from '../net/protocol';
 import { MechanicsGuide } from './MechanicsGuide';
 import { LOADOUT_ITEMS, getLoadoutItem, itemTierCost, swapCostForTier, MAX_ITEM_TIER, ArsenalCategory, shieldMaxFor, MOUNT_ACCESS, canMountWeapon, weaponClassFor, WEAPON_SELECT_ORDER, weaponIdForSelectSlot, type WeaponClass } from '../loadout';
+import { frameMaxed, nextStep, trackStatus, unlockLines } from '../progressionStatus';
 import { SHIP_LINES, typeFor, capsFor, typeStepPrice, hullStepPrice, hullSizeFor, HULL_STEP_HEALTH, switchToll, DRONE_PRICE, autoGunCapFor, turretMountPriceFor, effectiveAutoGuns, DEFENSE_DRONE_PRICE, ESCORT_KIND_DEFS, ESCORT_KINDS, escortCapFor, escortWingSize, escortKindOf, canOrderWorkforce, healCapPctFor, healRateFor, type EscortKind, ShipLine, TypeTier, ShipTypeDef } from '../shipProgression';
 
 // One-line summary of what a type's frame DOES, read off its capability
@@ -297,6 +298,17 @@ export const HUD: React.FC<HUDProps> = ({
   // matching walletPay in the game loop — but the bank is the home star's
   // gravity well, so banked savings only count while inside it.
   const funds = carrying + (bankInWell ? bankedScrap : 0);
+  // UPGRADING CLARITY (Option C, Adam 2026-10-23): the climb's
+  // public state, read through the ONE helper (progressionStatus)
+  // so the readout, the cards, and the nudge can never disagree.
+  const climbStep = nextStep(ship, carrying, bankedScrap);
+  const isFrameMaxed = frameMaxed(ship);
+  const climbAffordable = climbStep ? (climbStep.kind === 'climb' ? climbStep.affordable : climbStep.anyAffordable) : false;
+  const stepBand = climbStep?.kind === 'firstStep' ? climbStep.priceRange : null;
+  // BUYS lines render through the helper's own unlockLines —
+  // the formatting lives with the law, so every surface speaks
+  // identically and no surface formats the diff by hand.
+
   // Progression reads come from the ONE table (src/shipProgression.ts):
   // the current type's def, its per-track caps, and the line-switch toll.
   const progType = typeFor(shipLine, typeTier);
@@ -798,6 +810,13 @@ export const HUD: React.FC<HUDProps> = ({
             <span className="text-orange-500 font-bold">M{starLevel} · {growthProgress}/{growthCost}</span>
             <span className="text-zinc-600">|</span>
             <span className="text-red-500 font-bold">ENEMY INT {Math.floor(enemyIntegrity * 100)}%</span>
+            <span className="text-zinc-600">|</span>
+            <span className="text-cyan-300 font-bold">🛸 {progType.name} T{typeTier}</span>
+            {climbStep ? (
+              <span className="text-emerald-400 font-bold max-sm:hidden">{climbStep.kind === 'climb' ? `⬆${climbStep.price}U` : `⬆${stepBand![0]}–${stepBand![1]}U`}</span>
+            ) : (
+              <span className="text-amber-400 font-bold max-sm:hidden">MAX</span>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -1358,6 +1377,32 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
       )}
 
+      {/* CLIMB NUDGE (Option C): the in-the-moment teacher. Armed
+          by affordability alone (progressionStatus reads the same
+          carrying + bank the shop charges, so it never promises
+          what the shop won't sell); its words sharpen when the
+          frame is maxed. It stands while true, self-clears on the
+          climb or on spending down, hides while the workshop is
+          open, and tapping it asks for the workshop (outside the
+          well the shop door stamps its usual refusal). Top rung
+          of the pill stack on both platforms. */}
+      {climbAffordable && !isShopOpen && (
+        <div className={`fixed ${(dockSurfaceShown && ordersPillShown) ? 'max-md:bottom-[214px]' : (dockSurfaceShown || ordersPillShown) ? 'max-md:bottom-[178px]' : stripDetailShown ? 'max-md:bottom-[106px]' : 'max-md:bottom-[46px]'} ${dockSurfaceShown ? ((loadout.defense === 'decoy_beacon' && !decoyActive) ? 'md:bottom-[184px]' : 'md:bottom-[148px]') : ((loadout.defense === 'decoy_beacon' && !decoyActive) ? 'md:bottom-[148px]' : 'md:bottom-[112px]')} left-1/2 -translate-x-1/2 z-[56] pointer-events-auto`}>
+          <button
+            onClick={onOpenShop}
+            className={`hud-panel px-3 py-1.5 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider shadow-[0_0_10px_rgba(52,211,153,0.35)] ${isFrameMaxed ? 'border-amber-400 text-amber-300' : 'border-emerald-500 text-emerald-300'}`}
+          >
+            {climbStep!.kind === 'climb'
+              ? isFrameMaxed
+                ? `⬆ FRAME MAXED — CLIMB TO ${climbStep!.toName} · ${climbStep!.price}U`
+                : `⬆ CLIMB READY — ${climbStep!.toName} · ${climbStep!.price}U`
+              : isFrameMaxed
+                ? `⬆ FRAME MAXED — FIRST STEP ${stepBand![0]}–${stepBand![1]}U — PICK YOUR LINE`
+                : `⬆ FIRST STEP ${stepBand![0]}–${stepBand![1]}U — PICK YOUR LINE`}
+          </button>
+        </div>
+      )}
+
       {/* DOCK PILL / DOCKED CHIP (Ally Docking): the top of the
           pill stack — mutually exclusive (you cannot seek a
           berth while you ride one). The pill names the nearest
@@ -1448,6 +1493,17 @@ export const HUD: React.FC<HUDProps> = ({
             <div className="text-[8px] sm:text-[10px] font-mono uppercase leading-tight whitespace-nowrap text-zinc-400">DATA</div>
           </button>
         )}
+        {/* FRAME CELL (Option C): the ship's own plate — type,
+            tier, and the next climb's price, per Adam's emphasis.
+            On phones it rides the summoned detail (the ribbon's
+            row 1 carries the plate in flight); desktop's strip is
+            always whole. Emerald when the climb is payable. */}
+        <div className={`hud-panel px-1.5 py-0.5 rounded border text-center min-w-[56px] ${climbAffordable ? 'border-emerald-700' : 'border-zinc-800'} ${stripDetailShown ? '' : 'max-md:hidden'}`}>
+          <div className="text-[8px] sm:text-[9px] font-mono text-zinc-300 tracking-widest whitespace-nowrap">🛸 {progType.name}</div>
+          <div className="text-[9px] sm:text-[11px] font-mono font-bold leading-tight whitespace-nowrap text-zinc-50">
+            {climbStep === null ? 'T5 · MAX' : climbStep.kind === 'climb' ? <>T{typeTier} · <span className={climbStep.affordable ? 'text-emerald-300' : ''}>⬆{climbStep.price}U</span></> : <>T1 · <span className={climbStep.anyAffordable ? 'text-emerald-300' : ''}>⬆{stepBand![0]}–{stepBand![1]}U</span></>}
+          </div>
+        </div>
         {[
           { icon: '🚀', name: 'THRUST', lvl: upgrades.thrust, cap: caps.thrust, stat: `SPD ${(PHYSICS.MAX_VELOCITY + upgrades.thrust * 0.5).toFixed(1)}` },
           { icon: '🕹️', name: 'TURN', lvl: upgrades.handling, cap: caps.handling, stat: `${Math.round((PHYSICS.ROTATION_SPEED * progType.turnFactor + upgrades.handling * 0.005) * 60 * 180 / Math.PI)}°/S` },
@@ -1461,6 +1517,12 @@ export const HUD: React.FC<HUDProps> = ({
           </div>
         ))}
         <div className={`w-px bg-zinc-800 mx-0.5 ${stripDetailShown ? '' : 'max-md:hidden'}`} />
+        {/* MAXED-TRACK POINTER (Option C): a capped track names
+            where its headroom lives — its own wrapped row right
+            after the tracks; phone shows it with the detail. */}
+        {typeTier < 5 && trackStatus(ship).some(t => t.atCap) && (
+          <div className={`basis-full text-center text-[8px] sm:text-[9px] font-mono font-bold tracking-widest text-amber-400 ${stripDetailShown ? '' : 'max-md:hidden'}`}>⬆ TRACK MAXED — HEADROOM IS UP A FRAME</div>
+        )}
         {([
           { slot: 'weapon' as const, label: 'WPN' },
           { slot: 'defense' as const, label: 'DEF' },
@@ -1744,6 +1806,7 @@ export const HUD: React.FC<HUDProps> = ({
                           <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">{ln} → {t2.name}</span>
                           <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(t2)}</span>
                           <span className="text-[10px] sm:text-xs font-mono font-bold text-pink-400">{price}U</span>
+                          <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-emerald-400/90">BUYS: {(unlockLines(ln, 1) ?? []).join(' · ')}</span>
                           {hasSales(choicePreviews[ln]) && (
                             <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-amber-400">⚠ SELLS: {sellSummary(choicePreviews[ln]!)} ({sellMoneyLine(choicePreviews[ln]!)})</span>
                           )}
@@ -1763,6 +1826,7 @@ export const HUD: React.FC<HUDProps> = ({
                       <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">⬆ CLIMB → {next.name} (T{typeTier + 1})</span>
                       <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(next)} · HULL CAP {next.hullStepCap}</span>
                       <span className="text-[10px] sm:text-xs font-mono font-bold text-pink-400">{price}U</span>
+                      <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-emerald-400/90">BUYS: {(unlockLines(shipLine, typeTier) ?? []).join(' · ')}</span>
                       {hasSales(climbPreview ?? undefined) && (
                         <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-amber-400">⚠ SELLS: {sellSummary(climbPreview!)} ({sellMoneyLine(climbPreview!)})</span>
                       )}
