@@ -408,7 +408,15 @@ export const HUD: React.FC<HUDProps> = ({
   // The phone center stack (composition fix, 2026-10-22): below
   // md the hauler's ORDERS flip survives as a lone pill (slot 1)
   // and the DOCK pill / DOCKED chip take slot 2 beneath it.
+  // PHONE STRIP PRESENCE (field-visible slice, 2026-10-22): on
+  // phones the strip bottom-anchors and its DETAIL (track chips +
+  // loadout cells) is summoned, not resident — in the well it
+  // auto-expands (the planning room gets the full map); in flight
+  // the KIT chip summons it. Desktop ignores all of this.
+  const [phoneStripOpen, setPhoneStripOpen] = React.useState(false);
   const ordersPillShown = canOrder && bankInWell && !isShopOpen;
+  const stripDetailShown = bankInWell || phoneStripOpen;
+  const dockSurfaceShown = !!ship.dockedTo || !!dockTarget;
   const caps = capsFor(shipLine, typeTier);
   const switchCost = switchToll({ lineSwitchesUsed, typeTier });
   // Gauge scales follow the ship as upgraded (audit, 2026-10-20): the
@@ -1343,7 +1351,7 @@ export const HUD: React.FC<HUDProps> = ({
           the center stack (slot 1). md:hidden: exactly one form
           of the flip exists per device. */}
       {ordersPillShown && (
-        <div className="fixed top-[252px] left-1/2 -translate-x-1/2 z-[56] pointer-events-auto md:hidden">
+        <div className={`fixed ${dockSurfaceShown ? 'bottom-[178px]' : 'bottom-[142px]'} left-1/2 -translate-x-1/2 z-[56] pointer-events-auto md:hidden`}>
           <button
             onClick={() => onSetDeliveryMode(deliveryMode === 'feed' ? 'deposit' : 'feed')}
             className="hud-panel px-3 py-1.5 rounded border border-indigo-400 font-mono text-[10px] font-bold tracking-wider text-indigo-300 shadow-[0_0_10px_rgba(129,140,248,0.35)]"
@@ -1374,7 +1382,7 @@ export const HUD: React.FC<HUDProps> = ({
           your host, your posture aboard (your repair toggle is
           still yours), and the door out. */}
       {(dockTarget || ship.dockedTo) && (
-        <div className={`fixed ${ordersPillShown ? 'max-md:top-[290px]' : 'max-md:top-[252px]'} ${loadout.defense === 'decoy_beacon' && !decoyActive ? 'md:bottom-[148px]' : 'md:bottom-[112px]'} left-1/2 -translate-x-1/2 z-[56] pointer-events-auto`}>
+        <div className={`fixed ${ordersPillShown ? 'max-md:bottom-[142px]' : stripDetailShown ? 'max-md:bottom-[106px]' : 'max-md:bottom-[46px]'} ${loadout.defense === 'decoy_beacon' && !decoyActive ? 'md:bottom-[148px]' : 'md:bottom-[112px]'} left-1/2 -translate-x-1/2 z-[56] pointer-events-auto`}>
           {ship.dockedTo ? (
             <div className="hud-panel px-3 py-1.5 rounded border border-sky-400 flex items-center gap-2">
               <span className="font-mono text-[10px] sm:text-[11px] font-bold tracking-wider text-sky-300">
@@ -1443,7 +1451,20 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
       </div>
 
-      <div className="fixed top-[148px] md:top-12 left-1/2 -translate-x-1/2 z-[55] flex flex-wrap justify-center items-stretch gap-1 max-w-[97vw] pointer-events-none">
+      <div className="fixed max-md:top-auto max-md:bottom-2 top-[148px] md:top-12 md:bottom-auto left-1/2 -translate-x-1/2 z-[55] flex flex-wrap justify-center items-stretch gap-1 max-w-[97vw] pointer-events-none">
+        {/* PHONE SUMMON: the KIT chip — the strip detail's manual
+            door in flight (hidden in the well, where the detail
+            is simply resident; md:hidden, desktop never summons). */}
+        {!bankInWell && (
+          <button
+            type="button"
+            onClick={() => setPhoneStripOpen(v => !v)}
+            className="hud-panel px-2 py-0.5 rounded border border-zinc-700 text-center pointer-events-auto touch-manipulation active:scale-95 md:hidden"
+          >
+            <div className="text-[9px] sm:text-[10px] font-mono font-bold uppercase leading-tight whitespace-nowrap text-[#33ff33]">{phoneStripOpen ? '▾ KIT' : '▸ KIT'}</div>
+            <div className="text-[8px] sm:text-[10px] font-mono uppercase leading-tight whitespace-nowrap text-zinc-400">DATA</div>
+          </button>
+        )}
         {[
           { icon: '🚀', name: 'THRUST', lvl: upgrades.thrust, cap: caps.thrust, stat: `SPD ${(PHYSICS.MAX_VELOCITY + upgrades.thrust * 0.5).toFixed(1)}` },
           { icon: '🕹️', name: 'TURN', lvl: upgrades.handling, cap: caps.handling, stat: `${Math.round((PHYSICS.ROTATION_SPEED * progType.turnFactor + upgrades.handling * 0.005) * 60 * 180 / Math.PI)}°/S` },
@@ -1451,12 +1472,12 @@ export const HUD: React.FC<HUDProps> = ({
           { icon: '⚡', name: 'FUEL', lvl: upgrades.fuelCap, cap: caps.fuel, stat: `${maxFuel}` },
           { icon: '📦', name: 'HOLD', lvl: upgrades.cargo, cap: caps.cargo, stat: `${PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS}U` },
         ].map(t => (
-          <div key={t.name} className="hud-panel px-1.5 py-0.5 rounded border border-zinc-800 text-center min-w-[56px]">
+          <div key={t.name} className={`hud-panel px-1.5 py-0.5 rounded border border-zinc-800 text-center min-w-[56px] ${stripDetailShown ? '' : 'max-md:hidden'}`}>
             <div className="text-[8px] sm:text-[9px] font-mono text-zinc-300 tracking-widest whitespace-nowrap">{t.icon} {t.name}<span className="max-sm:hidden"> · L{t.lvl}/{t.cap}</span></div>
             <div className="text-[9px] sm:text-[11px] font-mono font-bold text-zinc-50 leading-tight whitespace-nowrap">{t.stat}</div>
           </div>
         ))}
-        <div className="w-px bg-zinc-800 mx-0.5" />
+        <div className={`w-px bg-zinc-800 mx-0.5 ${stripDetailShown ? '' : 'max-md:hidden'}`} />
         {([
           { slot: 'weapon' as const, label: 'WPN' },
           { slot: 'defense' as const, label: 'DEF' },
@@ -1467,7 +1488,7 @@ export const HUD: React.FC<HUDProps> = ({
           const isShield = slot === 'defense' && def?.id === 'deflector_shield';
           const isDecoy = slot === 'defense' && def?.id === 'decoy_beacon';
           return (
-            <div key={slot} className={`hud-panel px-1.5 py-0.5 rounded border text-center min-w-[56px] ${def ? 'border-[#33ff33]/50' : 'border-zinc-800'}`}>
+            <div key={slot} className={`hud-panel px-1.5 py-0.5 rounded border text-center min-w-[56px] ${def ? 'border-[#33ff33]/50' : 'border-zinc-800'} ${stripDetailShown ? '' : 'max-md:hidden'}`}>
               <div className="text-[8px] sm:text-[9px] font-mono text-zinc-300 tracking-widest whitespace-nowrap">
                 {label}{def ? ` · T${tier}` : ''}{isShield ? ` · POOL ${Math.ceil(shieldHp || 0)}/${shieldMaxFor(tier)}` : ''}
               </div>
@@ -1480,7 +1501,7 @@ export const HUD: React.FC<HUDProps> = ({
             </div>
           );
         })}
-        <div className="w-px bg-zinc-800 mx-0.5" />
+        <div className={`w-px bg-zinc-800 mx-0.5 ${stripDetailShown ? '' : 'max-md:hidden'}`} />
         {/* WEAPON SELECTOR (Adam's settled map; CONTROLS.md): the
             strip IS the map. Six chips in the fixed registry
             order — digits 1-5 and T — each a live button (this
