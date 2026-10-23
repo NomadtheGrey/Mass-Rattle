@@ -19,4 +19,10 @@
  */
 export const DEBUG_ARMED: boolean =
   typeof window !== 'undefined' &&
-  new URLSearchParams(window.location.search).get('debug') === '1';
+  // The key match is case-INSENSITIVE (Adam's field report,
+  // 2026-10-23: a hand-typed ?Debug=1 silently never armed — the
+  // kit fails silent when unarmed, so a capital letter read as
+  // 'doesn't work'). The value stays exactly '1'.
+  [...new URLSearchParams(window.location.search).entries()].some(
+    ([key, value]) => key.toLowerCase() === 'debug' && value === '1',
+  );
