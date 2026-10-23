@@ -408,14 +408,15 @@ export const HUD: React.FC<HUDProps> = ({
   // The phone center stack (composition fix, 2026-10-22): below
   // md the hauler's ORDERS flip survives as a lone pill (slot 1)
   // and the DOCK pill / DOCKED chip take slot 2 beneath it.
-  // PHONE STRIP PRESENCE (field-visible slice, 2026-10-22): on
-  // phones the strip bottom-anchors and its DETAIL (track chips +
-  // loadout cells) is summoned, not resident — in the well it
-  // auto-expands (the planning room gets the full map); in flight
-  // the KIT chip summons it. Desktop ignores all of this.
+  // PHONE STRIP PRESENCE (field-visible slice, 2026-10-22; lab
+  // round 2): on phones the strip bottom-anchors and its DETAIL
+  // (track chips + loadout cells) is summoned, not resident — the
+  // KIT chip summons it in EVERY context. The well's auto-
+  // expansion hogged the frame (four rows over the star) and was
+  // cut in round 2. Desktop ignores all of this.
   const [phoneStripOpen, setPhoneStripOpen] = React.useState(false);
   const ordersPillShown = canOrder && bankInWell && !isShopOpen;
-  const stripDetailShown = bankInWell || phoneStripOpen;
+  const stripDetailShown = phoneStripOpen;
   const dockSurfaceShown = !!ship.dockedTo || !!dockTarget;
   const caps = capsFor(shipLine, typeTier);
   const switchCost = switchToll({ lineSwitchesUsed, typeTier });
@@ -786,7 +787,7 @@ export const HUD: React.FC<HUDProps> = ({
     <div className={`fixed inset-0 pointer-events-none z-50 flex flex-col md:flex-row p-2 sm:p-4 md:p-6 gap-2 md:gap-4 ${glitch ? 'animate-pulse' : ''} text-[#33ff33]`}>
       
       {/* MOBILE TOP STATUS RIBBON (Cellphones: iPhone & Android) */}
-      <header className="flex md:hidden w-full flex-col gap-1 pointer-events-auto bg-[#1b2638]/15 backdrop-blur-md p-2 rounded border-2 border-zinc-800 shadow-xl select-none">
+      <header className="flex md:hidden w-fit max-w-[98vw] flex-col gap-1 pointer-events-auto bg-[#1b2638]/15 backdrop-blur-md p-2 rounded border-2 border-zinc-800 shadow-xl select-none">
         {/* Top Row: Stars & Bank */}
         <div className="flex items-center justify-between text-[9px] font-mono leading-none">
           <div className="flex items-center gap-2">
@@ -806,46 +807,28 @@ export const HUD: React.FC<HUDProps> = ({
           </div>
         </div>
 
-        {/* Meters Row */}
-        <div className="grid grid-cols-2 gap-2 mt-1">
-          {/* Hull Integrity */}
-          <div>
-            <div className="flex justify-between text-[8px] mb-0.5">
-              <span className={shipHealth < 30 ? 'text-red-500 animate-pulse font-bold' : 'text-zinc-400'}>
-                HULL {Math.floor(shipHealth)}%
-              </span>
-              <span className="text-pink-400 font-bold">
-                CARGO {carrying}/{PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS}
-              </span>
-            </div>
-            <div className="vu-meter h-2 bg-zinc-900 border border-zinc-800 relative">
-              <motion.div 
-                className={`h-full ${shipHealth < 30 ? 'bg-red-600' : 'bg-cyan-500 shadow-[0_0_6px_cyan]'}`}
-                animate={{ width: `${shipHealth}%` }}
-              />
-              <div className="absolute top-0 bottom-0 w-[2px] bg-amber-400" style={{ left: `${repairCeilingPct}%` }} />
-            </div>
+        {/* Meters Row — ONE slim row (lab round 2, 2026-10-22):
+            the two labeled bar blocks became a single line of
+            mini-bars + numbers; the reclaimed height goes back
+            to the field. The hull bar keeps its amber cap tick;
+            STAR LVL was a duplicate of row 1's M-level and goes. */}
+        <div className="flex items-center gap-2 mt-0.5 text-[8px] font-mono whitespace-nowrap">
+          <span className={shipHealth < 30 ? 'text-red-500 animate-pulse font-bold' : 'text-zinc-400'}>HULL {Math.floor(shipHealth)}%</span>
+          <div className="vu-meter w-14 h-1.5 bg-zinc-900 border border-zinc-800 relative shrink-0">
+            <motion.div
+              className={`h-full ${shipHealth < 30 ? 'bg-red-600' : 'bg-cyan-500 shadow-[0_0_6px_cyan]'}`}
+              animate={{ width: `${shipHealth}%` }}
+            />
+            <div className="absolute top-0 bottom-0 w-[2px] bg-amber-400" style={{ left: `${repairCeilingPct}%` }} />
           </div>
-
-          {/* Fuel / Energy & Star Collapse */}
-          <div>
-            <div className="flex justify-between text-[8px] mb-0.5">
-              <span className={fuel < maxFuel * 0.2 ? 'text-red-500 animate-pulse' : 'text-cyan-300'}>
-                FUEL {Math.floor(fuel)}/{maxFuel}
-              </span>
-              <span className="text-orange-400">STAR LVL {starLevel}</span>
-            </div>
-            <div className="vu-meter h-2 bg-zinc-900 border border-zinc-800">
-              <motion.div 
-                className={`h-full transition-colors ${
-                  fuel < maxFuel * 0.15 ? 'bg-red-500' : 
-                  fuel < maxFuel * 0.35 ? 'bg-orange-500' : 
-                  'bg-emerald-500 shadow-[0_0_6px_#10b981]'
-                }`}
-                animate={{ width: `${(fuel / maxFuel) * 100}%` }}
-              />
-            </div>
+          <span className={fuel < maxFuel * 0.2 ? 'text-red-500 animate-pulse' : 'text-cyan-300'}>FUEL {Math.floor(fuel)}/{maxFuel}</span>
+          <div className="vu-meter w-14 h-1.5 bg-zinc-900 border border-zinc-800 shrink-0">
+            <motion.div
+              className={`h-full transition-colors ${fuel < maxFuel * 0.15 ? 'bg-red-500' : fuel < maxFuel * 0.35 ? 'bg-orange-500' : 'bg-emerald-500 shadow-[0_0_6px_#10b981]'}`}
+              animate={{ width: `${(fuel / maxFuel) * 100}%` }}
+            />
           </div>
+          <span className="text-pink-400 font-bold">CARGO {carrying}/{PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS}</span>
         </div>
       </header>
 
@@ -1453,9 +1436,9 @@ export const HUD: React.FC<HUDProps> = ({
 
       <div className="fixed max-md:top-auto max-md:bottom-2 top-[148px] md:top-12 md:bottom-auto left-1/2 -translate-x-1/2 z-[55] flex flex-wrap justify-center items-stretch gap-1 max-w-[97vw] pointer-events-none">
         {/* PHONE SUMMON: the KIT chip — the strip detail's manual
-            door in flight (hidden in the well, where the detail
-            is simply resident; md:hidden, desktop never summons). */}
-        {!bankInWell && (
+            door in every phone context (md:hidden; desktop never
+            summons — its strip is always whole). */}
+        {(
           <button
             type="button"
             onClick={() => setPhoneStripOpen(v => !v)}
@@ -1473,7 +1456,7 @@ export const HUD: React.FC<HUDProps> = ({
           { icon: '📦', name: 'HOLD', lvl: upgrades.cargo, cap: caps.cargo, stat: `${PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS}U` },
         ].map(t => (
           <div key={t.name} className={`hud-panel px-1.5 py-0.5 rounded border border-zinc-800 text-center min-w-[56px] ${stripDetailShown ? '' : 'max-md:hidden'}`}>
-            <div className="text-[8px] sm:text-[9px] font-mono text-zinc-300 tracking-widest whitespace-nowrap">{t.icon} {t.name}<span className="max-sm:hidden"> · L{t.lvl}/{t.cap}</span></div>
+            <div className="text-[8px] sm:text-[9px] font-mono text-zinc-300 tracking-widest whitespace-nowrap">{t.icon}<span className="max-sm:hidden"> {t.name} · L{t.lvl}/{t.cap}</span></div>
             <div className="text-[9px] sm:text-[11px] font-mono font-bold text-zinc-50 leading-tight whitespace-nowrap">{t.stat}</div>
           </div>
         ))}
