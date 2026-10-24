@@ -29,6 +29,9 @@
  * All figures DRAFT for the numbers pass unless a pin says else.
  */
 
+import type { SeatSimState } from '../types';
+import { healCapPctFor, healRateFor } from '../shipProgression';
+
 /** Scrap → hull conversion (DRAFT): one scrap repairs this much. */
 export const REPAIR_HP_PER_SCRAP = 2;
 
@@ -75,6 +78,31 @@ export const repairFrame = (
   hull.health += healed;
   hull.repairCredit = credit - healed;
   return true;
+};
+
+/**
+ * REPAIR PARITY (Adam's commission, 2026-10-24 — the
+ * multiplayer-only hole): every HUMAN seat's ship heals from its
+ * OWN hold at its own hull rate up to its own cap, under its own
+ * toggle — the same law the local ship always had, now for the
+ * seats the host frame used to skip. The loop calls this once
+ * per frame over the sim seats; the local ship's old inline tick
+ * is gone, so there is exactly one repair law and no double
+ * heal. Scope, stated plainly: BOT seats are NOT ticked here —
+ * their driver (src/sim/botDriver.ts) already heals them from
+ * their own holds. DOCKED ships are NOT ticked here — the harbor
+ * pass (src/sim/harbor.ts) heals them from their HOST's hold, and
+ * the two purses must never pay at once. Eliminated seats and
+ * shipless seats are skipped.
+ */
+export const stepSeatRepairs = (seats: readonly SeatSimState[]): void => {
+  for (const seat of seats) {
+    if (seat.controller !== 'human' || seat.eliminated) continue;
+    const ship = seat.ship;
+    if (!ship || ship.repairing === false || ship.dockedTo) continue;
+    const ceiling = ship.maxHealth * healCapPctFor(ship.line, ship.typeTier);
+    repairFrame(ship, ship, ceiling, healRateFor(ship.line, ship.typeTier) / 60);
+  }
 };
 
 /**

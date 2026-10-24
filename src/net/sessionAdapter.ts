@@ -23,6 +23,7 @@ import {
   type SeatShopCtx, type SeatShopChange, type UpgradeTrack,
 } from '../sim/seatShop';
 import type { ShipLine, EscortKind } from '../shipProgression';
+import { canDockAt, HARBOR_DOCK_RANGE } from '../sim/harbor';
 
 /** Host snapshot cadence: one full-state snapshot every 5 frames —
  *  12 Hz at the sim's 60 fps (design draft §1, DRAFT rate). */
@@ -277,6 +278,33 @@ export const consumeEconomyIntents = (
       case 'feed': adopt(seatFeedCargo(seat, ctx)); break;
       case 'setDeliveryMode': if (seatSetDeliveryMode(seat, a.mode)) applied = true; break;
       case 'setRepairing': if (seatSetRepairing(seat, a.on)) applied = true; break;
+      /* HARBOR VERBS (Adam's commission, 2026-10-24): the host
+       * applies each against the SENDER's seat, under the local
+       * verbs' own gates — canDockAt's consent (teammates,
+       * hosting line, open harbor, capacity) plus the dock
+       * range, for berthing; undockGuest only releases a guest
+       * docked TO the sender, never another host's guest. */
+      case 'dockToHost': {
+        const hostSeat = ctx.seats.find(s => s.ownerId === a.hostOwnerId);
+        const host = hostSeat?.ship;
+        const mine = seat.ship;
+        if (host && mine && !mine.dockedTo && canDockAt(ctx.seats, mine, host)) {
+          const d = Math.hypot(mine.pos.x - host.pos.x, mine.pos.y - host.pos.y);
+          if (d <= host.size + HARBOR_DOCK_RANGE) { mine.dockedTo = a.hostOwnerId; applied = true; }
+        }
+        break;
+      }
+      case 'undock':
+        if (seat.ship?.dockedTo) { seat.ship.dockedTo = undefined; applied = true; }
+        break;
+      case 'setHarborOpen':
+        if (seat.ship) { seat.ship.harborOpen = a.open; applied = true; }
+        break;
+      case 'undockGuest': {
+        const guest = ctx.seats.find(s => s.ownerId === a.guestOwnerId);
+        if (guest?.ship?.dockedTo === seat.ownerId) { guest.ship.dockedTo = undefined; applied = true; }
+        break;
+      }
       default: break; // decoy / toggleShop / unknown: not economy
     }
   }

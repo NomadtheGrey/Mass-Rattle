@@ -57,7 +57,18 @@ export type NetActionIntent =
    * flag, exactly as the sim landed it. */
   | { kind: 'repurchase' }
   | { kind: 'cycleTarget' }
-  | { kind: 'setTarget'; targetOwnerId?: string };
+  | { kind: 'setTarget'; targetOwnerId?: string }
+  /** HARBOR VERBS ON THE CHANNEL (Adam's commission, 2026-10-24
+   * — the multiplayer-only hole): guests berth, leave, work
+   * their harbor switch, and evict their own guests through the
+   * same intent queue as every other verb; the host applies
+   * each against the SENDER's seat (undockGuest against the
+   * guest docked TO the sender), under canDockAt's consent
+   * gates, exactly as the local verbs already do. */
+  | { kind: 'dockToHost'; hostOwnerId: string }
+  | { kind: 'undock' }
+  | { kind: 'setHarborOpen'; open: boolean }
+  | { kind: 'undockGuest'; guestOwnerId: string };
 
 export interface NetInputPayload {
   /** Sender-local, monotonic; the host drops stale frames. */
