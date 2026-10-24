@@ -12,6 +12,7 @@ import { stageStateForInfused, type StarStageState } from '../sim/starStages';
 import { BUILD_HISTORY, LATEST_BUILD } from '../buildHistory';
 import { TUTORIAL_STEPS, TUTORIAL_TRACKS, type TutorialSnapshot, type TutorialSpotlight } from '../tutorial';
 import { useUiOptions, setUiOption, resetUiOptions, type UiOptions } from '../uiOptions';
+import { playAllVoices } from './AudioLayer';
 import { DEBUG_ARMED } from '../debug';
 import type { StarStage } from '../net/protocol';
 import { STAGE_LABELS, TEAM_LABELS, TEAM_COLORS } from './lobby/lobbyTypes';
@@ -2364,6 +2365,47 @@ export const HUD: React.FC<HUDProps> = ({
                   </button>
                 </div>
               ))}
+            </div>
+            <div className="mt-4 pt-3 border-t border-zinc-800 flex flex-col gap-2">
+              <div className="text-[10px] font-mono font-bold tracking-[0.25em] text-zinc-400">SOUND</div>
+              <div className="flex items-center justify-between gap-3 border border-zinc-800 rounded px-3 py-2">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-mono font-bold text-zinc-100">SOUND</div>
+                  <div className="text-[9px] font-mono text-zinc-400 leading-snug">Synthesized cues for shots, scoops, sales, and stingers. Saved on this device.</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setUiOption('soundMuted', !uiOptions.soundMuted)}
+                  className={`shrink-0 px-2.5 py-1.5 rounded border font-mono text-[10px] font-bold touch-manipulation ${uiOptions.soundMuted ? 'bg-zinc-900 text-zinc-500 border-zinc-700' : 'bg-emerald-950/60 text-[#33ff33] border-emerald-800'}`}
+                >
+                  {uiOptions.soundMuted ? 'MUTED' : 'SOUND ON'}
+                </button>
+              </div>
+              <div className="flex items-center justify-between gap-3 border border-zinc-800 rounded px-3 py-2">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-mono font-bold text-zinc-100">VOLUME</div>
+                  <div className="text-[9px] font-mono text-zinc-400 leading-snug">Master level for every voice.</div>
+                </div>
+                <span className="flex items-center gap-2 shrink-0">
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={uiOptions.soundVolume}
+                    onChange={e => setUiOption('soundVolume', Number(e.target.value))}
+                    className="w-28 sm:w-36 accent-[#33ff33] touch-manipulation"
+                    aria-label="Sound volume"
+                  />
+                  <span className="font-mono text-[10px] font-bold text-zinc-300 w-9 text-right">{uiOptions.soundVolume}%</span>
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => playAllVoices()}
+                className="w-full px-3 py-2 rounded border border-zinc-700 text-zinc-200 font-mono text-[10px] sm:text-[11px] font-bold tracking-widest touch-manipulation active:scale-[0.98]"
+              >
+                🔊 HEAR ALL VOICES
+              </button>
             </div>
             <div className="mt-4 pt-3 border-t border-zinc-800 flex items-center justify-between gap-3">
               <span className="text-[9px] font-mono text-zinc-500 leading-snug">Instrumentation always flies. Display only — never the sim. Saved on this device.</span>
