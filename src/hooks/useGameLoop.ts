@@ -8,6 +8,12 @@ import { ownerIdForSeat, starIdForSeat } from '../sim/ownership';
 import { createMatchLayout, DEFAULT_MATCH_SEED } from '../sim/matchInit';
 import { advanceSeatTracking, createSeatSimState, createStarterShip } from '../sim/seatState';
 import { stepBotShip } from '../sim/botDriver';
+import {
+  diffSimEvents,
+  emitSimEvents,
+  SIM_EVENT_SNAPSHOT_CAP,
+  type SimEvent,
+} from '../sim/simEvents';
 import { DEBUG_ARMED } from '../debug';
 import { stepStarBurn, stepShipPhysics, ShipPhysicsInputs } from '../sim/physics';
 import { createMatch, shipSpawnPosition } from '../sim/matchAssembly';
@@ -332,6 +338,14 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   const guestOutAtRef = useRef(0);
   /** Host-side: frames since match init, for the snapshot cadence. */
   const hostFramesRef = useRef(0);
+  /** SIM EVENTS (sounds pass): previous committed state for the
+   *  frame-boundary diff — null until the first frame after a match
+   *  init, a promotion, or any other state replacement, so a fresh
+   *  match never diffs against a dead one. */
+  const prevSimStateRef = useRef<GameState | null>(null);
+  /** SIM EVENTS: host-side accumulator of frame events since the
+   *  last snapshot emit; drained (newest capped) into each batch. */
+  const snapshotEventsRef = useRef<SimEvent[]>([]);
   /** The room code matchEnded was already announced for. */
   const matchEndSentRef = useRef<string | null>(null);
   /** Host-side stageChanged cursor (P2-4): the highest event-feed
@@ -1242,6 +1256,11 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     if (!myOwnerId) return;
     mpRoomRef.current = room.code;
     hostFramesRef.current = 0;
+    // SIM EVENTS: a promotion or fresh match replaces the state the
+    // diff reads — reset it, or the first frame diffs a dead match
+    // against a live one.
+    prevSimStateRef.current = null;
+    snapshotEventsRef.current = [];
     if (rawSnapshotRoomRef.current === room.code && rawSnapshotRef.current) {
       promotedRef.current = true;
       // Stage-announce cursor baselines at the adopted snapshot's
@@ -1279,6 +1298,10 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     const raw = session.snapshotRef.current as GameState | null;
     if (!raw || !Array.isArray(raw.seats)) return;
     rawSnapshotRef.current = raw;
+    // SIM EVENTS: the host's frame-batch events ride the snapshot;
+    // the guest's audio layer hears them through the same listener
+    // as local events (the layer gates by distance itself).
+    if (raw.simEvents && raw.simEvents.length > 0) emitSimEvents(raw.simEvents);
     rawSnapshotRoomRef.current = session.room.code;
     mpRoomRef.current = session.room.code;
     const myOwnerId = session.mySeat?.ownerId;
@@ -1503,6 +1526,21 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         frameId = requestAnimationFrame(loop);
         return;
       }
+      // SIM EVENTS (sounds pass): frame-boundary diff — the updater
+      // below stays side-effect free, so events derive here from the
+      // last committed state vs the previous tick's. One frame of
+      // lag, inside audio tolerance. Solo + host emit locally; the
+      // host also accumulates for the snapshot batch below.
+      if (stateRef.current) {
+        if (prevSimStateRef.current) {
+          const frameEvents = diffSimEvents(prevSimStateRef.current, stateRef.current);
+          if (frameEvents.length > 0) {
+            emitSimEvents(frameEvents);
+            if (frameSession?.isHost) snapshotEventsRef.current.push(...frameEvents);
+          }
+        }
+        prevSimStateRef.current = stateRef.current;
+      }
       if (
         frameSession && frameRoom && frameSession.isHost &&
         mpRoomRef.current === frameRoom.code &&
@@ -1515,7 +1553,13 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         // the cadence's tolerance.
         hostFramesRef.current += 1;
         if (snapshotDue(hostFramesRef.current) && stateRef.current) {
-          frameSession.sendSnapshot(stateRef.current);
+          // SIM EVENTS: the frame-batch events ride the snapshot
+          // (newest capped, older dropped past the cap so a furball
+          // never plays stale sounds snapshots late); guests emit
+          // them to their audio layer on apply.
+          const batch = snapshotEventsRef.current.slice(-SIM_EVENT_SNAPSHOT_CAP);
+          snapshotEventsRef.current = [];
+          frameSession.sendSnapshot({ ...stateRef.current, simEvents: batch });
         }
       }
       // Ms-epoch stamp for this frame (the cinematic clock's domain

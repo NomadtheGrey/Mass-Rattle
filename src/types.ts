@@ -457,6 +457,12 @@ export interface GameState {
    * Plain serializable data — the accumulator lives in the feed
    * module's pure helpers, never in state. */
   eventFeed: EventFeedRecord[];
+  /** SIM EVENTS (sounds pass, transport-only): the host's frame-batch
+   * sound events riding the snapshot (src/sim/simEvents.ts). NEVER
+   * read by sim logic — guests emit them to their audio layer on
+   * apply and otherwise ignore them. Absent on states that never
+   * carried a batch (solo, promotion handoffs). */
+  simEvents?: import('./sim/simEvents').SimEvent[];
   /** Set once when a star-elimination or critical-mass end condition
    * is reached; null while the match is undecided. */
   matchEnd: MatchEndState | null;
