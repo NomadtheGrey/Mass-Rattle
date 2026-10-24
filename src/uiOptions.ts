@@ -13,8 +13,6 @@ export interface UiOptions {
   telemetry: boolean; // RANGE rows in the comms panel (PING/FPS graduated to the always-on chip, 2026-10-21)
   nameplates: boolean; // callsigns over remote ships (GameCanvas)
   tutorialButton: boolean; // the on-screen TUTORIAL door (objectives modal, 2026-10-23)
-  soundMuted: boolean; // master mute for the synth voices (sounds pass, 2026-10-24)
-  soundVolume: number; // master volume 0-100 for the synth voices (sounds pass, 2026-10-24)
 }
 
 export const DEFAULT_UI_OPTIONS: UiOptions = {
@@ -23,8 +21,6 @@ export const DEFAULT_UI_OPTIONS: UiOptions = {
   telemetry: true,
   nameplates: true,
   tutorialButton: true,
-  soundMuted: false,
-  soundVolume: 80,
 };
 
 const STORAGE_KEY = 'mr.uiOptions.v1';
