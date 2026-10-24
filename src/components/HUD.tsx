@@ -2390,6 +2390,14 @@ export const HUD: React.FC<HUDProps> = ({
               <span className="text-xs sm:text-sm font-mono font-bold text-[#33ff33] uppercase tracking-widest">🎯 YOUR ORDERS</span>
               <button onClick={() => setObjectivesOpen(false)} className="text-red-500 hover:text-white text-xs font-mono px-2.5 py-1.5 bg-zinc-900 border border-red-900 rounded touch-manipulation">[X] CLOSE</button>
             </div>
+            {/* THE MATCH KICKER (Adam, playtest evidence 2026-10-23):
+                his daughter found the goals unclear and his son
+                read the game as exploration — the beats say what
+                to DO, this says WHAT THIS IS: a match, against an
+                opposing star, that ENDS, on either of two races. */}
+            <div className="border border-amber-700/70 bg-amber-950/30 rounded px-3 py-2">
+              <p className="text-[11px] sm:text-xs font-mono leading-snug text-amber-200"><span className="font-bold tracking-wider">⚔ THIS IS A MATCH</span> — two stars, yours and the enemy’s. Break theirs before they break yours… or feed yours until it collapses into a BLACK HOLE and ends the match on the spot.</p>
+            </div>
             <div className="text-[9px] sm:text-[10px] font-mono text-zinc-500 tracking-widest">THE WHOLE GAME, IN SIX LINES</div>
             <div className="flex flex-col gap-2">
               {[
@@ -2398,7 +2406,7 @@ export const HUD: React.FC<HUDProps> = ({
                 { icon: '🔧', label: 'UPGRADE', text: 'spend in the workshop, inside your star’s well.' },
                 { icon: '🛸', label: 'CLIMB', text: 'pick a ship line and climb its frames to the T5 crowns.' },
                 { icon: '⚔', label: 'FIGHT OR FEED', text: 'raid your enemies, or pour everything into your star.' },
-                { icon: '🏆', label: 'WIN', text: 'shatter the enemy star… or feed yours to M15 and collapse it into a BLACK HOLE. Match over, on the spot.' },
+                { icon: '🏆', label: 'WIN', text: 'shatter the enemy star… or feed yours to M15 first.' },
               ].map(row => (
                 <div key={row.label} className="flex gap-2.5 items-baseline border border-zinc-800/80 rounded px-3 py-2 bg-zinc-900/30">
                   <span className="text-sm leading-none" aria-hidden>{row.icon}</span>
