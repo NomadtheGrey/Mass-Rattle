@@ -12,6 +12,7 @@ import { DEBUG_ARMED } from '../debug';
 import { stepStarBurn, stepShipPhysics, ShipPhysicsInputs } from '../sim/physics';
 import { createMatch, shipSpawnPosition } from '../sim/matchAssembly';
 import { loadSoloGame, saveSoloGame, clearSoloGame } from '../soloSave';
+import { TUTORIAL_FLAG_KEY, TUTORIAL_STEPS, TUTORIAL_STIPEND, TEETH_INDEX, captureBaseline, type TutorialBaseline, type TutorialMarker } from '../tutorial';
 import type { NetSession, NetActionIntent } from '../net/useNetClient';
 import {
   SNAPSHOT_EVERY_FRAMES, snapshotDue, localShipInput, remoteShipInput,
@@ -129,7 +130,16 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   // consumes it; a room never reaches it (the save is solo-only
   // and the room paths build their own state).
   const bootSaveRef = useRef<GameState | null | undefined>(undefined);
-  if (bootSaveRef.current === undefined) bootSaveRef.current = loadSoloGame();
+  // TUTORIAL (Adam's program, 2026-10-23; src/tutorial.ts): the
+  // flag is set by startTutorial before its reload; a tutorial boot
+  // never restores the solo save (startTutorial cleared it, and
+  // this read is the second lock on that door).
+  const tutorialBootRef = useRef<boolean | undefined>(undefined);
+  if (tutorialBootRef.current === undefined) {
+    try { tutorialBootRef.current = window.localStorage.getItem(TUTORIAL_FLAG_KEY) === '1'; }
+    catch { tutorialBootRef.current = false; }
+  }
+  if (bootSaveRef.current === undefined) bootSaveRef.current = tutorialBootRef.current ? null : loadSoloGame();
   const [state, setState] = useState<GameState>(() => bootSaveRef.current ?? {
     ship: initialShip,
     star: initialHomeStar,
@@ -171,6 +181,55 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     slip: 0,
   });
 
+  // THE GUIDED FLIGHT — machine (src/tutorial.ts owns the table):
+  // step state for the HUD's coach card, refs for the frame gates
+  // (captain parking, save suppression), baselines per step entry.
+  const [tutorial, setTutorial] = useState<{ active: boolean; step: number }>(() => ({ active: tutorialBootRef.current === true, step: 0 }));
+  const tutorialActiveRef = useRef(tutorial.active);
+  const tutorialStepRef = useRef(0);
+  const tutorialBaselineRef = useRef<TutorialBaseline | null>(null);
+  const tutorialStipendRef = useRef(-1);
+  const endTutorial = useCallback(() => {
+    try { window.localStorage.removeItem(TUTORIAL_FLAG_KEY); } catch { /* no-op */ }
+    tutorialActiveRef.current = false;
+    setTutorial(t => ({ ...t, active: false }));
+  }, []);
+  const skipTutorialStep = useCallback(() => {
+    setTutorial(t => {
+      if (!t.active) return t;
+      const next = t.step + 1;
+      tutorialStepRef.current = Math.min(next, TUTORIAL_STEPS.length - 1);
+      tutorialBaselineRef.current = null;
+      if (next >= TUTORIAL_STEPS.length) { tutorialActiveRef.current = false; try { window.localStorage.removeItem(TUTORIAL_FLAG_KEY); } catch { /* no-op */ } return { active: false, step: t.step }; }
+      return { active: true, step: next };
+    });
+  }, []);
+  const startTutorial = useCallback(() => {
+    clearSoloGame();
+    try { window.localStorage.setItem(TUTORIAL_FLAG_KEY, '1'); } catch { /* no-op */ }
+    window.location.reload();
+  }, []);
+  useEffect(() => {
+    if (!tutorial.active) return;
+    if (netRef.current?.room || mpRoomRef.current) return; // the flight is solo-only
+    const now = performance.now();
+    if (!tutorialBaselineRef.current) {
+      tutorialBaselineRef.current = captureBaseline(state, now);
+      // The stipend lands once, as the WORKSHOP step opens.
+      if (tutorial.step === 4 && tutorialStipendRef.current !== 4) {
+        tutorialStipendRef.current = 4;
+        setState(prev => ({ ...prev, bankedScrap: prev.bankedScrap + TUTORIAL_STIPEND }));
+      }
+      return;
+    }
+    const def = TUTORIAL_STEPS[tutorial.step];
+    if (def && def.done(tutorialBaselineRef.current, state, now)) {
+      if (tutorial.step + 1 >= TUTORIAL_STEPS.length) { endTutorial(); return; }
+      tutorialStepRef.current = tutorial.step + 1;
+      tutorialBaselineRef.current = null;
+      setTutorial({ active: true, step: tutorial.step + 1 });
+    }
+  }, [state, tutorial, endTutorial]);
   const keys = useRef<Set<string>>(new Set());
   const touchInputs = useRef<{
     thrust: boolean;
@@ -1083,6 +1142,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     const flush = () => {
       const s = stateRef.current;
       if (!s || netRef.current?.room || mpRoomRef.current) return;
+      if (tutorialActiveRef.current) return; // a tutorial flight never saves
       saveSoloGame(s);
     };
     const timer = window.setInterval(flush, 15000);
@@ -2466,6 +2526,8 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           const econCtx = { seats: simSeats, drones: next.drones, escorts: next.escorts, localOwnerId };
           for (const seat of simSeats) {
             if (seat.controller !== 'bot') continue;
+            // TUTORIAL: the captain stays parked until TEETH.
+            if (tutorialActiveRef.current && tutorialStepRef.current < TEETH_INDEX && seat.starIndex === 1) continue;
             const change = stepBotEconomy(seat, econCtx, time);
             if (change) {
               if (change.drones) { next.drones = change.drones; econCtx.drones = change.drones; }
@@ -2484,6 +2546,8 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         // the solo opponent: the enemy seat's bot flies from frame one.
         for (const seat of simSeats) {
           if (seat.controller !== 'bot' || !seat.ship || seat.eliminated) continue;
+          // TUTORIAL: the captain stays parked until TEETH.
+          if (tutorialActiveRef.current && tutorialStepRef.current < TEETH_INDEX && seat.starIndex === 1) continue;
           const botResult = stepBotShip(
             seat,
             {
@@ -2685,8 +2749,21 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     };
   }, [width, height]);
 
+  // The objective marker for the canvas (tutorial): the current
+  // step's target in world coordinates, or null. Computed here,
+  // where the room truth is in scope — a room never shows it.
+  const tutorialMarker: TutorialMarker | null =
+    tutorial.active && !netRef.current?.room
+      ? (TUTORIAL_STEPS[tutorial.step]?.marker(state) ?? null)
+      : null;
+
   return {
     state,
+    tutorial,
+    tutorialMarker,
+    startTutorial,
+    endTutorial,
+    skipTutorialStep,
     upgrade,
     buyItem,
     equipItem,
