@@ -12,7 +12,7 @@ import { DEBUG_ARMED } from '../debug';
 import { stepStarBurn, stepShipPhysics, ShipPhysicsInputs } from '../sim/physics';
 import { createMatch, shipSpawnPosition } from '../sim/matchAssembly';
 import { loadSoloGame, saveSoloGame, clearSoloGame } from '../soloSave';
-import { TUTORIAL_FLAG_KEY, TUTORIAL_STEPS, TUTORIAL_STIPEND, TEETH_INDEX, captureBaseline, type TutorialBaseline, type TutorialMarker } from '../tutorial';
+import { TUTORIAL_FLAG_KEY, TUTORIAL_STEP_DEFS, TUTORIAL_STIPEND, TEETH_INDEX, captureBaseline, type TutorialBaseline } from '../tutorial';
 import type { NetSession, NetActionIntent } from '../net/useNetClient';
 import {
   SNAPSHOT_EVERY_FRAMES, snapshotDue, localShipInput, remoteShipInput,
@@ -213,7 +213,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       if (!t.active) return t;
       const next = t.step + 1;
       tutorialBaselineRef.current = null;
-      if (next >= TUTORIAL_STEPS.length) {
+      if (next >= TUTORIAL_STEP_DEFS.length) {
         // Skipping the last beat graduates, like acknowledging it.
         tutorialActiveRef.current = false;
         tutorialDoneRef.current = true;
@@ -242,9 +242,9 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       }
       return;
     }
-    const def = TUTORIAL_STEPS[tutorial.step];
+    const def = TUTORIAL_STEP_DEFS[tutorial.step];
     if (def && def.done(tutorialBaselineRef.current, state, now)) {
-      if (tutorial.step + 1 >= TUTORIAL_STEPS.length) {
+      if (tutorial.step + 1 >= TUTORIAL_STEP_DEFS.length) {
         // The MATCH beat is met: graduate in place — the flag
         // clears, done publishes for the chip, the world keeps.
         graduateTutorial();
@@ -2774,20 +2774,24 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     };
   }, [width, height]);
 
-  // THE GUIDED FLIGHT — published pieces (the integration seam):
-  // the raw machine state {active, step, done} + the current
-  // step's marker, world-flat. App assembles the TutorialSnapshot
-  // (stepId + spotlight read off the step table); a room never
-  // shows a marker.
-  const tutorialMarker: TutorialMarker | null =
-    tutorial.active && !netRef.current?.room
-      ? (TUTORIAL_STEPS[tutorial.step]?.marker(state) ?? null)
-      : null;
+  // THE GUIDED FLIGHT — published snapshot (UI's contract): one
+  // object for the coach card, the canvas marker and the spotlight
+  // pulse. stepId/spotlight come straight from the step table;
+  // marker is world-flat {x, y, label, tone}; a room never shows
+  // any of it (the snapshot inerts: marker/spotlight null).
+  const tutorialStepDef = TUTORIAL_STEP_DEFS[tutorial.step];
+  const tutorialSnapshot = {
+    active: tutorial.active,
+    step: tutorial.step,
+    stepId: tutorialStepDef?.id ?? 'fly',
+    done: tutorial.done,
+    marker: tutorial.active && !netRef.current?.room ? (tutorialStepDef?.marker(state) ?? null) : null,
+    spotlight: tutorial.active && !netRef.current?.room ? (tutorialStepDef?.spotlight ?? null) : null,
+  };
 
   return {
     state,
-    tutorial,
-    tutorialMarker,
+    tutorial: tutorialSnapshot,
     startTutorial,
     endTutorial,
     skipTutorialStep,
