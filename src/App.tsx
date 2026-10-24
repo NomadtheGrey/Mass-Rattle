@@ -262,14 +262,16 @@ export default function App() {
           initialCode={urlRoomCode}
           reclaimedOwnerId={net.reclaimedOwnerId}
           notice={net.notice}
+          peekedBoard={net.peekedBoard}
+          onPeek={net.peekRoom}
           callbacks={{
             onCreate: (name, starCount, isPrivate, callsign, callsignPassword) => {
               if (callsign.trim()) setSoloCallsign(callsign.trim());
               net.createRoom(name, starCount, isPrivate, callsign, callsignPassword);
             },
-            onJoin: (code, callsign, callsignPassword) => {
+            onJoin: (code, callsign, callsignPassword, teamPreference) => {
               if (callsign.trim()) setSoloCallsign(callsign.trim());
-              net.joinRoom(code, callsign, callsignPassword);
+              net.joinRoom(code, callsign, callsignPassword, teamPreference);
             },
             onStart: net.startMatch,
             onSetTeam: net.setTeam,
