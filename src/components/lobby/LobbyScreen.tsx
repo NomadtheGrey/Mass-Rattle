@@ -274,8 +274,14 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   // means the seat filled between peek and claim — re-peek the
   // same code and say the team filled, so the player re-picks
   // with fresh eyes instead of staring at a stale board.
+  // Keys on clientState.lastError, NOT notice: the hello-error
+  // handler writes the refusal CODE there (BackGround's catch,
+  // 2026-10-24 — notice never carries the room_full label on this
+  // path, so the notice-keyed version never fired). Any other
+  // resolution clears the attempt flag without acting.
   React.useEffect(() => {
-    if (confirmTriedRef.current && notice === ERROR_LABELS.room_full) {
+    if (!confirmTriedRef.current) return;
+    if (clientState.lastError === 'room_full') {
       confirmTriedRef.current = false;
       const wasRandom = confirmPickRef.current === 'random';
       setPick(null);
@@ -284,9 +290,11 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
         ? 'THE ROOM FILLED WHILE YOU PICKED — NO OPEN TEAM LEFT'
         : 'THAT TEAM FILLED BETWEEN PEEK AND CLAIM — PICK ANOTHER TEAM');
       if (onPeek) onPeek(joinCode);
+    } else if (clientState.lastError !== null) {
+      confirmTriedRef.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notice]);
+  }, [clientState.lastError]);
 
   // DICE POLITENESS (Adam, 2026-10-21: no duplicate names in the
   // lobby): the entry screen keeps a best-effort set of the names
