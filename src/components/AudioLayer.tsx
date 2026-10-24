@@ -21,7 +21,10 @@
 // pure functions of (type, loudness), and the hearing rule (own
 // ship + nearby world) lives in the layer, not the synth.
 
+import React from 'react';
 import { getUiOptions } from '../uiOptions';
+import { onSimEvents, type SimEvent } from '../sim/simEvents';
+import type { ChatMessage } from '../net/protocol';
 
 export type VoiceType =
   | 'fire' | 'hit' | 'explosion' | 'thrust'
@@ -30,6 +33,16 @@ export type VoiceType =
   | 'win' | 'lose' | 'ui' | 'chat';
 
 let ctx: AudioContext | null = null;
+// First-gesture gate: no context is even created before the player
+// has gestured (click/key), so a pre-gesture frame never logs an
+// autoplay warning and never schedules into a suspended context.
+let unlocked = false;
+
+/** Mark the player as having gestured; create + resume the context. */
+export function unlockAudio(): void {
+  unlocked = true;
+  ensureAudio();
+}
 let master: GainNode | null = null;
 let noiseBuf: AudioBuffer | null = null;
 let thrustNodes: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
@@ -111,7 +124,7 @@ function noise(o: NoiseOpts): void {
  * (it simply does nothing until ensureAudio has run).
  */
 export function playVoice(type: VoiceType, loudness = 1): void {
-  if (getUiOptions().soundMuted) return;
+  if (!unlocked || getUiOptions().soundMuted) return;
   const c = ensureAudio();
   if (!c || !master) return;
   masterLevel();
@@ -198,6 +211,7 @@ export function playVoice(type: VoiceType, loudness = 1): void {
  * local thrust state, never on remote ships.
  */
 export function setThrusting(on: boolean): void {
+  if (!unlocked) return;
   if (getUiOptions().soundMuted) {
     on = false;
   }
@@ -228,6 +242,7 @@ export function setThrusting(on: boolean): void {
 /** HEAR ALL (Options tab): every voice in turn, so Adam can judge
  *  the set without playing a match. Thrust gets a half-second loop. */
 export function playAllVoices(): void {
+  unlockAudio();
   const c = ensureAudio();
   if (!c) return;
   const voices: VoiceType[] = [
@@ -238,3 +253,96 @@ export function playAllVoices(): void {
   window.setTimeout(() => setThrusting(true), voices.length * 450);
   window.setTimeout(() => setThrusting(false), voices.length * 450 + 600);
 }
+
+// SOUND LAYER (Adam, 2026-10-24 — sounds pass, UI half, part 2).
+// Subscribes ONCE to BackGround's sim event hook (acbc489) and
+// turns events into voices under the hearing rule:
+//   - an event owned by the local seat plays at full volume;
+//   - any other event with a world position plays only within
+//     earshot (800 units): full within 250, linear falloff to
+//     silence at 800; beyond that it never reaches the ear;
+//   - an event with neither a local owner nor a position is
+//     skipped (it cannot be placed).
+// Solo, host, and guest all arrive through the one listener — the
+// host's snapshot batches feed the same listener on guests, so
+// the layer needs no guest special-casing. Win/lose come from
+// App's isVictory/isGameOver props (no match_end in the hook, by
+// the frozen contract); chat blips on others' messages only; the
+// thrust loop gates on the local ship's fuel-gated thrust flag.
+// The UI voice ships in the synth (HEAR ALL proves it) but stays
+// unwired in v1 — button clicks are not sim events, and wiring
+// every door is a follow-up if Adam wants clicks.
+const EARSHOT = 800;
+const EARSHOT_FULL = 250;
+
+export const SoundLayer: React.FC<{
+  localOwnerId: string;
+  localShipPos: { x: number; y: number } | null;
+  localThrusting: boolean;
+  chatLog: ChatMessage[];
+  isVictory: boolean;
+  isGameOver: boolean;
+}> = ({ localOwnerId, localShipPos, localThrusting, chatLog, isVictory, isGameOver }) => {
+  const ownerRef = React.useRef(localOwnerId);
+  const posRef = React.useRef(localShipPos);
+  const thrustRef = React.useRef(localThrusting);
+  React.useEffect(() => {
+    ownerRef.current = localOwnerId;
+    posRef.current = localShipPos;
+    thrustRef.current = localThrusting;
+  });
+  // One subscription for the life of the mount.
+  React.useEffect(() => onSimEvents((events: SimEvent[]) => {
+    const owner = ownerRef.current;
+    const lp = posRef.current;
+    for (const ev of events) {
+      if (ev.ownerId === owner) {
+        playVoice(ev.type, 1);
+        continue;
+      }
+      if (ev.x === undefined || ev.y === undefined || !lp) continue;
+      const d = Math.hypot(ev.x - lp.x, ev.y - lp.y);
+      if (d >= EARSHOT) continue;
+      const loud = d <= EARSHOT_FULL ? 1 : 1 - (d - EARSHOT_FULL) / (EARSHOT - EARSHOT_FULL);
+      playVoice(ev.type, loud);
+    }
+  }), []);
+  // Thrust loop follows the local flag's edges only.
+  const prevThrust = React.useRef(false);
+  React.useEffect(() => {
+    if (localThrusting !== prevThrust.current) {
+      prevThrust.current = localThrusting;
+      setThrusting(localThrusting);
+    }
+  }, [localThrusting]);
+  // Win/lose stingers fire once, on the game-over edge.
+  const prevOver = React.useRef(false);
+  React.useEffect(() => {
+    if (isGameOver && !prevOver.current) playVoice(isVictory ? 'win' : 'lose');
+    prevOver.current = isGameOver;
+  }, [isGameOver, isVictory]);
+  // Chat blip on others' messages only — never your own echo.
+  const prevChatLen = React.useRef(chatLog.length);
+  React.useEffect(() => {
+    if (chatLog.length > prevChatLen.current) {
+      const latest = chatLog[chatLog.length - 1];
+      if (latest && latest.ownerId !== ownerRef.current) playVoice('chat');
+    }
+    prevChatLen.current = chatLog.length;
+  }, [chatLog]);
+  // First gesture unlocks the context (and re-syncs thrust, in
+  // case the player was already holding thrust when it unlocked).
+  React.useEffect(() => {
+    const unlock = () => {
+      unlockAudio();
+      setThrusting(thrustRef.current);
+    };
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+  }, []);
+  return null;
+};

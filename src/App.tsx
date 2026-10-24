@@ -12,6 +12,7 @@ import { MobileControls } from './components/MobileControls';
 import { useGameLoop } from './hooks/useGameLoop';
 import { inBankWell } from './bank';
 import { LobbyScreen, ShareCopyButtons } from './components/lobby/LobbyScreen';
+import { SoundLayer } from './components/AudioLayer';
 import { ChatPanel } from './components/ChatPanel';
 import { useNetClient, NetSessionContext } from './net/useNetClient';
 import { RepurchaseOverlay } from './components/RepurchaseOverlay';
@@ -174,6 +175,14 @@ export default function App() {
   return (
     <NetSessionContext.Provider value={net}>
     <div ref={containerRef} className="crt-container w-full h-full flex items-center justify-center p-0 select-none touch-none">
+      <SoundLayer
+        localOwnerId={localOwnerId}
+        localShipPos={localSeat?.ship ? { x: localSeat.ship.pos.x, y: localSeat.ship.pos.y } : null}
+        localThrusting={!!localSeat?.ship.thrust}
+        chatLog={net.chatLog}
+        isVictory={state.isVictory}
+        isGameOver={state.isGameOver}
+      />
       {/* Multiplayer door: opens the lobby; in a live room it
           reads simply LOBBY (Adam, 2026-10-24). */}
       {!lobbyOpen && (
