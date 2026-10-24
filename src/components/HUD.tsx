@@ -2403,8 +2403,8 @@ export const HUD: React.FC<HUDProps> = ({
               {[
                 { icon: '⛏', label: 'HARVEST', text: 'scoop the scrap drifting in the field.' },
                 { icon: '🏦', label: 'BRING IT HOME', text: 'deliveries at your star feed it and fill your bank.' },
-                { icon: '🔧', label: 'UPGRADE', text: 'spend in the workshop, inside your star’s well.' },
-                { icon: '🛸', label: 'CLIMB', text: 'pick a ship line and climb its frames to the T5 crowns.' },
+                { icon: '🔧', label: 'UPGRADE', text: 'spend it in the workshop, docked at your star.' },
+                { icon: '🛸', label: 'CLIMB', text: 'pick a ship line and buy better and better ships.' },
                 { icon: '⚔', label: 'FIGHT OR FEED', text: 'raid your enemies, or pour everything into your star.' },
                 { icon: '🏆', label: 'WIN', text: 'shatter the enemy star… or feed yours to M15 first.' },
               ].map(row => (
