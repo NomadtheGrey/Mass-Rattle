@@ -26,6 +26,7 @@ import { generateRoomCode, isClientVersionSupported } from './roomLogic';
 import { generateUniqueRoomName } from '../src/net/roomNames';
 import { INDEX_NAME } from './room';
 import type { RoomInitBody } from './room';
+import { isBotDifficulty } from '../src/net/protocol';
 import type {
   CreateRoomRequest,
   CreateRoomResponse,
@@ -165,6 +166,11 @@ export default {
             name === '' ? generateUniqueRoomName(liveNames, code) : name,
           starCount: body.starCount,
           private: body.private ?? false,
+          // LADDER: an invalid or absent difficulty silently becomes
+          // SEASONED, per the wire's ignore-invalid-picks philosophy.
+          difficulty: isBotDifficulty(body.difficulty)
+            ? body.difficulty
+            : 'seasoned',
           code,
           seed,
         };
