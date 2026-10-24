@@ -519,6 +519,18 @@ export const HUD: React.FC<HUDProps> = ({
   // door opens this layer above the guide; the toggles gate reference
   // surfaces only and persist on-device (src/uiOptions.ts).
   const [showOptions, setShowOptions] = React.useState(false);
+  // FIRST-ENTRY OBJECTIVES (Adam, 2026-10-23): the whole game in
+  // six lines. TRIGGER LAW (Adam's refinement, same day): it
+  // simply appears when the game starts, at page load — no
+  // once-per-browser suppression in v1; if repeat appearances
+  // ever grate, a 'show orders at start' preference would live
+  // in the Options family (not built until he asks). The modal
+  // is re-openable from the TUTORIAL doors (on-screen pill,
+  // cabinet row, and the modal's own foot); until the guided
+  // tutorial lands, the goal chain IS the tutorial (the
+  // proto-tutorial), and those doors re-point when it is built.
+  const [objectivesOpen, setObjectivesOpen] = React.useState(false);
+  React.useEffect(() => { setObjectivesOpen(true); }, []);
   const uiOptions = useUiOptions();
     // Workshop tabs: the five base ship tracks, then the Arsenal categories.
   const [shopTab, setShopTab] = React.useState<'ship' | 'bank' | ArsenalCategory>('ship');
@@ -528,7 +540,10 @@ export const HUD: React.FC<HUDProps> = ({
   // tab refused silently while disabled. The header is now a real
   // button opening the frame choices, and a click that can't afford
   // (or is capped) says why in a notice line atop the tab.
-  const [frameOpen, setFrameOpen] = React.useState(true);
+  const [frameModalOpen, setFrameModalOpen] = React.useState(false);
+  // The frame modal rides the workshop: when the shop closes (the
+  // well auto-close included), the modal closes with it.
+  React.useEffect(() => { if (!isShopOpen) setFrameModalOpen(false); }, [isShopOpen]);
   const [shopNotice, setShopNotice] = React.useState<string | null>(null);
   const shopNoticeTimer = React.useRef<number | null>(null);
   const flashShopNotice = (msg: string) => {
@@ -618,9 +633,11 @@ export const HUD: React.FC<HUDProps> = ({
   // and an ESC cannot fall through to anything else. The results
   // screen is deliberately NOT in this chain — it is the match end,
   // a state rather than a popup, and its exit is the restart button.
-  const anyModalOpen = showBuilds || isShopOpen || radarActive || showOptions;
+  const anyModalOpen = showBuilds || objectivesOpen || frameModalOpen || isShopOpen || radarActive || showOptions;
   const closeTopmost = React.useCallback(() => {
     if (showBuilds) { setShowBuilds(false); return; }
+    if (objectivesOpen) { setObjectivesOpen(false); return; }
+    if (frameModalOpen) { setFrameModalOpen(false); return; }
     if (isShopOpen && onCloseShop) { onCloseShop(); return; }
     if (radarActive) {
       if (onToggleMobileRadar) onToggleMobileRadar();
@@ -1389,7 +1406,7 @@ export const HUD: React.FC<HUDProps> = ({
       {climbAffordable && !isShopOpen && (
         <div className={`fixed ${(dockSurfaceShown && ordersPillShown) ? 'max-md:bottom-[214px]' : (dockSurfaceShown || ordersPillShown) ? 'max-md:bottom-[178px]' : stripDetailShown ? 'max-md:bottom-[106px]' : 'max-md:bottom-[46px]'} ${dockSurfaceShown ? ((loadout.defense === 'decoy_beacon' && !decoyActive) ? 'md:bottom-[184px]' : 'md:bottom-[148px]') : ((loadout.defense === 'decoy_beacon' && !decoyActive) ? 'md:bottom-[148px]' : 'md:bottom-[112px]')} left-1/2 -translate-x-1/2 z-[56] pointer-events-auto`}>
           <button
-            onClick={onOpenShop}
+            onClick={() => { setFrameModalOpen(true); onOpenShop?.(); }}
             className={`hud-panel px-3 py-1.5 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider shadow-[0_0_10px_rgba(52,211,153,0.35)] ${isFrameMaxed ? 'border-amber-400 text-amber-300' : 'border-emerald-500 text-emerald-300'}`}
           >
             {climbStep!.kind === 'climb'
@@ -1471,6 +1488,23 @@ export const HUD: React.FC<HUDProps> = ({
           governs it. Desktop: the frame's inner top-right. Mobile:
           the verified gap between the header (~76px) and the status
           strip (148px) — the chip's bottom edge clears the strip. */}
+      {/* ON-SCREEN TUTORIAL DOOR (Adam, 2026-10-23): one of the
+          tutorial button's three homes (modal foot, cabinet row,
+          here). A small pill in the instrumentation corner —
+          phone: top-right above the PING chip's home; desktop:
+          beside the chip. The OPTIONS tab's TUTORIAL BUTTON
+          toggle shows/hides it (mr.uiOptions); it stands down
+          while its own modal is open. */}
+      {uiOptions.tutorialButton && !objectivesOpen && (
+        <button
+          type="button"
+          onClick={() => setObjectivesOpen(true)}
+          className="fixed top-2 right-2 md:top-6 md:right-[152px] z-[95] px-3 py-1.5 rounded-full bg-zinc-900/70 border border-[#33ff33]/60 text-[#33ff33] text-[10px] font-mono font-bold tracking-widest shadow-[0_0_10px_rgba(51,255,51,0.25)] active:scale-95 touch-manipulation pointer-events-auto"
+        >
+          🎓 TUTORIAL
+        </button>
+      )}
+
       <div className="fixed top-[104px] right-2 md:top-6 md:right-6 z-[54] pointer-events-none">
         <div className="hud-panel border border-zinc-800 px-2 py-1 font-mono text-[9px] sm:text-[10px] leading-none flex items-center gap-1.5 shadow-lg">
           <span><span className="text-zinc-500">PING</span> <span className="text-zinc-100 font-bold">{pingMs}MS</span></span>
@@ -1785,86 +1819,15 @@ export const HUD: React.FC<HUDProps> = ({
                   reads from src/shipProgression.ts; the shop only opens in
                   the well, and the loop re-gates each action there. */}
               <div className="pitted-metal p-3 sm:p-4 rounded-lg border border-zinc-700 flex flex-col gap-3">
-                <button type="button" onClick={() => setFrameOpen(o => !o)} aria-expanded={frameOpen}
+                <button type="button" onClick={() => setFrameModalOpen(true)} aria-haspopup="dialog"
                   className="flex justify-between items-center gap-2 flex-wrap w-full text-left touch-manipulation active:scale-[0.99]">
-                  <span className="text-xs sm:text-sm font-bold uppercase text-[#33ff33]">🛸 SHIP FRAME — {progType.name}{shipLine ? ` · ${shipLine.toUpperCase()} LINE · T${typeTier}` : ' · UNALIGNED'} {frameOpen ? '▾' : '▸ CHOOSE'}</span>
+                  <span className="text-xs sm:text-sm font-bold uppercase text-[#33ff33]">🛸 SHIP FRAME — {progType.name}{shipLine ? ` · ${shipLine.toUpperCase()} LINE · T${typeTier}` : ' · UNALIGNED'} {shipLine === null ? '▸ CHOOSE YOUR LINE' : typeTier < 5 ? '▸ CLIMB · SWITCH' : '▸ SWITCH LINE'}</span>
                   <span className="text-[9px] sm:text-[10px] font-mono text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded">SIZE {hullSizeFor(hullSteps)} · HULL {hullSteps}/{progType.hullStepCap}</span>
                 </button>
                 <p className="text-[9px] sm:text-[10px] text-zinc-400 leading-tight">{capSummary(progType)} — the frame's caps are built into its price; turret mounts are fitted separately, below.</p>
-                {frameOpen && (<>
-
-                {typeTier < 5 && shipLine === null && (
-                  <div className="flex flex-col gap-1.5">
-                    <div className="text-[9px] font-mono text-zinc-500 tracking-widest">CHOOSE YOUR LINE — BUYING THE T2 FRAME IS THE CHOICE</div>
-                    {(Object.keys(SHIP_LINES) as ShipLine[]).map(ln => {
-                      const t2 = SHIP_LINES[ln].types[1];
-                      const price = typeStepPrice(ln, 1);
-                      const afford = funds >= price;
-                      return (
-                        <button key={ln} onClick={() => afford ? onBuyType(ln) : flashShopNotice(`NOT ENOUGH SCRAP — ${ln.toUpperCase()} → ${t2.name} COSTS ${price}U · YOU HAVE ${funds}U`)}
-                          className={`pitted-metal px-3 py-2 rounded flex flex-wrap items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
-                          <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">{ln} → {t2.name}</span>
-                          <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(t2)}</span>
-                          <span className="text-[10px] sm:text-xs font-mono font-bold text-pink-400">{price}U</span>
-                          <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-emerald-400/90">BUYS: {(unlockLines(ln, 1) ?? []).join(' · ')}</span>
-                          {hasSales(choicePreviews[ln]) && (
-                            <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-amber-400">⚠ SELLS: {sellSummary(choicePreviews[ln]!)} ({sellMoneyLine(choicePreviews[ln]!)})</span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {typeTier < 5 && shipLine !== null && (() => {
-                  const next = typeFor(shipLine, (typeTier + 1) as TypeTier);
-                  const price = typeStepPrice(shipLine, typeTier);
-                  const afford = funds >= price;
-                  return (
-                    <button onClick={() => afford ? onBuyType() : flashShopNotice(`NOT ENOUGH SCRAP — CLIMB TO ${next.name} COSTS ${price}U · YOU HAVE ${funds}U`)}
-                      className={`pitted-metal px-3 py-2 rounded flex flex-wrap items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
-                      <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">⬆ CLIMB → {next.name} (T{typeTier + 1})</span>
-                      <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(next)} · HULL CAP {next.hullStepCap}</span>
-                      <span className="text-[10px] sm:text-xs font-mono font-bold text-pink-400">{price}U</span>
-                      <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-emerald-400/90">BUYS: {(unlockLines(shipLine, typeTier) ?? []).join(' · ')}</span>
-                      {hasSales(climbPreview ?? undefined) && (
-                        <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-amber-400">⚠ SELLS: {sellSummary(climbPreview!)} ({sellMoneyLine(climbPreview!)})</span>
-                      )}
-                    </button>
-                  );
-                })()}
-
-                {typeTier >= 5 && (
-                  <div className="text-[10px] sm:text-xs font-mono text-amber-400">★ TOP OF THE LADDER — {progType.name} IS THE {shipLine?.toUpperCase()} LINE'S CROWN FRAME</div>
-                )}
-
-                {shipLine !== null && (
-                  <div className="flex flex-col gap-1.5">
-                    <div className="text-[9px] font-mono text-zinc-500 tracking-widest">SWITCH LINE — TIER, HULL STEPS AND TRACK LEVELS RIDE ACROSS · TOLL {switchCost === 0 ? 'FREE' : `${switchCost}U`}</div>
-                    <div className="flex gap-1.5 flex-wrap">
-                      {(Object.keys(SHIP_LINES) as ShipLine[]).filter(ln => ln !== shipLine).map(ln => {
-                        const afford = funds >= switchCost;
-                        // THE FORCED SELL (Adam, 2026-10-22): holdings
-                        // the target hull can't hold SELL at full
-                        // price into the bank. The warning is the
-                        // reconcile preview for this exact target —
-                        // the same pure code the verb will run, so
-                        // what it names is what will happen.
-                        const targetPreview = switchPreviews[ln];
-                        const targetSellWarn = hasSales(targetPreview);
-                        return (
-                          <button key={ln} onClick={() => afford ? onSwitchLine(ln) : flashShopNotice(`NOT ENOUGH SCRAP — THE SWITCH TOLL IS ${switchCost}U · YOU HAVE ${funds}U`)}
-                            className={`flex-1 min-w-[86px] px-2 py-1.5 rounded text-[9px] sm:text-[10px] font-mono font-bold border touch-manipulation active:scale-95 flex flex-col items-center justify-center gap-0.5 ${afford ? 'bg-zinc-900 text-zinc-200 border-zinc-600' : 'bg-zinc-900 text-zinc-500 border-zinc-800 cursor-not-allowed'}`}>
-                            <span>⇄ {ln.toUpperCase()} · {switchCost === 0 ? 'FREE' : `${switchCost}U`}</span>
-                            {targetSellWarn && (
-                              <span className="text-[7px] sm:text-[8px] text-amber-400 tracking-normal">⚠ SELLS THERE: {sellSummary(targetPreview!)} ({sellMoneyLine(targetPreview!)})</span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
+                {/* The frame VERBS (choose / climb / switch) live in
+                    the FRAME MODAL behind the door (Adam, 2026-10-23);
+                    hull, drones, mounts and the rest stay resident. */}
 
                 <div className="flex gap-2 flex-wrap">
                   {hullSteps < progType.hullStepCap ? (
@@ -2145,7 +2108,6 @@ export const HUD: React.FC<HUDProps> = ({
                     </div>
                   );
                 })()}
-                </>)}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
@@ -2242,6 +2204,13 @@ export const HUD: React.FC<HUDProps> = ({
                 </button>
               ))}
             </div>
+            <button
+              type="button"
+              onClick={() => setObjectivesOpen(true)}
+              className="w-full mb-4 px-3 py-2 rounded border border-emerald-800 bg-emerald-950/40 text-[#33ff33] font-mono text-[10px] sm:text-[11px] font-bold tracking-widest touch-manipulation"
+            >
+              🎓 TUTORIAL — YOUR ORDERS
+            </button>
             {escTab === 'guide' && (
               <MechanicsGuide embedded onClose={() => setShowOptions(false)} />
             )}
@@ -2253,6 +2222,7 @@ export const HUD: React.FC<HUDProps> = ({
                 { key: 'astroPanel', label: 'ASTRONOMIC DATA', blurb: 'Star fields, growth bands, enemy lifecycle, local nav map.' },
                 { key: 'telemetry', label: 'TELEMETRY ROWS', blurb: 'RANGE · HOME / ENEMY in the comms panel. PING + FPS are always-on instrumentation (top-right) and never toggle. Warnings always show.' },
                 { key: 'nameplates', label: 'NAMEPLATES', blurb: 'Callsigns over remote ships in multiplayer.' },
+                { key: 'tutorialButton', label: 'TUTORIAL BUTTON', blurb: 'The on-screen \u{1F393} TUTORIAL door (top-right). The objectives also live in this cabinet, and greet you on your first entry.' },
               ] as { key: keyof UiOptions; label: string; blurb: string }[]).map(row => (
                 <div key={row.key} className="flex items-center justify-between gap-3 border border-zinc-800 rounded px-3 py-2">
                   <div className="min-w-0">
@@ -2399,6 +2369,167 @@ export const HUD: React.FC<HUDProps> = ({
                   </button>
                 </div>
               </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* FIRST-ENTRY OBJECTIVES MODAL (Adam, 2026-10-23): a
+          super-miniaturized overall goal set — the whole game in
+          six lines, worded against the shipped win law (BOTH
+          endings are real). Topmost in the modal rule after build
+          history (z-135). Its foot carries the TUTORIAL button
+          (today it dismisses into the game — the chain above is
+          the proto-tutorial; the guided flow re-points this door
+          when it lands) and FIELD MANUAL (the cabinet's GUIDE
+          tab). */}
+      {objectivesOpen && (
+        <div className="fixed inset-0 z-[135] flex items-center justify-center p-3 bg-black/75 backdrop-blur-sm pointer-events-auto" onClick={() => setObjectivesOpen(false)}>
+          <div className="hud-panel hud-panel-deep p-4 sm:p-5 border-4 rounded-xl w-full max-w-[480px] max-h-[88vh] overflow-y-auto flex flex-col gap-3 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
+              <span className="text-xs sm:text-sm font-mono font-bold text-[#33ff33] uppercase tracking-widest">🎯 YOUR ORDERS</span>
+              <button onClick={() => setObjectivesOpen(false)} className="text-red-500 hover:text-white text-xs font-mono px-2.5 py-1.5 bg-zinc-900 border border-red-900 rounded touch-manipulation">[X] CLOSE</button>
+            </div>
+            {/* THE MATCH KICKER (Adam, playtest evidence 2026-10-23):
+                his daughter found the goals unclear and his son
+                read the game as exploration — the beats say what
+                to DO, this says WHAT THIS IS: a match, against an
+                opposing star, that ENDS, on either of two races. */}
+            <div className="border border-amber-700/70 bg-amber-950/30 rounded px-3 py-2">
+              <p className="text-[11px] sm:text-xs font-mono leading-snug text-amber-200"><span className="font-bold tracking-wider">⚔ THIS IS A MATCH</span> — two stars, yours and the enemy’s. Break theirs before they break yours… or feed yours until it collapses into a BLACK HOLE and ends the match on the spot.</p>
+            </div>
+            <div className="text-[9px] sm:text-[10px] font-mono text-zinc-500 tracking-widest">THE WHOLE GAME, IN SIX LINES</div>
+            <div className="flex flex-col gap-2">
+              {[
+                { icon: '⛏', label: 'HARVEST', text: 'scoop the scrap drifting in the field.' },
+                { icon: '🏦', label: 'BRING IT HOME', text: 'deliveries at your star feed it and fill your bank.' },
+                { icon: '🔧', label: 'UPGRADE', text: 'spend it in the workshop, docked at your star.' },
+                { icon: '🛸', label: 'CLIMB', text: 'pick a ship line and buy better and better ships.' },
+                { icon: '⚔', label: 'FIGHT OR FEED', text: 'raid your enemies, or pour everything into your star.' },
+                { icon: '🏆', label: 'WIN', text: 'shatter the enemy star… or feed yours to M15 first.' },
+              ].map(row => (
+                <div key={row.label} className="flex gap-2.5 items-baseline border border-zinc-800/80 rounded px-3 py-2 bg-zinc-900/30">
+                  <span className="text-sm leading-none" aria-hidden>{row.icon}</span>
+                  <p className="text-[11px] sm:text-xs font-mono leading-snug text-zinc-300"><span className="text-zinc-50 font-bold tracking-wider">{row.label}</span> — {row.text}</p>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 mt-1">
+              <button
+                type="button"
+                onClick={() => setObjectivesOpen(false)}
+                className="flex-1 px-3 py-2.5 rounded border border-emerald-600 bg-emerald-950/50 text-emerald-300 font-mono text-[11px] sm:text-xs font-bold tracking-widest touch-manipulation active:scale-[0.98]"
+              >
+                🎓 TUTORIAL
+              </button>
+              <button
+                type="button"
+                onClick={() => { setObjectivesOpen(false); openCabinet('guide'); }}
+                className="flex-1 px-3 py-2.5 rounded border border-zinc-600 bg-zinc-900/60 text-zinc-200 font-mono text-[11px] sm:text-xs font-bold tracking-widest touch-manipulation active:scale-[0.98]"
+              >
+                📖 FIELD MANUAL
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FRAME MODAL (Adam, library look 2026-10-23): ONE door,
+          ONE modal for the frame's three verbs across the game's
+          life — CHOOSE YOUR LINE from the Skiff, CLIMB within the
+          line, SWITCH LINE with its toll. The blocks below are the
+          workshop's own cards, moved not rewritten: same prices
+          from the tables, same BUYS lines via unlockLines, same
+          forced-sell previews from the reconcile. GROW HULL stays
+          resident in the panel — it is a verb of its own. Stacks
+          at z-120: above the workshop (110), below build history
+          (140); the modal rule closes it first after builds. */}
+      {frameModalOpen && isShopOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 bg-black/70 backdrop-blur-sm pointer-events-auto" onClick={() => setFrameModalOpen(false)}>
+          <div className="hud-panel hud-panel-deep p-4 border-4 rounded-xl w-full max-w-[540px] max-h-[86vh] overflow-y-auto flex flex-col gap-3 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
+              <span className="text-xs sm:text-sm font-mono font-bold text-[#33ff33] uppercase tracking-widest">🛸 {shipLine === null ? 'CHOOSE YOUR LINE' : typeTier < 5 ? `CLIMB · SWITCH — ${shipLine.toUpperCase()} LINE` : `${shipLine.toUpperCase()} LINE — THE CROWN`}</span>
+              <button onClick={() => setFrameModalOpen(false)} className="text-red-500 hover:text-white text-xs font-mono px-2.5 py-1.5 bg-zinc-900 border border-red-900 rounded touch-manipulation">[X] CLOSE</button>
+            </div>
+            <div className="text-[9px] sm:text-[10px] font-mono text-zinc-400">YOU FLY: <span className="text-zinc-100 font-bold">{progType.name}</span>{shipLine ? ` · ${shipLine.toUpperCase()} LINE · T${typeTier}` : ' · UNALIGNED · T1'} · <span className="text-pink-400 font-bold">{funds}U TO SPEND</span></div>
+            {shopNotice && (
+              <div className="text-[10px] sm:text-[11px] font-mono font-bold text-amber-300 border border-amber-700 bg-amber-950/40 rounded px-2 py-1.5">{shopNotice}</div>
+            )}
+                {typeTier < 5 && shipLine === null && (
+                  <div className="flex flex-col gap-1.5">
+                    <div className="text-[9px] font-mono text-zinc-500 tracking-widest">CHOOSE YOUR LINE — BUYING THE T2 FRAME IS THE CHOICE</div>
+                    {(Object.keys(SHIP_LINES) as ShipLine[]).map(ln => {
+                      const t2 = SHIP_LINES[ln].types[1];
+                      const price = typeStepPrice(ln, 1);
+                      const afford = funds >= price;
+                      return (
+                        <button key={ln} onClick={() => afford ? onBuyType(ln) : flashShopNotice(`NOT ENOUGH SCRAP — ${ln.toUpperCase()} → ${t2.name} COSTS ${price}U · YOU HAVE ${funds}U`)}
+                          className={`pitted-metal px-3 py-2 rounded flex flex-wrap items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
+                          <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">{ln} → {t2.name}</span>
+                          <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(t2)}</span>
+                          <span className="text-[10px] sm:text-xs font-mono font-bold text-pink-400">{price}U</span>
+                          <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-emerald-400/90">BUYS: {(unlockLines(ln, 1) ?? []).join(' · ')}</span>
+                          {hasSales(choicePreviews[ln]) && (
+                            <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-amber-400">⚠ SELLS: {sellSummary(choicePreviews[ln]!)} ({sellMoneyLine(choicePreviews[ln]!)})</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {typeTier < 5 && shipLine !== null && (() => {
+                  const next = typeFor(shipLine, (typeTier + 1) as TypeTier);
+                  const price = typeStepPrice(shipLine, typeTier);
+                  const afford = funds >= price;
+                  return (
+                    <button onClick={() => afford ? onBuyType() : flashShopNotice(`NOT ENOUGH SCRAP — CLIMB TO ${next.name} COSTS ${price}U · YOU HAVE ${funds}U`)}
+                      className={`pitted-metal px-3 py-2 rounded flex flex-wrap items-center justify-between gap-2 text-left touch-manipulation active:scale-[0.98] ${afford ? 'border border-zinc-600' : 'grayscale cursor-not-allowed border border-zinc-800 text-zinc-500'}`}>
+                      <span className="text-[10px] sm:text-xs font-bold uppercase text-[#33ff33]">⬆ CLIMB → {next.name} (T{typeTier + 1})</span>
+                      <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400 flex-1 text-right">{capSummary(next)} · HULL CAP {next.hullStepCap}</span>
+                      <span className="text-[10px] sm:text-xs font-mono font-bold text-pink-400">{price}U</span>
+                      <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-emerald-400/90">BUYS: {(unlockLines(shipLine, typeTier) ?? []).join(' · ')}</span>
+                      {hasSales(climbPreview ?? undefined) && (
+                        <span className="basis-full text-left text-[7px] sm:text-[8px] font-mono text-amber-400">⚠ SELLS: {sellSummary(climbPreview!)} ({sellMoneyLine(climbPreview!)})</span>
+                      )}
+                    </button>
+                  );
+                })()}
+
+                {typeTier >= 5 && (
+                  <div className="text-[10px] sm:text-xs font-mono text-amber-400">★ TOP OF THE LADDER — {progType.name} IS THE {shipLine?.toUpperCase()} LINE'S CROWN FRAME</div>
+                )}
+
+                {shipLine !== null && (
+                  <div className="flex flex-col gap-1.5">
+                    <div className="text-[9px] font-mono text-zinc-500 tracking-widest">SWITCH LINE — TIER, HULL STEPS AND TRACK LEVELS RIDE ACROSS · TOLL {switchCost === 0 ? 'FREE' : `${switchCost}U`}</div>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {(Object.keys(SHIP_LINES) as ShipLine[]).filter(ln => ln !== shipLine).map(ln => {
+                        const afford = funds >= switchCost;
+                        // THE FORCED SELL (Adam, 2026-10-22): holdings
+                        // the target hull can't hold SELL at full
+                        // price into the bank. The warning is the
+                        // reconcile preview for this exact target —
+                        // the same pure code the verb will run, so
+                        // what it names is what will happen.
+                        const targetPreview = switchPreviews[ln];
+                        const targetSellWarn = hasSales(targetPreview);
+                        return (
+                          <button key={ln} onClick={() => afford ? onSwitchLine(ln) : flashShopNotice(`NOT ENOUGH SCRAP — THE SWITCH TOLL IS ${switchCost}U · YOU HAVE ${funds}U`)}
+                            className={`flex-1 min-w-[86px] px-2 py-1.5 rounded text-[9px] sm:text-[10px] font-mono font-bold border touch-manipulation active:scale-95 flex flex-col items-center justify-center gap-0.5 ${afford ? 'bg-zinc-900 text-zinc-200 border-zinc-600' : 'bg-zinc-900 text-zinc-500 border-zinc-800 cursor-not-allowed'}`}>
+                            <span>⇄ {ln.toUpperCase()} · {switchCost === 0 ? 'FREE' : `${switchCost}U`}</span>
+                            {targetSellWarn && (
+                              <span className="text-[7px] sm:text-[8px] text-amber-400 tracking-normal">⚠ SELLS THERE: {sellSummary(targetPreview!)} ({sellMoneyLine(targetPreview!)})</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+            {shipLine !== null && (
+              <p className="text-[8px] sm:text-[9px] font-mono text-zinc-500 leading-relaxed">ON ANY SWITCH OR CLIMB: ANYTHING THE NEW FRAME CAN'T HOLD SELLS BACK INTO YOUR BANK AT THE POSTED RATES — THE WARNINGS ON EACH CARD NAME EXACTLY WHAT SELLS.</p>
             )}
           </div>
         </div>

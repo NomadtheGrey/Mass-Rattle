@@ -12,6 +12,7 @@ export interface UiOptions {
   astroPanel: boolean; // ASTRONOMIC DATA left panel (star fields + local nav)
   telemetry: boolean; // RANGE rows in the comms panel (PING/FPS graduated to the always-on chip, 2026-10-21)
   nameplates: boolean; // callsigns over remote ships (GameCanvas)
+  tutorialButton: boolean; // the on-screen TUTORIAL door (objectives modal, 2026-10-23)
 }
 
 export const DEFAULT_UI_OPTIONS: UiOptions = {
@@ -19,6 +20,7 @@ export const DEFAULT_UI_OPTIONS: UiOptions = {
   astroPanel: true,
   telemetry: true,
   nameplates: true,
+  tutorialButton: true,
 };
 
 const STORAGE_KEY = 'mr.uiOptions.v1';

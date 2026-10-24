@@ -17,7 +17,8 @@
  *   exactly how the top-level view reads them; ownerId is the truth.
  * - EVERY seat gets a starter ship (createStarterShip with the
  *   starter Bolt Cannon armed) — MP seats fly, including bot seats.
- *   That is the deliberate difference from SP's shipless enemy seat.
+ *   SP's enemy seat flies too since 2026-10-23 (Adam's call — solo
+ *   fields an opponent; it was a shipless sandbox before that).
  * - Ships and each seat's one initial drone spawn off their star by
  *   SP's convention (its drone offsets: 100 per axis toward the
  *   arena center), which also keeps them outside the star's disc.

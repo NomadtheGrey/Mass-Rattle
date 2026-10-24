@@ -10,7 +10,7 @@ import { advanceSeatTracking, createSeatSimState, createStarterShip } from '../s
 import { stepBotShip } from '../sim/botDriver';
 import { DEBUG_ARMED } from '../debug';
 import { stepStarBurn, stepShipPhysics, ShipPhysicsInputs } from '../sim/physics';
-import { createMatch } from '../sim/matchAssembly';
+import { createMatch, shipSpawnPosition } from '../sim/matchAssembly';
 import type { NetSession, NetActionIntent } from '../net/useNetClient';
 import {
   SNAPSHOT_EVERY_FRAMES, snapshotDue, localShipInput, remoteShipInput,
@@ -94,7 +94,8 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   // the SAME object references as the top-level fields — seats[0].ship
   // IS state.ship, seats[0].star IS state.star, seats[1].star IS
   // state.enemyStar. SP is the 2-seat degenerate case: seat 0 human,
-  // seat 1 a bot seat with ship: null — the shipped game, unchanged.
+  // seat 1 a bot seat WITH a starter ship (Adam, 2026-10-23 — solo
+  // fields an opponent; the shipless sandbox was the earlier shape).
   // The starter-ship factory reproduces the shipped initial ship
   // field for field (see src/sim/seatState.ts).
   const initialShip = createStarterShip(ownerIdForSeat(0), { x: 100, y: 100 }, { withStarterWeapon: true });
@@ -128,7 +129,13 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     enemyStar: initialEnemyStar,
     seats: [
       createSeatSimState(initialHomeStar, 0, 'human', initialShip),
-      createSeatSimState(initialEnemyStar, 1, 'bot', null),
+      // SOLO OPPONENT (Adam's call, 2026-10-23, superseding the
+      // deliberate shipless-sandbox note in matchAssembly): the
+      // enemy seat flies — a bot with the same starter ship an MP
+      // bot seat gets, spawned by the assembly's own placement law.
+      // The B1 driver + B2 economy already iterate this seat every
+      // frame; the null ship was the only thing keeping it inert.
+      createSeatSimState(initialEnemyStar, 1, 'bot', createStarterShip(initialEnemyStar.ownerId, shipSpawnPosition(initialEnemyStar), { withStarterWeapon: true })),
     ],
     standings: [],
     eventFeed: [],
@@ -1384,7 +1391,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
             ? prev.seats
             : [
                 createSeatSimState(star, 0, 'human', ship),
-                createSeatSimState(enemyStar, 1, 'bot', null),
+                createSeatSimState(enemyStar, 1, 'bot', createStarterShip(enemyStar.ownerId, shipSpawnPosition(enemyStar), { withStarterWeapon: true })),
               ];
         const localIdx = prevSeats.findIndex(ps => ps.ownerId === localOwnerId);
         const enemyIdx = prevSeats.findIndex(ps => ps.ownerId !== localOwnerId);
@@ -2438,8 +2445,8 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         // (through the same infuseStar + delivery heal as drone
         // deliveries), and fire. Its projectiles join this frame's
         // production phase alongside turret bolts and auto-guns, so
-        // they first move next frame, like theirs. Inert in SP: the
-        // enemy seat's ship is null and the local seat is human.
+        // they first move next frame, like theirs. In SP this is
+        // the solo opponent: the enemy seat's bot flies from frame one.
         for (const seat of simSeats) {
           if (seat.controller !== 'bot' || !seat.ship || seat.eliminated) continue;
           const botResult = stepBotShip(
