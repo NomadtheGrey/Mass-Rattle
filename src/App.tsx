@@ -11,7 +11,7 @@ import { ResultsOverlay } from './components/ResultsOverlay';
 import { MobileControls } from './components/MobileControls';
 import { useGameLoop } from './hooks/useGameLoop';
 import { inBankWell } from './bank';
-import { LobbyScreen } from './components/lobby/LobbyScreen';
+import { LobbyScreen, ShareCopyButtons } from './components/lobby/LobbyScreen';
 import { ChatPanel } from './components/ChatPanel';
 import { useNetClient, NetSessionContext } from './net/useNetClient';
 import { RepurchaseOverlay } from './components/RepurchaseOverlay';
@@ -117,6 +117,7 @@ export default function App() {
   }, []);
 
   const [lobbyOpen, setLobbyOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   useEffect(() => {
     if (net.room && net.room.phase !== 'lobby') setLobbyOpen(false);
   }, [net.room]);
@@ -173,24 +174,29 @@ export default function App() {
   return (
     <NetSessionContext.Provider value={net}>
     <div ref={containerRef} className="crt-container w-full h-full flex items-center justify-center p-0 select-none touch-none">
-      {/* Multiplayer door: opens the lobby; in a live room it becomes
-          the room chip (tap to see the room / leave). */}
+      {/* Multiplayer door: opens the lobby; in a live room it
+          reads simply LOBBY (Adam, 2026-10-24). */}
       {!lobbyOpen && (
+        <>
+        {/* ROOM SHARE FROM GAMEPLAY (Adam, 2026-10-24): the pill
+            stays the lobby door; in a room a 📋 sibling opens a
+            popover with both copy routes, so a member shares
+            without leaving the game. Solo: the sibling never
+            renders. */}
+        <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[95] flex items-center gap-1.5">
         <button
           onClick={() => setLobbyOpen(true)}
-          className="fixed top-2 left-1/2 -translate-x-1/2 z-[95] px-3 py-1.5 rounded-full bg-zinc-900/70 border border-[#33ff33]/60 text-[#33ff33] text-[10px] font-mono font-bold tracking-widest shadow-[0_0_10px_rgba(51,255,51,0.25)] active:scale-95 touch-manipulation flex items-center gap-1.5"
+          className="px-3 py-1.5 rounded-full bg-zinc-900/70 border border-[#33ff33]/60 text-[#33ff33] text-[10px] font-mono font-bold tracking-widest shadow-[0_0_10px_rgba(51,255,51,0.25)] active:scale-95 touch-manipulation flex items-center gap-1.5"
         >
-          {/* MODE PILL (Adam, library look 2026-10-23): the door is
-              also the mode indicator — MULTIPLAYER and SOLO side by
-              side, the CURRENT mode lit. Solo is any moment with no
-              room joined (net.room is the one truth); in a room the
-              second segment carries the room form instead. */}
+          {/* MODE PILL (Adam, library look 2026-10-23; room form
+              pinned 2026-10-24): in a room the pill is simply
+              LOBBY — the room info, the link, seats, and leaving
+              all live in the lobby one tap away, and the 📋
+              sibling beside it still shares without opening it.
+              Solo is any moment with no room joined (net.room is
+              the one truth); solo keeps the SOLO indicator. */}
           {net.room ? (
-            <>
-              <span>🌐 MULTIPLAYER</span>
-              <span className="opacity-50">·</span>
-              <span className="bg-[#33ff33] text-zinc-950 px-1.5 py-0.5 rounded-full">ROOM {net.room.code} — LOBBY</span>
-            </>
+            <span className="bg-[#33ff33] text-zinc-950 px-1.5 py-0.5 rounded-full">LOBBY</span>
           ) : (
             <>
               <span className="opacity-50">🌐 MULTIPLAYER</span>
@@ -199,7 +205,31 @@ export default function App() {
             </>
           )}
         </button>
+        {net.room && (
+          <button
+            type="button"
+            onClick={() => setShareOpen(v => !v)}
+            className="px-2.5 py-1.5 rounded-full bg-zinc-900/70 border border-zinc-600 text-zinc-200 text-[10px] font-mono font-bold tracking-widest shadow-[0_0_10px_rgba(0,0,0,0.35)] active:scale-95 touch-manipulation"
+            title="Copy room code or link"
+          >
+            📋
+          </button>
+        )}
+        </div>
+      {shareOpen && net.room && (
+        <>
+          <div className="fixed inset-0 z-[95] bg-transparent" onClick={() => setShareOpen(false)} />
+          <div className="fixed top-[44px] left-1/2 -translate-x-1/2 z-[96] w-[min(92vw,20rem)] hud-panel hud-panel-deep rounded border border-zinc-700 px-3 py-2.5 shadow-xl">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-[10px] font-bold tracking-widest text-zinc-300">SHARE THIS ROOM</span>
+              <button type="button" onClick={() => setShareOpen(false)} className="font-mono text-[10px] text-zinc-500 hover:text-red-400 touch-manipulation">✕</button>
+            </div>
+            <ShareCopyButtons code={net.room.code} />
+            <p className="font-mono text-[8px] sm:text-[9px] text-zinc-500 leading-snug mt-2">THE LINK OPENS THE GAME WITH THE CODE FILLED IN.</p>
+          </div>
+        </>
       )}
+      </>)}
       {localSeatDead && localSeat && !repurchaseDismissed && (
         <RepurchaseOverlay
           deaths={localSeat.deaths}

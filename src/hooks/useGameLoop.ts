@@ -190,6 +190,14 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   const tutorialDoneRef = useRef(false);
   const tutorialBaselineRef = useRef<TutorialBaseline | null>(null);
   const tutorialStipendRef = useRef(-1);
+  // REFRESH GUARD (Adam, 2026-10-24): the game's own reloads are
+  // intentional and must never trip the guard — this flag is set
+  // first, and the beforeunload handler below stands aside for it.
+  const intentionalReloadRef = useRef(false);
+  const reloadPage = useCallback(() => {
+    intentionalReloadRef.current = true;
+    window.location.reload();
+  }, []);
   // GRADUATION (UI's contract): the flag clears and the world
   // KEEPS — the match simply becomes a normal solo match, and
   // done publishes so the HUD's graduation chip can show.
@@ -206,7 +214,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   const endTutorial = useCallback(() => {
     if (tutorialDoneRef.current) return; // graduated already: nothing to tear down
     try { window.localStorage.removeItem(TUTORIAL_FLAG_KEY); } catch { /* no-op */ }
-    window.location.reload();
+    reloadPage();
   }, []);
   const skipTutorialStep = useCallback(() => {
     setTutorial(t => {
@@ -227,7 +235,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   const startTutorial = useCallback(() => {
     clearSoloGame();
     try { window.localStorage.setItem(TUTORIAL_FLAG_KEY, '1'); } catch { /* no-op */ }
-    window.location.reload();
+    reloadPage();
   }, []);
   useEffect(() => {
     if (!tutorial.active) return;
@@ -1056,7 +1064,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   }, []);
 
   const restart = useCallback(() => {
-    window.location.reload(); // Simple for now as we don't have a complex state machine yet
+    reloadPage(); // Simple for now as we don't have a complex state machine yet
   }, []);
 
   const spawnScrap = useCallback((center: Vector2D, radius: number = 100) => {
@@ -1183,6 +1191,29 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', flush);
     };
+  }, []);
+  // REFRESH GUARD (Adam, 2026-10-24): an accidental refresh, back
+  // tap, or tab close mid-match kills the game, so while a match is
+  // live the browser gets its leave-site confirmation. The wording
+  // is the browser's, not ours; confirming still refreshes, so a
+  // deliberate refresh always works. Armed only while a match is on
+  // the field — a live/cinematic room, or a solo match not yet
+  // ended (tutorial flights included) — never in the lobby or on
+  // menus, where there is nothing to lose. The game's own reloads
+  // set intentionalReloadRef first and never trip it.
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (intentionalReloadRef.current) return;
+      const roomPhase = netRef.current?.room?.phase;
+      const matchLive = roomPhase
+        ? roomPhase === 'live' || roomPhase === 'cinematic'
+        : !!(stateRef.current && !stateRef.current.matchEnd);
+      if (!matchLive) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, []);
   useEffect(() => {
     if (state.matchEnd && !netRef.current?.room) clearSoloGame();

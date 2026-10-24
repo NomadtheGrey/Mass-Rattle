@@ -271,6 +271,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
           <div className="text-center">
             <div className="text-[9px] font-mono tracking-[0.3em] text-zinc-500">ROOM CODE — SHARE IT TO INVITE</div>
             <div className="text-4xl font-black font-mono tracking-[0.35em] text-zinc-50 my-1">{room.code}</div>
+            <ShareCopyButtons code={room.code} />
             <div className="text-[10px] font-mono text-zinc-400">
               {room.name || 'UNNAMED ROOM'} · {room.starCount} STARS · {room.private ? 'PRIVATE — CODE/LINK ONLY' : 'PUBLIC'}
             </div>
@@ -520,3 +521,52 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
     </div>
   );
 };
+
+// ROOM SHARE (Adam, 2026-10-24): the two copy routes for a room —
+// the code itself, and the join link built from the page's own
+// origin (never a hardcoded domain; the link is the ?room=
+// prefill the lobby already honors). One component, both homes:
+// under the lobby's code, and in the gameplay pill's popover.
+// The confirmation is honest: COPIED flashes only when the write
+// actually succeeded, for 2s, then the label returns.
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch { /* the legacy path below */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch { return false; }
+}
+
+export function ShareCopyButtons({ code }: { code: string }) {
+  const [copied, setCopied] = React.useState<'code' | 'link' | null>(null);
+  const timer = React.useRef<number | null>(null);
+  const copy = async (kind: 'code' | 'link') => {
+    const text = kind === 'code' ? code : `${window.location.origin}/?room=${code}`;
+    if (await copyTextToClipboard(text)) {
+      setCopied(kind);
+      if (timer.current) window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => setCopied(null), 2000);
+    }
+  };
+  const btn = 'flex-1 px-3 py-2.5 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-widest touch-manipulation active:scale-[0.98]';
+  return (
+    <div className="flex gap-2 mt-2">
+      <button type="button" onClick={() => copy('code')} className={`${btn} border-zinc-600 bg-zinc-900 text-zinc-100`}>
+        {copied === 'code' ? '✓ COPIED' : '📋 COPY CODE'}
+      </button>
+      <button type="button" onClick={() => copy('link')} className={`${btn} border-[#33ff33]/60 bg-emerald-950/40 text-[#33ff33]`}>
+        {copied === 'link' ? '✓ COPIED' : '🔗 COPY LINK'}
+      </button>
+    </div>
+  );
+}
