@@ -201,6 +201,23 @@ export default {
       return Response.json({ error: 'not_found' }, { status: 404 });
     }
 
+    /* ------------------------- Pre-join team board ------------ */
+    // GET /api/rooms/:code (no /ws): the read-only team board, served
+    // by the RoomDO itself — the index never sees seat rosters.
+    const boardMatch = url.pathname.match(/^\/api\/rooms\/([A-Za-z2-9]{6})$/);
+    if (boardMatch && request.method === 'GET') {
+      const code = boardMatch[1].toUpperCase();
+      if (!(await roomExists(env, code))) {
+        return Response.json(
+          { error: 'room_not_found' },
+          { status: 404 },
+        );
+      }
+      return roomStub(env, code).fetch(
+        new Request('https://room.internal/board'),
+      );
+    }
+
     /* ------------------------- WebSocket join ----------------- */
     const wsMatch = url.pathname.match(CODE_PATH);
     if (wsMatch && request.headers.get('Upgrade') === 'websocket') {

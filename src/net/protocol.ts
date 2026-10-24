@@ -319,6 +319,13 @@ export type ClientMessage =
        *  the claim simply suffixes like any collision (no refusal).
        *  Attempts are rate-limited per connection (5 s) by the DO. */
       callsignPassword?: string;
+      /** TEAM PICK (Adam, 2026-10-24): the pre-join board's choice.
+       *  A team name claims that team's first open bot seat; 'random'
+       *  takes a random team that has one. Absent = legacy behavior
+       *  (first open bot seat, any team) — old clients keep working,
+       *  no version bump. A known team with no open seat refuses at
+       *  claim time with room_full; unknown values are ignored. */
+      teamPreference?: TeamId | 'random';
     }
   /** Host-only, from the lobby: phase → 'live', arena live
    *  immediately. No ready state exists anywhere. */
@@ -363,6 +370,33 @@ export type ClientMessage =
   | StandingsEvent
   | StageChangedEvent
   | MatchEndedEvent;
+
+/* ------------------------------------------------------------------ */
+/* Pre-join team board (Adam, 2026-10-24).                            */
+/* ------------------------------------------------------------------ */
+
+/** A read-only peek at a room, served over GET /api/rooms/:code
+ *  before any seat is claimed, so the joiner can pick a team (or
+ *  RANDOM) with open eyes. It carries only what the room view
+ *  already shows members — phase, teams, callsigns, bot/human
+ *  counts — never anything a non-member could not learn by
+ *  joining with the code. */
+export interface RoomBoardSeat {
+  starIndex: number;
+  teamId: TeamId;
+  kind: 'human' | 'bot';
+  /** Human callsign; null for bot seats. */
+  callsign: string | null;
+  connection: SeatConnection;
+}
+
+export interface RoomBoard {
+  code: string;
+  name: string;
+  phase: RoomPhase;
+  starCount: StarCount;
+  seats: RoomBoardSeat[];
+}
 
 /* ------------------------------------------------------------------ */
 /* Server → client messages (WebSocket).                              */
