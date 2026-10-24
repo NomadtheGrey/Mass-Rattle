@@ -519,6 +519,23 @@ export const HUD: React.FC<HUDProps> = ({
   // door opens this layer above the guide; the toggles gate reference
   // surfaces only and persist on-device (src/uiOptions.ts).
   const [showOptions, setShowOptions] = React.useState(false);
+  // FIRST-ENTRY OBJECTIVES (Adam, 2026-10-23): the whole game in
+  // six lines, shown once per browser on first entering the game.
+  // The seen-flag is a client pref (localStorage, mr.* family) —
+  // never game state, never the wire. The modal is re-openable
+  // from the TUTORIAL doors (on-screen pill, cabinet row, and the
+  // modal's own foot); until the guided tutorial lands, the goal
+  // chain IS the tutorial (the proto-tutorial), and those doors
+  // re-point when it is built.
+  const [objectivesOpen, setObjectivesOpen] = React.useState(false);
+  React.useEffect(() => {
+    try {
+      if (!localStorage.getItem('mr.objectivesSeen.v1')) {
+        localStorage.setItem('mr.objectivesSeen.v1', '1');
+        setObjectivesOpen(true);
+      }
+    } catch { /* storage unavailable — the doors still open it */ }
+  }, []);
   const uiOptions = useUiOptions();
     // Workshop tabs: the five base ship tracks, then the Arsenal categories.
   const [shopTab, setShopTab] = React.useState<'ship' | 'bank' | ArsenalCategory>('ship');
@@ -621,9 +638,10 @@ export const HUD: React.FC<HUDProps> = ({
   // and an ESC cannot fall through to anything else. The results
   // screen is deliberately NOT in this chain — it is the match end,
   // a state rather than a popup, and its exit is the restart button.
-  const anyModalOpen = showBuilds || frameModalOpen || isShopOpen || radarActive || showOptions;
+  const anyModalOpen = showBuilds || objectivesOpen || frameModalOpen || isShopOpen || radarActive || showOptions;
   const closeTopmost = React.useCallback(() => {
     if (showBuilds) { setShowBuilds(false); return; }
+    if (objectivesOpen) { setObjectivesOpen(false); return; }
     if (frameModalOpen) { setFrameModalOpen(false); return; }
     if (isShopOpen && onCloseShop) { onCloseShop(); return; }
     if (radarActive) {
@@ -1475,6 +1493,23 @@ export const HUD: React.FC<HUDProps> = ({
           governs it. Desktop: the frame's inner top-right. Mobile:
           the verified gap between the header (~76px) and the status
           strip (148px) — the chip's bottom edge clears the strip. */}
+      {/* ON-SCREEN TUTORIAL DOOR (Adam, 2026-10-23): one of the
+          tutorial button's three homes (modal foot, cabinet row,
+          here). A small pill in the instrumentation corner —
+          phone: top-right above the PING chip's home; desktop:
+          beside the chip. The OPTIONS tab's TUTORIAL BUTTON
+          toggle shows/hides it (mr.uiOptions); it stands down
+          while its own modal is open. */}
+      {uiOptions.tutorialButton && !objectivesOpen && (
+        <button
+          type="button"
+          onClick={() => setObjectivesOpen(true)}
+          className="fixed top-2 right-2 md:top-6 md:right-[152px] z-[95] px-3 py-1.5 rounded-full bg-zinc-900/70 border border-[#33ff33]/60 text-[#33ff33] text-[10px] font-mono font-bold tracking-widest shadow-[0_0_10px_rgba(51,255,51,0.25)] active:scale-95 touch-manipulation pointer-events-auto"
+        >
+          🎓 TUTORIAL
+        </button>
+      )}
+
       <div className="fixed top-[104px] right-2 md:top-6 md:right-6 z-[54] pointer-events-none">
         <div className="hud-panel border border-zinc-800 px-2 py-1 font-mono text-[9px] sm:text-[10px] leading-none flex items-center gap-1.5 shadow-lg">
           <span><span className="text-zinc-500">PING</span> <span className="text-zinc-100 font-bold">{pingMs}MS</span></span>
@@ -2174,6 +2209,13 @@ export const HUD: React.FC<HUDProps> = ({
                 </button>
               ))}
             </div>
+            <button
+              type="button"
+              onClick={() => setObjectivesOpen(true)}
+              className="w-full mb-4 px-3 py-2 rounded border border-emerald-800 bg-emerald-950/40 text-[#33ff33] font-mono text-[10px] sm:text-[11px] font-bold tracking-widest touch-manipulation"
+            >
+              🎓 TUTORIAL — YOUR ORDERS
+            </button>
             {escTab === 'guide' && (
               <MechanicsGuide embedded onClose={() => setShowOptions(false)} />
             )}
@@ -2185,6 +2227,7 @@ export const HUD: React.FC<HUDProps> = ({
                 { key: 'astroPanel', label: 'ASTRONOMIC DATA', blurb: 'Star fields, growth bands, enemy lifecycle, local nav map.' },
                 { key: 'telemetry', label: 'TELEMETRY ROWS', blurb: 'RANGE · HOME / ENEMY in the comms panel. PING + FPS are always-on instrumentation (top-right) and never toggle. Warnings always show.' },
                 { key: 'nameplates', label: 'NAMEPLATES', blurb: 'Callsigns over remote ships in multiplayer.' },
+                { key: 'tutorialButton', label: 'TUTORIAL BUTTON', blurb: 'The on-screen \u{1F393} TUTORIAL door (top-right). The objectives also live in this cabinet, and greet you on your first entry.' },
               ] as { key: keyof UiOptions; label: string; blurb: string }[]).map(row => (
                 <div key={row.key} className="flex items-center justify-between gap-3 border border-zinc-800 rounded px-3 py-2">
                   <div className="min-w-0">
@@ -2332,6 +2375,58 @@ export const HUD: React.FC<HUDProps> = ({
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* FIRST-ENTRY OBJECTIVES MODAL (Adam, 2026-10-23): a
+          super-miniaturized overall goal set — the whole game in
+          six lines, worded against the shipped win law (BOTH
+          endings are real). Topmost in the modal rule after build
+          history (z-135). Its foot carries the TUTORIAL button
+          (today it dismisses into the game — the chain above is
+          the proto-tutorial; the guided flow re-points this door
+          when it lands) and FIELD MANUAL (the cabinet's GUIDE
+          tab). */}
+      {objectivesOpen && (
+        <div className="fixed inset-0 z-[135] flex items-center justify-center p-3 bg-black/75 backdrop-blur-sm pointer-events-auto" onClick={() => setObjectivesOpen(false)}>
+          <div className="hud-panel hud-panel-deep p-4 sm:p-5 border-4 rounded-xl w-full max-w-[480px] max-h-[88vh] overflow-y-auto flex flex-col gap-3 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
+              <span className="text-xs sm:text-sm font-mono font-bold text-[#33ff33] uppercase tracking-widest">🎯 YOUR ORDERS</span>
+              <button onClick={() => setObjectivesOpen(false)} className="text-red-500 hover:text-white text-xs font-mono px-2.5 py-1.5 bg-zinc-900 border border-red-900 rounded touch-manipulation">[X] CLOSE</button>
+            </div>
+            <div className="text-[9px] sm:text-[10px] font-mono text-zinc-500 tracking-widest">THE WHOLE GAME, IN SIX LINES</div>
+            <div className="flex flex-col gap-2">
+              {[
+                { icon: '⛏', label: 'HARVEST', text: 'scoop the scrap drifting in the field.' },
+                { icon: '🏦', label: 'BRING IT HOME', text: 'deliveries at your star feed it and fill your bank.' },
+                { icon: '🔧', label: 'UPGRADE', text: 'spend in the workshop, inside your star’s well.' },
+                { icon: '🛸', label: 'CLIMB', text: 'pick a ship line and climb its frames to the T5 crowns.' },
+                { icon: '⚔', label: 'FIGHT OR FEED', text: 'raid your enemies, or pour everything into your star.' },
+                { icon: '🏆', label: 'WIN', text: 'shatter the enemy star… or feed yours to M15 and collapse it into a BLACK HOLE. Match over, on the spot.' },
+              ].map(row => (
+                <div key={row.label} className="flex gap-2.5 items-baseline border border-zinc-800/80 rounded px-3 py-2 bg-zinc-900/30">
+                  <span className="text-sm leading-none" aria-hidden>{row.icon}</span>
+                  <p className="text-[11px] sm:text-xs font-mono leading-snug text-zinc-300"><span className="text-zinc-50 font-bold tracking-wider">{row.label}</span> — {row.text}</p>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 mt-1">
+              <button
+                type="button"
+                onClick={() => setObjectivesOpen(false)}
+                className="flex-1 px-3 py-2.5 rounded border border-emerald-600 bg-emerald-950/50 text-emerald-300 font-mono text-[11px] sm:text-xs font-bold tracking-widest touch-manipulation active:scale-[0.98]"
+              >
+                🎓 TUTORIAL
+              </button>
+              <button
+                type="button"
+                onClick={() => { setObjectivesOpen(false); openCabinet('guide'); }}
+                className="flex-1 px-3 py-2.5 rounded border border-zinc-600 bg-zinc-900/60 text-zinc-200 font-mono text-[11px] sm:text-xs font-bold tracking-widest touch-manipulation active:scale-[0.98]"
+              >
+                📖 FIELD MANUAL
+              </button>
+            </div>
           </div>
         </div>
       )}
