@@ -5,7 +5,7 @@ lives here. Part V is observed pattern — the features this game
 itself repeatedly builds, drafted from what Mass Rattle does, in
 Mass Rattle's own material. (Adam shares a design philosophy with
 his other work; this document speaks only for this game.)
-Last updated 2026-10-22.
+Last updated 2026-10-23.
 
 ## PART I — LAWS OF THE GAME
 
@@ -61,6 +61,28 @@ Last updated 2026-10-22.
    misstated it, was right. Treat hands-on reports as the
    highest-grade signal there is, and verify the instruments
    against them, not the other way round.
+10. **Lanes own files by kind; a seam has one author at a time.**
+   (Adam's pin, 2026-10-23, after the tutorial seam war — three
+   whole-file collisions in one evening.) The build runs in lanes:
+   the state lane owns `.ts` (simulation, economy, engines), the
+   surfaces lane owns `.tsx` (HUD, canvas, screens). A lane that
+   needs the other lane's file says so out loud — a claim or an
+   assignment — edits, and hands it back; crossing silently is
+   the failure, crossing announced is the system working. The
+   mechanics that make it hold: FETCH BEFORE AUTHORING, not just
+   before pushing — two of the three collisions were composed on
+   stale trees. A PUSH CARRIES THE WHOLE FILE: whatever your tree
+   lacks, origin loses, and a green compile does not prove
+   nothing was lost (two self-consistent trees can each be
+   missing the other's content). So before pushing a file
+   another lane also writes, CANARY-GREP its markers — the other
+   lane's copy lines, wiring props, named exports — and after
+   pushing, grep ORIGIN for both lanes' markers, not only your
+   own. A change to a shared seam lands as ONE single-owner
+   commit across every seam file at once, and it is verified on
+   the exact pushed stack: both lanes had verified their own
+   trees on the night of the war, and the stack itself did not
+   compile. The grep is cheaper than the fourth repair.
 
 ## PART V — THIS GAME'S OWN FEATURES
 
