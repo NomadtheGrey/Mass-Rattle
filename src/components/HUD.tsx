@@ -10,7 +10,7 @@ import { areTeammates } from '../sim/teams';
 import type { Ship, Harvester, EscortShip, SeatSimState } from '../types';
 import { stageStateForInfused, type StarStageState } from '../sim/starStages';
 import { BUILD_HISTORY, LATEST_BUILD } from '../buildHistory';
-import { TUTORIAL_STEPS, TUTORIAL_TRACKS, type TutorialSnapshot, type TutorialSpotlight } from '../tutorial';
+import { TUTORIAL_COPY, TUTORIAL_TRACKS, type TutorialSnapshot, type TutorialSpotlightId } from '../tutorial';
 import { useUiOptions, setUiOption, resetUiOptions, type UiOptions } from '../uiOptions';
 import { DEBUG_ARMED } from '../debug';
 import type { StarStage } from '../net/protocol';
@@ -561,16 +561,20 @@ export const HUD: React.FC<HUDProps> = ({
   React.useEffect(() => {
     if (tutorial?.active) setCoachExpanded(tutorial.stepId !== 'teeth' && tutorial.stepId !== 'match');
   }, [tutorial?.step, tutorial?.active]);
-  // GRADUATION: the engine publishes done (the flag cleared, the
-  // world kept) — the chip marks the turn once.
+  // GRADUATION: the engine ends the flight IN PLACE (active flips
+  // false, the match continues) — the chip marks the turn when it
+  // happens off the final step. Ending early shows nothing.
+  const prevTutRef = React.useRef<{ active: boolean; step: number } | null>(null);
   React.useEffect(() => {
-    if (tutorial?.done) {
+    const prev = prevTutRef.current;
+    prevTutRef.current = tutorial ? { active: tutorial.active, step: tutorial.step } : null;
+    if (prev?.active && tutorial && !tutorial.active && prev.step === 7) {
       setGraduationShown(true);
       const t = setTimeout(() => setGraduationShown(false), 6000);
       return () => clearTimeout(t);
     }
-  }, [tutorial?.done]);
-  const spot = (id: TutorialSpotlight) => (tutorial?.active && tutorial.spotlight === id ? ' spotlight-pulse' : '');
+  }, [tutorial]);
+  const spot = (id: TutorialSpotlightId) => (tutorial?.active && tutorial.spotlight === id ? ' spotlight-pulse' : '');
   // THE START CARD (the doors' destination in solo): the flight is
   // started from a card, never by ambush — and in a room the doors
   // open YOUR ORDERS with the solo-only note instead (the flight
@@ -1587,7 +1591,7 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
       )}
       {tutorial?.active && (() => {
-        const copy = TUTORIAL_STEPS[tutorial.stepId];
+        const copy = TUTORIAL_COPY[tutorial.stepId];
         const isPhone = coarsePointer;
         return (
           <div className="fixed top-[64px] md:top-[132px] left-1/2 -translate-x-1/2 z-[95] w-[min(94vw,26rem)] pointer-events-auto">
