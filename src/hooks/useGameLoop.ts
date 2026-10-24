@@ -25,7 +25,7 @@ import {
   physicalSizeForStar,
 } from '../sim/starStages';
 import { stepDrones } from '../sim/drones';
-import { repairFrame } from '../sim/repair';
+import { stepSeatRepairs } from '../sim/repair';
 import { stepHarbors, canDockAt, HARBOR_DOCK_RANGE } from '../sim/harbor';
 import { reconcileSwitch } from '../switchReconcile';
 import { stepEscorts } from '../sim/escorts';
@@ -919,6 +919,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
    * the rest when a harbor closes or a host dies).
    */
   const dockToHost = useCallback((hostOwnerId: string) => {
+    if (queueGuestAction({ kind: 'dockToHost', hostOwnerId })) return;
     setState(prev => {
       const hostSeat = prev.seats.find(s => s.ownerId === hostOwnerId);
       const host = hostSeat?.ship;
@@ -931,16 +932,19 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   }, []);
 
   const undock = useCallback(() => {
+    if (queueGuestAction({ kind: 'undock' })) return;
     setState(prev => (prev.ship.dockedTo
       ? { ...prev, ship: { ...prev.ship, dockedTo: undefined } }
       : prev));
   }, []);
 
   const setHarborOpen = useCallback((open: boolean) => {
+    if (queueGuestAction({ kind: 'setHarborOpen', open })) return;
     setState(prev => ({ ...prev, ship: { ...prev.ship, harborOpen: open } }));
   }, []);
 
   const undockGuest = useCallback((guestOwnerId: string) => {
+    if (queueGuestAction({ kind: 'undockGuest', guestOwnerId })) return;
     setState(prev => {
       const seats = prev.seats.map(seat => {
         const gs = seat.ship;
@@ -1609,15 +1613,17 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         } else if (ship.shield) {
           ship.shield = 0;
         }
-        // SCRAP HEALING (RULED, src/sim/repair.ts): the repair
-        // toggle DEFAULTS ON (undefined reads as on) — a hurt,
-        // loaded ship heals at its hull's rate up to its
-        // type/tier cap whenever the mode stands; at the cap or
-        // on an empty hold the engine simply idles.
-        if (ship.repairing !== false && !ship.dockedTo) {
-          const ceiling = ship.maxHealth * healCapPctFor(ship.line, ship.typeTier);
-          repairFrame(ship, ship, ceiling, healRateFor(ship.line, ship.typeTier) / 60);
-        }
+        // SCRAP HEALING (RULED, src/sim/repair.ts; REPAIR PARITY,
+        // Adam's commission 2026-10-24): the repair toggle
+        // DEFAULTS ON (undefined reads as on) — a hurt, loaded
+        // ship heals at its hull's rate up to its type/tier cap
+        // whenever the mode stands; at the cap or on an empty
+        // hold the engine simply idles. The pass runs over the
+        // sim seats — every human seat, not just this one — so
+        // the local inline tick it replaces is gone: one law,
+        // one call site, no double heal. (The local seat's ship
+        // IS this ship object, so its heal is unchanged.)
+        stepSeatRepairs(simSeats);
         const gravFactor = defId === 'grav_dampers' ? gravFactorFor(defTier) : 1;
         const thrustFactor = defId === 'armor_plating' ? armorThrustFactor(defTier) : 1;
 
