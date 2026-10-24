@@ -12,7 +12,7 @@ import { DEBUG_ARMED } from '../debug';
 import { stepStarBurn, stepShipPhysics, ShipPhysicsInputs } from '../sim/physics';
 import { createMatch, shipSpawnPosition } from '../sim/matchAssembly';
 import { loadSoloGame, saveSoloGame, clearSoloGame } from '../soloSave';
-import { TUTORIAL_FLAG_KEY, TUTORIAL_STEPS, TUTORIAL_STIPEND, TEETH_INDEX, captureBaseline, type TutorialBaseline, type TutorialMarker } from '../tutorial';
+import { TUTORIAL_FLAG_KEY, TUTORIAL_STEP_DEFS, TUTORIAL_STIPEND, TEETH_INDEX, captureBaseline, type TutorialBaseline } from '../tutorial';
 import type { NetSession, NetActionIntent } from '../net/useNetClient';
 import {
   SNAPSHOT_EVERY_FRAMES, snapshotDue, localShipInput, remoteShipInput,
@@ -184,24 +184,44 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   // THE GUIDED FLIGHT — machine (src/tutorial.ts owns the table):
   // step state for the HUD's coach card, refs for the frame gates
   // (captain parking, save suppression), baselines per step entry.
-  const [tutorial, setTutorial] = useState<{ active: boolean; step: number }>(() => ({ active: tutorialBootRef.current === true, step: 0 }));
+  const [tutorial, setTutorial] = useState<{ active: boolean; step: number; done: boolean }>(() => ({ active: tutorialBootRef.current === true, step: 0, done: false }));
   const tutorialActiveRef = useRef(tutorial.active);
   const tutorialStepRef = useRef(0);
+  const tutorialDoneRef = useRef(false);
   const tutorialBaselineRef = useRef<TutorialBaseline | null>(null);
   const tutorialStipendRef = useRef(-1);
-  const endTutorial = useCallback(() => {
+  // GRADUATION (UI's contract): the flag clears and the world
+  // KEEPS — the match simply becomes a normal solo match, and
+  // done publishes so the HUD's graduation chip can show.
+  const graduateTutorial = useCallback(() => {
     try { window.localStorage.removeItem(TUTORIAL_FLAG_KEY); } catch { /* no-op */ }
     tutorialActiveRef.current = false;
-    setTutorial(t => ({ ...t, active: false }));
+    tutorialDoneRef.current = true;
+    setTutorial(t => ({ ...t, active: false, done: true }));
+  }, []);
+  // The END control: with graduation pending (the MATCH beat met)
+  // it graduates in place; anywhere earlier it TEARS DOWN to a
+  // fresh normal solo — the scripted instance is discarded, the
+  // same reload idiom startTutorial boots with.
+  const endTutorial = useCallback(() => {
+    if (tutorialDoneRef.current) return; // graduated already: nothing to tear down
+    try { window.localStorage.removeItem(TUTORIAL_FLAG_KEY); } catch { /* no-op */ }
+    window.location.reload();
   }, []);
   const skipTutorialStep = useCallback(() => {
     setTutorial(t => {
       if (!t.active) return t;
       const next = t.step + 1;
-      tutorialStepRef.current = Math.min(next, TUTORIAL_STEPS.length - 1);
       tutorialBaselineRef.current = null;
-      if (next >= TUTORIAL_STEPS.length) { tutorialActiveRef.current = false; try { window.localStorage.removeItem(TUTORIAL_FLAG_KEY); } catch { /* no-op */ } return { active: false, step: t.step }; }
-      return { active: true, step: next };
+      if (next >= TUTORIAL_STEP_DEFS.length) {
+        // Skipping the last beat graduates, like acknowledging it.
+        tutorialActiveRef.current = false;
+        tutorialDoneRef.current = true;
+        try { window.localStorage.removeItem(TUTORIAL_FLAG_KEY); } catch { /* no-op */ }
+        return { active: false, step: t.step, done: true };
+      }
+      tutorialStepRef.current = next;
+      return { active: true, step: next, done: false };
     });
   }, []);
   const startTutorial = useCallback(() => {
@@ -222,14 +242,19 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       }
       return;
     }
-    const def = TUTORIAL_STEPS[tutorial.step];
+    const def = TUTORIAL_STEP_DEFS[tutorial.step];
     if (def && def.done(tutorialBaselineRef.current, state, now)) {
-      if (tutorial.step + 1 >= TUTORIAL_STEPS.length) { endTutorial(); return; }
+      if (tutorial.step + 1 >= TUTORIAL_STEP_DEFS.length) {
+        // The MATCH beat is met: graduate in place — the flag
+        // clears, done publishes for the chip, the world keeps.
+        graduateTutorial();
+        return;
+      }
       tutorialStepRef.current = tutorial.step + 1;
       tutorialBaselineRef.current = null;
-      setTutorial({ active: true, step: tutorial.step + 1 });
+      setTutorial({ active: true, step: tutorial.step + 1, done: false });
     }
-  }, [state, tutorial, endTutorial]);
+  }, [state, tutorial, graduateTutorial]);
   const keys = useRef<Set<string>>(new Set());
   const touchInputs = useRef<{
     thrust: boolean;
@@ -2749,18 +2774,24 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     };
   }, [width, height]);
 
-  // The objective marker for the canvas (tutorial): the current
-  // step's target in world coordinates, or null. Computed here,
-  // where the room truth is in scope — a room never shows it.
-  const tutorialMarker: TutorialMarker | null =
-    tutorial.active && !netRef.current?.room
-      ? (TUTORIAL_STEPS[tutorial.step]?.marker(state) ?? null)
-      : null;
+  // THE GUIDED FLIGHT — published snapshot (UI's contract): one
+  // object for the coach card, the canvas marker and the spotlight
+  // pulse. stepId/spotlight come straight from the step table;
+  // marker is world-flat {x, y, label, tone}; a room never shows
+  // any of it (the snapshot inerts: marker/spotlight null).
+  const tutorialStepDef = TUTORIAL_STEP_DEFS[tutorial.step];
+  const tutorialSnapshot = {
+    active: tutorial.active,
+    step: tutorial.step,
+    stepId: tutorialStepDef?.id ?? 'fly',
+    done: tutorial.done,
+    marker: tutorial.active && !netRef.current?.room ? (tutorialStepDef?.marker(state) ?? null) : null,
+    spotlight: tutorial.active && !netRef.current?.room ? (tutorialStepDef?.spotlight ?? null) : null,
+  };
 
   return {
     state,
-    tutorial,
-    tutorialMarker,
+    tutorial: tutorialSnapshot,
     startTutorial,
     endTutorial,
     skipTutorialStep,
