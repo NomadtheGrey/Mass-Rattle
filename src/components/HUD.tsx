@@ -520,22 +520,17 @@ export const HUD: React.FC<HUDProps> = ({
   // surfaces only and persist on-device (src/uiOptions.ts).
   const [showOptions, setShowOptions] = React.useState(false);
   // FIRST-ENTRY OBJECTIVES (Adam, 2026-10-23): the whole game in
-  // six lines, shown once per browser on first entering the game.
-  // The seen-flag is a client pref (localStorage, mr.* family) —
-  // never game state, never the wire. The modal is re-openable
-  // from the TUTORIAL doors (on-screen pill, cabinet row, and the
-  // modal's own foot); until the guided tutorial lands, the goal
-  // chain IS the tutorial (the proto-tutorial), and those doors
-  // re-point when it is built.
+  // six lines. TRIGGER LAW (Adam's refinement, same day): it
+  // simply appears when the game starts, at page load — no
+  // once-per-browser suppression in v1; if repeat appearances
+  // ever grate, a 'show orders at start' preference would live
+  // in the Options family (not built until he asks). The modal
+  // is re-openable from the TUTORIAL doors (on-screen pill,
+  // cabinet row, and the modal's own foot); until the guided
+  // tutorial lands, the goal chain IS the tutorial (the
+  // proto-tutorial), and those doors re-point when it is built.
   const [objectivesOpen, setObjectivesOpen] = React.useState(false);
-  React.useEffect(() => {
-    try {
-      if (!localStorage.getItem('mr.objectivesSeen.v1')) {
-        localStorage.setItem('mr.objectivesSeen.v1', '1');
-        setObjectivesOpen(true);
-      }
-    } catch { /* storage unavailable — the doors still open it */ }
-  }, []);
+  React.useEffect(() => { setObjectivesOpen(true); }, []);
   const uiOptions = useUiOptions();
     // Workshop tabs: the five base ship tracks, then the Arsenal categories.
   const [shopTab, setShopTab] = React.useState<'ship' | 'bank' | ArsenalCategory>('ship');
