@@ -2299,8 +2299,22 @@ export const HUD: React.FC<HUDProps> = ({
                 </div>
                 <div className="text-xs font-mono font-bold text-zinc-100 mt-1">{LATEST_BUILD.title}</div>
                 <div className="text-[10px] font-mono text-zinc-400 leading-snug mt-0.5 line-clamp-2">{LATEST_BUILD.detail}</div>
-                <div className="text-[9px] font-mono text-[#33ff33] mt-1.5 tracking-widest">▸ BUILD HISTORY — LAST {Math.min(20, BUILD_HISTORY.length)}</div>
+                <div className="text-[9px] sm:text-[10px] font-mono font-bold text-[#33ff33] mt-2 pt-2 border-t border-amber-900/40 tracking-widest text-center">▸ OPEN BUILD HISTORY — LAST {Math.min(20, BUILD_HISTORY.length)} BUILDS</div>
               </button>
+
+              {/* RECENT CHANGES (Adam, 2026-10-23): the two builds
+                  before the latest, inline under SYS — the recent
+                  history reads at a glance without opening
+                  anything; the full record rides the door above
+                  into the history modal. One source: BUILD_HISTORY. */}
+              <div className="mt-2.5 flex flex-col gap-1.5 px-1">
+                {BUILD_HISTORY.slice(1, 3).map(b => (
+                  <div key={b.ref + b.date} className="flex justify-between items-baseline gap-2 border-l-2 border-zinc-800 pl-2.5">
+                    <span className="text-[10px] font-mono font-bold text-zinc-300 truncate">{b.title}</span>
+                    <span className="text-[8px] font-mono text-zinc-500 shrink-0">{b.date} · {b.ref}</span>
+                  </div>
+                ))}
+              </div>
 
               {/* DEV — TESTER KIT (Adam's commission, 2026-10-21; state
                   side BackGround 4650b48, surface UI lane). Renders ONLY
