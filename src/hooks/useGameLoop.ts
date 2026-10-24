@@ -2610,6 +2610,14 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           if (seat.controller !== 'bot' || !seat.ship || seat.eliminated) continue;
           // TUTORIAL: the captain stays parked until TEETH.
           if (tutorialActiveRef.current && tutorialStepRef.current < TEETH_INDEX && seat.starIndex === 1) continue;
+          // BOT DIFFICULTY LADDER: the room's rung drives every bot
+          // seat; solo has no room, so it defaults to ROOKIE — the
+          // gentle on-ramp. A room whose state predates difficulty
+          // keeps today's behavior (IMPOSSIBLE), never a surprise
+          // softening mid-match.
+          const botDifficulty = netRef.current?.room
+            ? (netRef.current.room.difficulty ?? 'impossible')
+            : 'rookie';
           const botResult = stepBotShip(
             seat,
             {
@@ -2622,6 +2630,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
               seats: simSeats,
               localOwnerId,
               time,
+              difficulty: botDifficulty,
             },
             1,
           );
