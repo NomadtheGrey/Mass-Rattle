@@ -38,6 +38,8 @@ import { EXTRA_MOUNT_DAMAGE, typeFor, healCapPctFor, healRateFor } from '../ship
 import { isVisibleTo } from './stealth';
 import { repairFrame } from './repair';
 import { areHostile, type TeamSeatLike } from './teams';
+import { BOT_DIFFICULTY } from './botDifficulty';
+import type { BotDifficulty } from '../net/protocol';
 import { milestonesForInfused } from '../starGrowth';
 import { canDockAt, HARBOR_DOCK_RANGE } from './harbor';
 import type {
@@ -65,11 +67,13 @@ export const BOT_DRIVER = {
   /** Delivery distance from the home star's CENTER — the drone
    * deposit radius beyond the star's surface. */
   DEPOSIT_RADIUS: PHYSICS.DRONES.DEPOSIT_RADIUS,
-  /** Weapon range: the driver only opens fire inside this distance. */
+  /** Weapon range: the driver only opens fire inside this distance.
+   *  IMPOSSIBLE baseline — stepBotShip scales by world.difficulty. */
   FIRE_RANGE: 520,
   /** OFFENSE (Arsenal slice 5a, 2026-10-21): a targetable hostile
    *  ship inside this distance becomes the bot's objective — it
-   *  pursues instead of harvesting. DRAFT. */
+   *  pursues instead of harvesting. DRAFT. IMPOSSIBLE baseline —
+   *  stepBotShip scales by world.difficulty. */
   AGGRO_RANGE: 1000,
   /** OFFENSE: with an empty hold, scrap must be at least this near
    *  to keep the bot on the harvest loop; beyond it (and with no
@@ -128,6 +132,12 @@ export interface BotWorldView {
   localOwnerId: string;
   /** The loop clock (performance.now-based, ms) for fire cooldowns. */
   time: number;
+  /** BOT DIFFICULTY LADDER (Adam, 2026-10-24): the rung whose aim,
+   *  fire range, and aggro range this step flies by. Absent =
+   *  IMPOSSIBLE — today's behavior, so any caller that predates the
+   *  ladder changes nothing. The loop passes the room's difficulty,
+   *  or ROOKIE for solo. */
+  difficulty?: BotDifficulty;
 }
 
 export interface BotStepResult {
@@ -230,6 +240,11 @@ export const stepBotShip = (
   if (!ship || seat.eliminated) return EMPTY_RESULT;
   const ownStar = world.stars.find(s => s.ownerId === seat.ownerId);
   if (!ownStar) return EMPTY_RESULT;
+  // BOT DIFFICULTY LADDER: the rung's aim error, fire range, and
+  // aggro range replace the raw BOT_DRIVER constants below. The
+  // IMPOSSIBLE row equals those constants exactly, so absent =
+  // today's behavior, byte for byte.
+  const diff = BOT_DIFFICULTY[world.difficulty ?? 'impossible'];
 
   // REPAIR DISPOSITION (B1): the pilot's health-graded choice
   // to heal, written before anything reads the toggle — the
@@ -313,7 +328,7 @@ export const stepBotShip = (
   let siegeStar: Star | null = null;
 
   // Hunt scan (5a): nearest targetable hostile ship inside aggro.
-  let bestAggro = BOT_DRIVER.AGGRO_RANGE;
+  let bestAggro = diff.aggroRange;
   for (const hostile of world.ships) {
     if (hostile.ownerId === seat.ownerId) continue;
     if (hostile.ship.dockedTo) continue; // docked = out of combat
@@ -410,7 +425,7 @@ export const stepBotShip = (
       target = ownStar.pos; // the leash: come home first
     } else {
       const dd = Math.hypot(defendShip.pos.x - ship.pos.x, defendShip.pos.y - ship.pos.y);
-      target = dd > BOT_DRIVER.FIRE_RANGE * 0.8 ? defendShip.pos : null;
+      target = dd > diff.fireRange * 0.8 ? defendShip.pos : null;
     }
   } else if (searchEntry || lastPostureBySeat.get(seat.ownerId) === 'defend') {
     // SEARCH (Amendment 4): patrol the ring between DEFEND_RANGE
@@ -435,7 +450,7 @@ export const stepBotShip = (
   } else if (huntShip && (!trailing || reactive)) {
     objective = 'hunt';
     // Hold at firing range: inside it, coast and shoot.
-    target = bestAggro > BOT_DRIVER.FIRE_RANGE * 0.8 ? huntShip.pos : null;
+    target = bestAggro > diff.fireRange * 0.8 ? huntShip.pos : null;
   } else {
     // Harvest scan (nearest scrap, as ever).
     let bestD = Infinity;
@@ -575,7 +590,7 @@ export const stepBotShip = (
     // Nearest hostile: drones first (the harvest war), then ships.
     // (TEAMS: hostile TEAM — a bot never fires on its own side.)
     let fireTarget: { x: number; y: number } | null = null;
-    let bestD = BOT_DRIVER.FIRE_RANGE;
+    let bestD = diff.fireRange;
     for (const d of world.drones) {
       if (d.state === 'docked') continue; // inside its ship
       if (!areHostile(world.seats, d.ownerId, seat.ownerId)) continue;
@@ -614,7 +629,7 @@ export const stepBotShip = (
         siegeStar.pos.x - ship.pos.x,
         siegeStar.pos.y - ship.pos.y,
       );
-      if (dd < BOT_DRIVER.FIRE_RANGE) fireTarget = siegeStar.pos;
+      if (dd < diff.fireRange) fireTarget = siegeStar.pos;
     }
     if (fireTarget) {
       const aim = Math.atan2(
@@ -643,7 +658,13 @@ export const stepBotShip = (
         for (let pi = 0; pi < pellets; pi++) {
           const spreadOffset =
             pellets > 1 ? (pi / (pellets - 1) - 0.5) * (wStats.spread || 0) : 0;
-          const a = aim + spreadOffset;
+          // LADDER AIM: each bolt veers by up to the rung's error.
+          // IMPOSSIBLE's error is 0 — the old exact-angle aim.
+          const aimNoise =
+            diff.aimErrorRad === 0
+              ? 0
+              : (Math.random() * 2 - 1) * diff.aimErrorRad;
+          const a = aim + spreadOffset + aimNoise;
           result.projectiles.push({
             id: Math.random().toString(),
             pos: { ...muzzle },

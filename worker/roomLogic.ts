@@ -43,6 +43,7 @@ import {
   isTeamId,
 } from '../src/net/protocol';
 import type {
+  BotDifficulty,
   RoomMeta,
   RoomPhase,
   RoomState,
@@ -76,6 +77,8 @@ export interface RoomRecord {
   phase: RoomPhase;
   seed: number;
   private: boolean;
+  /** BOT DIFFICULTY LADDER (Adam, 2026-10-24): one rung per room. */
+  difficulty: BotDifficulty;
   seats: Seat[];
   createdAt: number;
   /** Last host heartbeat (ms epoch); the migration watch reads it.
@@ -95,6 +98,7 @@ export interface CreateRoomSpec {
   name: string;
   starCount: StarCount;
   private?: boolean;
+  difficulty?: BotDifficulty;
 }
 
 /** 6-char room codes from an unambiguous alphabet: no 0/O, no 1/I/L
@@ -161,6 +165,7 @@ export function createRoomRecord(
     phase: 'lobby',
     seed,
     private: spec.private ?? false,
+    difficulty: spec.difficulty ?? 'seasoned',
     seats,
     createdAt: now,
     hostLastHeartbeatAt: null,
@@ -187,6 +192,7 @@ export function toRoomState(record: RoomRecord): RoomState {
     phase: record.phase,
     seed: record.seed,
     private: record.private,
+    difficulty: record.difficulty,
     hostPlayerId: host ? host.occupant.playerId : null,
     seats: record.seats.map(cloneSeat),
     clientVersion: CLIENT_VERSION,

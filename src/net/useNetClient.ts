@@ -6,6 +6,7 @@ import {
   Standing, StageChangedEvent, MatchEndedEvent,
   CreateRoomRequest, CreateRoomResponse,
   RoomBoard,
+  BotDifficulty,
   TeamId,
 } from './protocol';
 
@@ -125,7 +126,7 @@ export interface NetSession {
   snapshotRef: React.MutableRefObject<unknown>;
   snapshotVersion: number;
   guestInputsRef: React.MutableRefObject<Map<string, NetInputPayload>>;
-  createRoom: (name: string, starCount: 2 | 3 | 4, isPrivate: boolean, callsign: string, callsignPassword?: string) => void;
+  createRoom: (name: string, starCount: 2 | 3 | 4, isPrivate: boolean, callsign: string, callsignPassword?: string, difficulty?: BotDifficulty) => void;
   joinRoom: (code: string, callsign: string, callsignPassword?: string, teamPreference?: TeamId | 'random') => void;
   /** TEAM PICK (Adam, 2026-10-24): the pre-join board, fetched over
    *  GET /api/rooms/:code before any seat is claimed. Null until a
@@ -377,11 +378,11 @@ export function useNetClient(): NetSession {
     connect(clean);
   }, [connect]);
 
-  const createRoom = React.useCallback((name: string, starCount: 2 | 3 | 4, isPrivate: boolean, callsign: string, callsignPassword?: string) => {
+  const createRoom = React.useCallback((name: string, starCount: 2 | 3 | 4, isPrivate: boolean, callsign: string, callsignPassword?: string, difficulty?: BotDifficulty) => {
     if (!callsign.trim()) return;
     setClientState({ connection: 'connecting', lastError: null });
     setNotice(null);
-    const body: CreateRoomRequest = { name: name.trim(), starCount, clientVersion: CLIENT_VERSION, private: isPrivate };
+    const body: CreateRoomRequest = { name: name.trim(), starCount, clientVersion: CLIENT_VERSION, private: isPrivate, difficulty };
     fetch('/api/rooms', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
