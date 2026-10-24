@@ -12,6 +12,7 @@ import { DEBUG_ARMED } from '../debug';
 import { stepStarBurn, stepShipPhysics, ShipPhysicsInputs } from '../sim/physics';
 import { createMatch, shipSpawnPosition } from '../sim/matchAssembly';
 import { loadSoloGame, saveSoloGame, clearSoloGame } from '../soloSave';
+import { TUTORIAL_FLAG_KEY, TUTORIAL_STEP_DEFS, TUTORIAL_STIPEND, TEETH_INDEX, captureBaseline, type TutorialBaseline } from '../tutorial';
 import type { NetSession, NetActionIntent } from '../net/useNetClient';
 import {
   SNAPSHOT_EVERY_FRAMES, snapshotDue, localShipInput, remoteShipInput,
@@ -129,7 +130,16 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
   // consumes it; a room never reaches it (the save is solo-only
   // and the room paths build their own state).
   const bootSaveRef = useRef<GameState | null | undefined>(undefined);
-  if (bootSaveRef.current === undefined) bootSaveRef.current = loadSoloGame();
+  // TUTORIAL (Adam's program, 2026-10-23; src/tutorial.ts): the
+  // flag is set by startTutorial before its reload; a tutorial boot
+  // never restores the solo save (startTutorial cleared it, and
+  // this read is the second lock on that door).
+  const tutorialBootRef = useRef<boolean | undefined>(undefined);
+  if (tutorialBootRef.current === undefined) {
+    try { tutorialBootRef.current = window.localStorage.getItem(TUTORIAL_FLAG_KEY) === '1'; }
+    catch { tutorialBootRef.current = false; }
+  }
+  if (bootSaveRef.current === undefined) bootSaveRef.current = tutorialBootRef.current ? null : loadSoloGame();
   const [state, setState] = useState<GameState>(() => bootSaveRef.current ?? {
     ship: initialShip,
     star: initialHomeStar,
@@ -171,6 +181,80 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     slip: 0,
   });
 
+  // THE GUIDED FLIGHT — machine (src/tutorial.ts owns the table):
+  // step state for the HUD's coach card, refs for the frame gates
+  // (captain parking, save suppression), baselines per step entry.
+  const [tutorial, setTutorial] = useState<{ active: boolean; step: number; done: boolean }>(() => ({ active: tutorialBootRef.current === true, step: 0, done: false }));
+  const tutorialActiveRef = useRef(tutorial.active);
+  const tutorialStepRef = useRef(0);
+  const tutorialDoneRef = useRef(false);
+  const tutorialBaselineRef = useRef<TutorialBaseline | null>(null);
+  const tutorialStipendRef = useRef(-1);
+  // GRADUATION (UI's contract): the flag clears and the world
+  // KEEPS — the match simply becomes a normal solo match, and
+  // done publishes so the HUD's graduation chip can show.
+  const graduateTutorial = useCallback(() => {
+    try { window.localStorage.removeItem(TUTORIAL_FLAG_KEY); } catch { /* no-op */ }
+    tutorialActiveRef.current = false;
+    tutorialDoneRef.current = true;
+    setTutorial(t => ({ ...t, active: false, done: true }));
+  }, []);
+  // The END control: with graduation pending (the MATCH beat met)
+  // it graduates in place; anywhere earlier it TEARS DOWN to a
+  // fresh normal solo — the scripted instance is discarded, the
+  // same reload idiom startTutorial boots with.
+  const endTutorial = useCallback(() => {
+    if (tutorialDoneRef.current) return; // graduated already: nothing to tear down
+    try { window.localStorage.removeItem(TUTORIAL_FLAG_KEY); } catch { /* no-op */ }
+    window.location.reload();
+  }, []);
+  const skipTutorialStep = useCallback(() => {
+    setTutorial(t => {
+      if (!t.active) return t;
+      const next = t.step + 1;
+      tutorialBaselineRef.current = null;
+      if (next >= TUTORIAL_STEP_DEFS.length) {
+        // Skipping the last beat graduates, like acknowledging it.
+        tutorialActiveRef.current = false;
+        tutorialDoneRef.current = true;
+        try { window.localStorage.removeItem(TUTORIAL_FLAG_KEY); } catch { /* no-op */ }
+        return { active: false, step: t.step, done: true };
+      }
+      tutorialStepRef.current = next;
+      return { active: true, step: next, done: false };
+    });
+  }, []);
+  const startTutorial = useCallback(() => {
+    clearSoloGame();
+    try { window.localStorage.setItem(TUTORIAL_FLAG_KEY, '1'); } catch { /* no-op */ }
+    window.location.reload();
+  }, []);
+  useEffect(() => {
+    if (!tutorial.active) return;
+    if (netRef.current?.room || mpRoomRef.current) return; // the flight is solo-only
+    const now = performance.now();
+    if (!tutorialBaselineRef.current) {
+      tutorialBaselineRef.current = captureBaseline(state, now);
+      // The stipend lands once, as the WORKSHOP step opens.
+      if (tutorial.step === 4 && tutorialStipendRef.current !== 4) {
+        tutorialStipendRef.current = 4;
+        setState(prev => ({ ...prev, bankedScrap: prev.bankedScrap + TUTORIAL_STIPEND }));
+      }
+      return;
+    }
+    const def = TUTORIAL_STEP_DEFS[tutorial.step];
+    if (def && def.done(tutorialBaselineRef.current, state, now)) {
+      if (tutorial.step + 1 >= TUTORIAL_STEP_DEFS.length) {
+        // The MATCH beat is met: graduate in place — the flag
+        // clears, done publishes for the chip, the world keeps.
+        graduateTutorial();
+        return;
+      }
+      tutorialStepRef.current = tutorial.step + 1;
+      tutorialBaselineRef.current = null;
+      setTutorial({ active: true, step: tutorial.step + 1, done: false });
+    }
+  }, [state, tutorial, graduateTutorial]);
   const keys = useRef<Set<string>>(new Set());
   const touchInputs = useRef<{
     thrust: boolean;
@@ -1083,6 +1167,7 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     const flush = () => {
       const s = stateRef.current;
       if (!s || netRef.current?.room || mpRoomRef.current) return;
+      if (tutorialActiveRef.current) return; // a tutorial flight never saves
       saveSoloGame(s);
     };
     const timer = window.setInterval(flush, 15000);
@@ -2466,6 +2551,8 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
           const econCtx = { seats: simSeats, drones: next.drones, escorts: next.escorts, localOwnerId };
           for (const seat of simSeats) {
             if (seat.controller !== 'bot') continue;
+            // TUTORIAL: the captain stays parked until TEETH.
+            if (tutorialActiveRef.current && tutorialStepRef.current < TEETH_INDEX && seat.starIndex === 1) continue;
             const change = stepBotEconomy(seat, econCtx, time);
             if (change) {
               if (change.drones) { next.drones = change.drones; econCtx.drones = change.drones; }
@@ -2484,6 +2571,8 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
         // the solo opponent: the enemy seat's bot flies from frame one.
         for (const seat of simSeats) {
           if (seat.controller !== 'bot' || !seat.ship || seat.eliminated) continue;
+          // TUTORIAL: the captain stays parked until TEETH.
+          if (tutorialActiveRef.current && tutorialStepRef.current < TEETH_INDEX && seat.starIndex === 1) continue;
           const botResult = stepBotShip(
             seat,
             {
@@ -2685,8 +2774,27 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     };
   }, [width, height]);
 
+  // THE GUIDED FLIGHT — published snapshot (UI's contract): one
+  // object for the coach card, the canvas marker and the spotlight
+  // pulse. stepId/spotlight come straight from the step table;
+  // marker is world-flat {x, y, label, tone}; a room never shows
+  // any of it (the snapshot inerts: marker/spotlight null).
+  const tutorialStepDef = TUTORIAL_STEP_DEFS[tutorial.step];
+  const tutorialSnapshot = {
+    active: tutorial.active,
+    step: tutorial.step,
+    stepId: tutorialStepDef?.id ?? 'fly',
+    done: tutorial.done,
+    marker: tutorial.active && !netRef.current?.room ? (tutorialStepDef?.marker(state) ?? null) : null,
+    spotlight: tutorial.active && !netRef.current?.room ? (tutorialStepDef?.spotlight ?? null) : null,
+  };
+
   return {
     state,
+    tutorial: tutorialSnapshot,
+    startTutorial,
+    endTutorial,
+    skipTutorialStep,
     upgrade,
     buyItem,
     equipItem,

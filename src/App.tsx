@@ -92,7 +92,11 @@ export default function App() {
     depositBank, 
     withdrawBank, 
     deployDecoy, 
-    restart, 
+    restart,
+    tutorial,
+    startTutorial,
+    skipTutorialStep,
+    endTutorial,
     setVirtualControl, 
     setAnalogStick, 
     toggleShop, 
@@ -320,6 +324,10 @@ export default function App() {
         soloCallsign={soloCallsign}
         onSetSoloCallsign={setSoloCallsign}
         roomCallsign={net.mySeat?.occupant.callsign ?? null}
+        tutorial={tutorial}
+        onStartTutorial={startTutorial}
+        onSkipTutorialStep={skipTutorialStep}
+        onEndTutorial={endTutorial}
         onDockToHost={dockToHost}
         onUndock={undock}
         onSetHarborOpen={setHarborOpen}
@@ -342,6 +350,7 @@ export default function App() {
         onAnalogStick={setAnalogStick}
         onOpenWorkshop={() => toggleShop(true)}
         onToggleRadar={handleToggleMobileRadar}
+        tutorialRadarPulse={!!tutorial?.active && tutorial.spotlight === 'radar'}
         onToggleGauges={toggleGauges}
         carrying={state.ship.carrying}
         fuel={state.ship.fuel}
@@ -367,7 +376,7 @@ export default function App() {
         <div className="absolute inset-0 z-0">
           <div className="w-full h-full relative bg-[#050505]">
             <div className="absolute inset-0 grid-bg opacity-20 pointer-events-none" />
-            <GameCanvas state={state} width={dimensions.width} height={dimensions.height} seatLabels={seatLabelsSolo} onSetTarget={setTarget} />
+            <GameCanvas state={state} width={dimensions.width} height={dimensions.height} seatLabels={seatLabelsSolo} tutorialMarker={tutorial?.marker ?? null} onSetTarget={setTarget} />
           </div>
         </div>
 

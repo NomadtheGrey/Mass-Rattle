@@ -210,6 +210,7 @@ interface HUDProps {
   // snapshot + its controls. Absent until the engine lands — every
   // surface below renders nothing without it.
   tutorial?: TutorialSnapshot | null;
+  onStartTutorial?: () => void;
   onSkipTutorialStep?: () => void;
   onEndTutorial?: () => void;
   onDockToHost: (hostOwnerId: string) => void;
@@ -294,6 +295,7 @@ export const HUD: React.FC<HUDProps> = ({
   onSetSoloCallsign,
   roomCallsign,
   tutorial,
+  onStartTutorial,
   onSkipTutorialStep,
   onEndTutorial,
   onDockToHost,
@@ -559,6 +561,8 @@ export const HUD: React.FC<HUDProps> = ({
   React.useEffect(() => {
     if (tutorial?.active) setCoachExpanded(tutorial.stepId !== 'teeth' && tutorial.stepId !== 'match');
   }, [tutorial?.step, tutorial?.active]);
+  // GRADUATION: the engine publishes done (the flag cleared, the
+  // world kept) — the chip marks the turn once.
   React.useEffect(() => {
     if (tutorial?.done) {
       setGraduationShown(true);
@@ -567,7 +571,22 @@ export const HUD: React.FC<HUDProps> = ({
     }
   }, [tutorial?.done]);
   const spot = (id: TutorialSpotlight) => (tutorial?.active && tutorial.spotlight === id ? ' spotlight-pulse' : '');
-  React.useEffect(() => { setObjectivesOpen(true); }, []);
+  // THE START CARD (the doors' destination in solo): the flight is
+  // started from a card, never by ambush — and in a room the doors
+  // open YOUR ORDERS with the solo-only note instead (the flight
+  // is solo-only; a scripted instance can't exist in a live match).
+  const [tutStartOpen, setTutStartOpen] = React.useState(false);
+  const [tutRoomNote, setTutRoomNote] = React.useState(false);
+  const tutHasProgress = carrying > 0 || bankedScrap > 0 || ship.typeTier > 1 || ship.hullSteps > 0 || (upgrades.thrust + upgrades.handling + upgrades.attractor + upgrades.fuelCap + upgrades.cargo) > 0;
+  const openTutorialDoor = () => {
+    if (roomCallsign) { setTutRoomNote(true); setObjectivesOpen(true); }
+    else setTutStartOpen(true);
+  };
+  // BOOT GATE (Guided Flight integration): the orders open at
+  // game start — but never over a booting flight's first step.
+  // The closure reads the first-render snapshot, which is the
+  // boot state the gate exists for.
+  React.useEffect(() => { if (!tutorial?.active) setObjectivesOpen(true); }, []);
   const uiOptions = useUiOptions();
     // Workshop tabs: the five base ship tracks, then the Arsenal categories.
   const [shopTab, setShopTab] = React.useState<'ship' | 'bank' | ArsenalCategory>('ship');
@@ -670,8 +689,9 @@ export const HUD: React.FC<HUDProps> = ({
   // and an ESC cannot fall through to anything else. The results
   // screen is deliberately NOT in this chain — it is the match end,
   // a state rather than a popup, and its exit is the restart button.
-  const anyModalOpen = showBuilds || objectivesOpen || frameModalOpen || isShopOpen || radarActive || showOptions;
+  const anyModalOpen = showBuilds || objectivesOpen || frameModalOpen || isShopOpen || radarActive || showOptions || tutStartOpen;
   const closeTopmost = React.useCallback(() => {
+    if (tutStartOpen) { setTutStartOpen(false); return; }
     if (showBuilds) { setShowBuilds(false); return; }
     if (objectivesOpen) { setObjectivesOpen(false); return; }
     if (frameModalOpen) { setFrameModalOpen(false); return; }
@@ -682,7 +702,7 @@ export const HUD: React.FC<HUDProps> = ({
       return;
     }
     if (showOptions) { setShowOptions(false); return; }
-  }, [showBuilds, isShopOpen, onCloseShop, radarActive, onToggleMobileRadar, showOptions]);
+  }, [tutStartOpen, showBuilds, isShopOpen, onCloseShop, radarActive, onToggleMobileRadar, showOptions]);
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const isEsc = e.key === 'Escape';
@@ -1368,7 +1388,7 @@ export const HUD: React.FC<HUDProps> = ({
           glow but clicks pass through to the canvas (Adam's bug report,
           2026-10-20). The DECOY pill below needs the same class. */}
       {bankInWell && !isShopOpen && (
-        <div className="fixed top-[38%] left-1/2 -translate-x-1/2 z-[56] flex gap-2 pointer-events-auto max-md:hidden">
+        <div className={`fixed top-[38%] left-1/2 -translate-x-1/2 z-[56] flex gap-2 pointer-events-auto max-md:hidden${spot('dock')}`}>
           <button
             onClick={onFeedCargo}
             disabled={carrying <= 0}
@@ -1532,10 +1552,10 @@ export const HUD: React.FC<HUDProps> = ({
           beside the chip. The OPTIONS tab's TUTORIAL BUTTON
           toggle shows/hides it (mr.uiOptions); it stands down
           while its own modal is open. */}
-      {uiOptions.tutorialButton && !objectivesOpen && (
+      {uiOptions.tutorialButton && !objectivesOpen && !tutorial?.active && (
         <button
           type="button"
-          onClick={() => setObjectivesOpen(true)}
+          onClick={openTutorialDoor}
           className="fixed top-2 right-2 md:top-6 md:right-[152px] z-[95] px-3 py-1.5 rounded-full bg-zinc-900/70 border border-[#33ff33]/60 text-[#33ff33] text-[10px] font-mono font-bold tracking-widest shadow-[0_0_10px_rgba(51,255,51,0.25)] active:scale-95 touch-manipulation pointer-events-auto"
         >
           🎓 TUTORIAL
@@ -1548,7 +1568,25 @@ export const HUD: React.FC<HUDProps> = ({
           modal: play never pauses under it. Renders only while
           the engine publishes an active snapshot. The combat
           steps auto-collapse it to a chip. */}
-      {tutorial?.active && !tutorial.done && (() => {
+      {/* THE START CARD (the Guided Flight's front door, solo):
+          every TUTORIAL door lands here — the flight starts on a
+          deliberate tap, with the run-ends warning when the
+          current solo run has anything in it. Starting calls the
+          engine, which flags + reloads into the instance. */}
+      {tutStartOpen && !tutorial?.active && (
+        <div className="fixed top-[64px] md:top-[132px] left-1/2 -translate-x-1/2 z-[96] w-[min(94vw,26rem)] pointer-events-auto">
+          <div className="hud-panel hud-panel-deep rounded border border-emerald-800 px-3 py-2.5 shadow-xl">
+            <div className="font-mono text-[11px] sm:text-xs font-bold tracking-widest text-emerald-300">🎓 THE GUIDED FLIGHT</div>
+            <p className="font-mono text-[10px] sm:text-[11px] text-zinc-300 leading-snug mt-1">Eight short steps in a quiet solo match — fly, scoop, bank, upgrade, climb, fight. Skip any step; end any time. The match you build becomes your real game.</p>
+            {tutHasProgress && <p className="font-mono text-[9px] sm:text-[10px] text-amber-300 leading-snug mt-1.5">⚠ Starting ends your current solo run.</p>}
+            <div className="flex gap-2 mt-2.5">
+              <button type="button" onClick={() => { setTutStartOpen(false); onStartTutorial?.(); }} className="flex-1 px-3 py-2 rounded border border-emerald-600 bg-emerald-950/50 text-emerald-300 font-mono text-[10px] sm:text-[11px] font-bold tracking-widest touch-manipulation active:scale-[0.98]">START THE FLIGHT ▸</button>
+              <button type="button" onClick={() => setTutStartOpen(false)} className="px-3 py-2 rounded border border-zinc-700 text-zinc-400 font-mono text-[10px] sm:text-[11px] font-bold tracking-widest touch-manipulation active:scale-[0.98]">NOT YET</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {tutorial?.active && (() => {
         const copy = TUTORIAL_STEPS[tutorial.stepId];
         const isPhone = coarsePointer;
         return (
@@ -1558,7 +1596,7 @@ export const HUD: React.FC<HUDProps> = ({
                 <button type="button" onClick={() => setCoachExpanded(v => !v)} className="font-mono text-[10px] sm:text-[11px] font-bold tracking-widest text-emerald-300 touch-manipulation">
                   🎓 STEP {tutorial.step + 1}/8 — {copy.title} {coachExpanded ? '▾' : '▸'}
                 </button>
-                <button type="button" onClick={() => onEndTutorial?.()} className="font-mono text-[9px] text-zinc-400 hover:text-red-400 tracking-widest touch-manipulation">END ✕</button>
+                <button type="button" onClick={() => onEndTutorial?.()} className="font-mono text-[10px] sm:text-[11px] font-bold text-red-400 border border-red-500/60 bg-red-950/40 rounded px-2 py-1 tracking-widest touch-manipulation active:scale-95">END TUTORIAL ✕</button>
               </div>
               {coachExpanded && (
                 <>
@@ -1587,7 +1625,7 @@ export const HUD: React.FC<HUDProps> = ({
           </div>
         );
       })()}
-      {tutorial?.done && graduationShown && (
+      {graduationShown && (
         <div className="fixed top-[64px] md:top-[132px] left-1/2 -translate-x-1/2 z-[95] pointer-events-none">
           <div className="hud-panel hud-panel-deep rounded border border-emerald-700 px-3 py-2 font-mono text-[10px] sm:text-[11px] font-bold tracking-widest text-emerald-300">🎓 GUIDED FLIGHT COMPLETE — THE MATCH IS YOURS</div>
         </div>
@@ -1710,7 +1748,7 @@ export const HUD: React.FC<HUDProps> = ({
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="w-full max-w-xl max-h-[90vh] flex flex-col hud-panel hud-panel-deep p-4 sm:p-6 md:p-8 border-4 relative overflow-hidden bg-zinc-950/80 shadow-[0_0_50px_rgba(51,255,51,0.15)] rounded-lg"
+            className={`w-full max-w-xl max-h-[90vh] flex flex-col hud-panel hud-panel-deep p-4 sm:p-6 md:p-8 border-4 relative overflow-hidden bg-zinc-950/80 shadow-[0_0_50px_rgba(51,255,51,0.15)] rounded-lg${spot('shopdoor')}`}
           >
             <div className="absolute inset-0 bg-gradient-to-br from-[#33ff33]/5 to-transparent pointer-events-none" />
             
@@ -2294,7 +2332,7 @@ export const HUD: React.FC<HUDProps> = ({
             </div>
             <button
               type="button"
-              onClick={() => setObjectivesOpen(true)}
+              onClick={() => { if (roomCallsign) { setTutRoomNote(true); setObjectivesOpen(true); } else { setShowOptions(false); setTutStartOpen(true); } }}
               className="w-full mb-4 px-3 py-2 rounded border border-emerald-800 bg-emerald-950/40 text-[#33ff33] font-mono text-[10px] sm:text-[11px] font-bold tracking-widest touch-manipulation"
             >
               🎓 TUTORIAL — YOUR ORDERS
@@ -2542,10 +2580,13 @@ export const HUD: React.FC<HUDProps> = ({
               )}
               <p className="text-[8px] sm:text-[9px] font-mono text-zinc-500 leading-snug">In solo, this name flies over your ship. Saved on this device — the lobby will greet you with it.</p>
             </div>
+            {tutRoomNote && roomCallsign && (
+              <p className="font-mono text-[9px] sm:text-[10px] text-amber-300 border border-amber-800/60 bg-amber-950/30 rounded px-2.5 py-1.5 leading-snug">🎓 THE GUIDED FLIGHT FLIES SOLO — leave the room to take it. These orders are the in-room form.</p>
+            )}
             <div className="flex gap-2 mt-1">
               <button
                 type="button"
-                onClick={() => setObjectivesOpen(false)}
+                onClick={() => { if (roomCallsign) setTutRoomNote(true); else { setObjectivesOpen(false); setTutStartOpen(true); } }}
                 className="flex-1 px-3 py-2.5 rounded border border-emerald-600 bg-emerald-950/50 text-emerald-300 font-mono text-[11px] sm:text-xs font-bold tracking-widest touch-manipulation active:scale-[0.98]"
               >
                 🎓 TUTORIAL

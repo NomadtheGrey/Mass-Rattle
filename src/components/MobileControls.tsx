@@ -8,6 +8,9 @@ interface MobileControlsProps {
   onAnalogStick: (stick: { x: number; y: number } | null) => void;
   onOpenWorkshop: () => void;
   onToggleRadar: () => void;
+  /** GUIDED FLIGHT: pulse the RADAR tile while the MATCH step
+   *  spotlights it (the walkthrough's radar anchor). */
+  tutorialRadarPulse?: boolean;
   onToggleGauges: () => void;
   carrying: number;
   fuel: number;
@@ -36,6 +39,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
   onAnalogStick,
   onOpenWorkshop,
   onToggleRadar,
+  tutorialRadarPulse,
   onToggleGauges,
   carrying,
   fuel,
@@ -162,7 +166,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
               triggerHaptic(10);
               onToggleRadar();
             }}
-            className="pitted-metal px-2.5 py-1.5 flex items-center gap-1.5 text-[#33ff33] text-[10px] font-mono border border-zinc-700 bg-zinc-900/30 active:scale-95 transition-transform shadow-md rounded"
+            className={`pitted-metal px-2.5 py-1.5 flex items-center gap-1.5 text-[#33ff33] text-[10px] font-mono border border-zinc-700 bg-zinc-900/30 active:scale-95 transition-transform shadow-md rounded${tutorialRadarPulse ? ' spotlight-pulse' : ''}`}
             title="Toggle Tactical Radar"
           >
             <Navigation size={12} className="text-orange-400" />
