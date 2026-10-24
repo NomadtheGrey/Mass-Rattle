@@ -69,8 +69,8 @@ export const TUTORIAL_STEPS: Record<TutorialStepId, TutorialStepCopy> = {
   },
   scoop: {
     title: 'SCOOP',
-    phone: 'Tap VAC, then drift through the vein — fill your hold with 5 scrap.',
-    desktop: 'Q switches your vacuum — drift through the vein and fill your hold with 5 scrap.',
+    phone: 'Tap VAC, then drift through the vein — gather 3 scrap in your hold.',
+    desktop: 'Q switches your vacuum — drift through the vein and gather 3 scrap in your hold.',
     callout: 'VACUUM — your pull. Scrap inside its reach drifts to you; the number is how far it reaches.',
   },
   home: {
@@ -86,8 +86,8 @@ export const TUTORIAL_STEPS: Record<TutorialStepId, TutorialStepCopy> = {
   },
   workshop: {
     title: 'THE WORKSHOP',
-    phone: 'Buy any upgrade. Five tracks, plain names — each one makes the next run easier.',
-    desktop: 'U is the workshop door. Buy any upgrade — five tracks, plain names, each makes the next run easier.',
+    phone: 'A 300U TRAINING STIPEND just landed in your bank — the fleet bankrolls your first upgrades. Buy any track.',
+    desktop: 'U is the workshop door. A 300U TRAINING STIPEND just landed in your bank — buy any track.',
     callout: 'THE WORKSHOP — every upgrade lives here. It only opens docked, and closes when you leave the glow.',
   },
   line: {
@@ -96,8 +96,8 @@ export const TUTORIAL_STEPS: Record<TutorialStepId, TutorialStepCopy> = {
     // chair): the engine's predicate is the purchase itself (the
     // stipend bankrolls it), so 'buying is optional' could not
     // stand. UI's reword welcome; the truth may not soften.
-    phone: 'Open the frame door and buy your first frame — the stipend covers it. Five lines climb to T5 from here.',
-    desktop: 'Open the frame door and buy your first frame — the stipend covers it. Five lines climb to T5 from here.',
+    phone: 'Open the frame door and climb to your first T2 — the stipend covers it. Five lines climb from here.',
+    desktop: 'Open the frame door and climb to your first T2 — the stipend covers it. Five lines climb from here.',
     callout: 'THE CLIMB PILL — when a climb is affordable, this pill lights. One tap opens the frame door.',
   },
   teeth: {

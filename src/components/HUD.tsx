@@ -10,7 +10,7 @@ import { areTeammates } from '../sim/teams';
 import type { Ship, Harvester, EscortShip, SeatSimState } from '../types';
 import { stageStateForInfused, type StarStageState } from '../sim/starStages';
 import { BUILD_HISTORY, LATEST_BUILD } from '../buildHistory';
-import { TUTORIAL_COPY, TUTORIAL_TRACKS, type TutorialSnapshot, type TutorialSpotlightId } from '../tutorial';
+import { TUTORIAL_STEPS, TUTORIAL_TRACKS, type TutorialSnapshot, type TutorialSpotlight } from '../tutorial';
 import { useUiOptions, setUiOption, resetUiOptions, type UiOptions } from '../uiOptions';
 import { DEBUG_ARMED } from '../debug';
 import type { StarStage } from '../net/protocol';
@@ -561,20 +561,16 @@ export const HUD: React.FC<HUDProps> = ({
   React.useEffect(() => {
     if (tutorial?.active) setCoachExpanded(tutorial.stepId !== 'teeth' && tutorial.stepId !== 'match');
   }, [tutorial?.step, tutorial?.active]);
-  // GRADUATION: the engine ends the flight IN PLACE (active flips
-  // false, the match continues) — the chip marks the turn when it
-  // happens off the final step. Ending early shows nothing.
-  const prevTutRef = React.useRef<{ active: boolean; step: number } | null>(null);
+  // GRADUATION: the engine publishes done (the flag cleared, the
+  // world kept) — the chip marks the turn once.
   React.useEffect(() => {
-    const prev = prevTutRef.current;
-    prevTutRef.current = tutorial ? { active: tutorial.active, step: tutorial.step } : null;
-    if (prev?.active && tutorial && !tutorial.active && prev.step === 7) {
+    if (tutorial?.done) {
       setGraduationShown(true);
       const t = setTimeout(() => setGraduationShown(false), 6000);
       return () => clearTimeout(t);
     }
-  }, [tutorial]);
-  const spot = (id: TutorialSpotlightId) => (tutorial?.active && tutorial.spotlight === id ? ' spotlight-pulse' : '');
+  }, [tutorial?.done]);
+  const spot = (id: TutorialSpotlight) => (tutorial?.active && tutorial.spotlight === id ? ' spotlight-pulse' : '');
   // THE START CARD (the doors' destination in solo): the flight is
   // started from a card, never by ambush — and in a room the doors
   // open YOUR ORDERS with the solo-only note instead (the flight
@@ -1465,7 +1461,7 @@ export const HUD: React.FC<HUDProps> = ({
           well the shop door stamps its usual refusal). Top rung
           of the pill stack on both platforms. */}
       {climbAffordable && !isShopOpen && (
-        <div className={`fixed${spot('climbPill')} ${(dockSurfaceShown && ordersPillShown) ? 'max-md:bottom-[214px]' : (dockSurfaceShown || ordersPillShown) ? 'max-md:bottom-[178px]' : stripDetailShown ? 'max-md:bottom-[106px]' : 'max-md:bottom-[46px]'} ${dockSurfaceShown ? ((loadout.defense === 'decoy_beacon' && !decoyActive) ? 'md:bottom-[184px]' : 'md:bottom-[148px]') : ((loadout.defense === 'decoy_beacon' && !decoyActive) ? 'md:bottom-[148px]' : 'md:bottom-[112px]')} left-1/2 -translate-x-1/2 z-[56] pointer-events-auto`}>
+        <div className={`fixed${spot('nudge')} ${(dockSurfaceShown && ordersPillShown) ? 'max-md:bottom-[214px]' : (dockSurfaceShown || ordersPillShown) ? 'max-md:bottom-[178px]' : stripDetailShown ? 'max-md:bottom-[106px]' : 'max-md:bottom-[46px]'} ${dockSurfaceShown ? ((loadout.defense === 'decoy_beacon' && !decoyActive) ? 'md:bottom-[184px]' : 'md:bottom-[148px]') : ((loadout.defense === 'decoy_beacon' && !decoyActive) ? 'md:bottom-[148px]' : 'md:bottom-[112px]')} left-1/2 -translate-x-1/2 z-[56] pointer-events-auto`}>
           <button
             onClick={() => { setFrameModalOpen(true); onOpenShop?.(); }}
             className={`hud-panel px-3 py-1.5 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider shadow-[0_0_10px_rgba(52,211,153,0.35)] ${isFrameMaxed ? 'border-amber-400 text-amber-300' : 'border-emerald-500 text-emerald-300'}`}
@@ -1591,7 +1587,7 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
       )}
       {tutorial?.active && (() => {
-        const copy = TUTORIAL_COPY[tutorial.stepId];
+        const copy = TUTORIAL_STEPS[tutorial.stepId];
         const isPhone = coarsePointer;
         return (
           <div className="fixed top-[64px] md:top-[132px] left-1/2 -translate-x-1/2 z-[95] w-[min(94vw,26rem)] pointer-events-auto">
@@ -1752,7 +1748,7 @@ export const HUD: React.FC<HUDProps> = ({
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className={`w-full max-w-xl max-h-[90vh] flex flex-col hud-panel hud-panel-deep p-4 sm:p-6 md:p-8 border-4 relative overflow-hidden bg-zinc-950/80 shadow-[0_0_50px_rgba(51,255,51,0.15)] rounded-lg${spot('workshopDoor')}`}
+            className={`w-full max-w-xl max-h-[90vh] flex flex-col hud-panel hud-panel-deep p-4 sm:p-6 md:p-8 border-4 relative overflow-hidden bg-zinc-950/80 shadow-[0_0_50px_rgba(51,255,51,0.15)] rounded-lg${spot('shopdoor')}`}
           >
             <div className="absolute inset-0 bg-gradient-to-br from-[#33ff33]/5 to-transparent pointer-events-none" />
             

@@ -1611,7 +1611,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
     // + a nameplate-style label over the step's objective — the
     // target-lock's family, in the step's tone color.
     if (tutorialMarker) {
-      const mc = tutorialMarker.tone === 'enemy' ? '#fbbf24' : '#34d399';
+      const mc = tutorialMarker.tone === 'fight' ? '#fbbf24' : '#34d399';
       const ph = (nowMs % 1400) / 1400;
       ctx.save();
       for (const off of [0, 0.5]) {
@@ -1620,7 +1620,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
         ctx.strokeStyle = mc;
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(tutorialMarker.pos.x, tutorialMarker.pos.y, 16 + p2 * 26, 0, Math.PI * 2);
+        ctx.arc(tutorialMarker.x, tutorialMarker.y, 16 + p2 * 26, 0, Math.PI * 2);
         ctx.stroke();
       }
       ctx.globalAlpha = 1;
@@ -1628,9 +1628,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       ctx.textAlign = 'center';
       const tw = ctx.measureText(tutorialMarker.label).width + 12;
       ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-      ctx.fillRect(tutorialMarker.pos.x - tw / 2, tutorialMarker.pos.y - 58, tw, 15);
+      ctx.fillRect(tutorialMarker.x - tw / 2, tutorialMarker.y - 58, tw, 15);
       ctx.fillStyle = mc;
-      ctx.fillText(tutorialMarker.label, tutorialMarker.pos.x, tutorialMarker.pos.y - 47);
+      ctx.fillText(tutorialMarker.label, tutorialMarker.x, tutorialMarker.y - 47);
       ctx.restore();
     }
 
@@ -1676,15 +1676,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
     if (tutorialMarker) {
       const camX = width / 2 - ship.pos.x;
       const camY = height / 2 - ship.pos.y;
-      const sx = tutorialMarker.pos.x + camX;
-      const sy = tutorialMarker.pos.y + camY;
+      const sx = tutorialMarker.x + camX;
+      const sy = tutorialMarker.y + camY;
       const m = 34;
       if (!(sx > m && sx < width - m && sy > m && sy < height - m)) {
-        const mc = tutorialMarker.tone === 'enemy' ? '#fbbf24' : '#34d399';
+        const mc = tutorialMarker.tone === 'fight' ? '#fbbf24' : '#34d399';
         const px = Math.max(m, Math.min(width - m, sx));
         const py = Math.max(m, Math.min(height - m, sy));
         const ang = Math.atan2(sy - height / 2, sx - width / 2);
-        const dist = Math.round(Math.hypot(tutorialMarker.pos.x - ship.pos.x, tutorialMarker.pos.y - ship.pos.y));
+        const dist = Math.round(Math.hypot(tutorialMarker.x - ship.pos.x, tutorialMarker.y - ship.pos.y));
         ctx.save();
         ctx.translate(px, py);
         ctx.rotate(ang);
