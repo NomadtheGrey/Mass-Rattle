@@ -10,6 +10,7 @@ import { areTeammates } from '../sim/teams';
 import type { Ship, Harvester, EscortShip, SeatSimState } from '../types';
 import { stageStateForInfused, type StarStageState } from '../sim/starStages';
 import { BUILD_HISTORY, LATEST_BUILD } from '../buildHistory';
+import { TUTORIAL_STEPS, TUTORIAL_TRACKS, type TutorialSnapshot, type TutorialSpotlight } from '../tutorial';
 import { useUiOptions, setUiOption, resetUiOptions, type UiOptions } from '../uiOptions';
 import { DEBUG_ARMED } from '../debug';
 import type { StarStage } from '../net/protocol';
@@ -198,6 +199,19 @@ interface HUDProps {
   onSetRepairing: (on: boolean) => void;
   seats: SeatSimState[];
   seatLabels?: Record<string, { callsign: string; color: string }>;
+  // SOLO CALLSIGN (Adam, 2026-10-23): the stored on-device name —
+  // edited in the YOUR ORDERS modal, defaulted into the lobby,
+  // flown as the solo nameplate. In a room, roomCallsign (the
+  // lobby-issued name) governs and the field mirrors it.
+  soloCallsign?: string;
+  onSetSoloCallsign?: (name: string) => void;
+  roomCallsign?: string | null;
+  // THE GUIDED FLIGHT (2026-10-23): the step engine's published
+  // snapshot + its controls. Absent until the engine lands — every
+  // surface below renders nothing without it.
+  tutorial?: TutorialSnapshot | null;
+  onSkipTutorialStep?: () => void;
+  onEndTutorial?: () => void;
   onDockToHost: (hostOwnerId: string) => void;
   onUndock: () => void;
   onSetHarborOpen: (open: boolean) => void;
@@ -276,6 +290,12 @@ export const HUD: React.FC<HUDProps> = ({
   onSetRepairing,
   seats,
   seatLabels,
+  soloCallsign,
+  onSetSoloCallsign,
+  roomCallsign,
+  tutorial,
+  onSkipTutorialStep,
+  onEndTutorial,
   onDockToHost,
   onUndock,
   onSetHarborOpen,
@@ -530,6 +550,23 @@ export const HUD: React.FC<HUDProps> = ({
   // tutorial lands, the goal chain IS the tutorial (the
   // proto-tutorial), and those doors re-point when it is built.
   const [objectivesOpen, setObjectivesOpen] = React.useState(false);
+  // GUIDED FLIGHT surfaces: the coach card expands by default and
+  // auto-collapses to a chip on the combat steps (the sky matters
+  // more than the lesson there); graduation shows its chip once.
+  const [coarsePointer] = React.useState(() => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+  const [coachExpanded, setCoachExpanded] = React.useState(true);
+  const [graduationShown, setGraduationShown] = React.useState(false);
+  React.useEffect(() => {
+    if (tutorial?.active) setCoachExpanded(tutorial.stepId !== 'teeth' && tutorial.stepId !== 'match');
+  }, [tutorial?.step, tutorial?.active]);
+  React.useEffect(() => {
+    if (tutorial?.done) {
+      setGraduationShown(true);
+      const t = setTimeout(() => setGraduationShown(false), 6000);
+      return () => clearTimeout(t);
+    }
+  }, [tutorial?.done]);
+  const spot = (id: TutorialSpotlight) => (tutorial?.active && tutorial.spotlight === id ? ' spotlight-pulse' : '');
   React.useEffect(() => { setObjectivesOpen(true); }, []);
   const uiOptions = useUiOptions();
     // Workshop tabs: the five base ship tracks, then the Arsenal categories.
@@ -816,7 +853,7 @@ export const HUD: React.FC<HUDProps> = ({
     <div className={`fixed inset-0 pointer-events-none z-50 flex flex-col md:flex-row p-2 sm:p-4 md:p-6 gap-2 md:gap-4 ${glitch ? 'animate-pulse' : ''} text-[#33ff33]`}>
       
       {/* MOBILE TOP STATUS RIBBON (Cellphones: iPhone & Android) */}
-      <header className="flex md:hidden w-fit max-w-[98vw] flex-col gap-1 pointer-events-auto bg-[#1b2638]/15 backdrop-blur-md p-2 rounded border-2 border-zinc-800 shadow-xl select-none">
+      <header className={`flex md:hidden w-fit max-w-[98vw] flex-col gap-1 pointer-events-auto bg-[#1b2638]/15 backdrop-blur-md p-2 rounded border-2 border-zinc-800 shadow-xl select-none${spot('plate')}`}>
         {/* Top Row: Stars & Bank */}
         <div className="flex items-center justify-between text-[9px] font-mono leading-none">
           <div className="flex items-center gap-2">
@@ -1404,7 +1441,7 @@ export const HUD: React.FC<HUDProps> = ({
           well the shop door stamps its usual refusal). Top rung
           of the pill stack on both platforms. */}
       {climbAffordable && !isShopOpen && (
-        <div className={`fixed ${(dockSurfaceShown && ordersPillShown) ? 'max-md:bottom-[214px]' : (dockSurfaceShown || ordersPillShown) ? 'max-md:bottom-[178px]' : stripDetailShown ? 'max-md:bottom-[106px]' : 'max-md:bottom-[46px]'} ${dockSurfaceShown ? ((loadout.defense === 'decoy_beacon' && !decoyActive) ? 'md:bottom-[184px]' : 'md:bottom-[148px]') : ((loadout.defense === 'decoy_beacon' && !decoyActive) ? 'md:bottom-[148px]' : 'md:bottom-[112px]')} left-1/2 -translate-x-1/2 z-[56] pointer-events-auto`}>
+        <div className={`fixed${spot('nudge')} ${(dockSurfaceShown && ordersPillShown) ? 'max-md:bottom-[214px]' : (dockSurfaceShown || ordersPillShown) ? 'max-md:bottom-[178px]' : stripDetailShown ? 'max-md:bottom-[106px]' : 'max-md:bottom-[46px]'} ${dockSurfaceShown ? ((loadout.defense === 'decoy_beacon' && !decoyActive) ? 'md:bottom-[184px]' : 'md:bottom-[148px]') : ((loadout.defense === 'decoy_beacon' && !decoyActive) ? 'md:bottom-[148px]' : 'md:bottom-[112px]')} left-1/2 -translate-x-1/2 z-[56] pointer-events-auto`}>
           <button
             onClick={() => { setFrameModalOpen(true); onOpenShop?.(); }}
             className={`hud-panel px-3 py-1.5 rounded border font-mono text-[10px] sm:text-[11px] font-bold tracking-wider shadow-[0_0_10px_rgba(52,211,153,0.35)] ${isFrameMaxed ? 'border-amber-400 text-amber-300' : 'border-emerald-500 text-emerald-300'}`}
@@ -1505,6 +1542,57 @@ export const HUD: React.FC<HUDProps> = ({
         </button>
       )}
 
+      {/* THE COACH CARD (the Guided Flight, 2026-10-23): the live
+          lesson's one voice — top-center under the ribbon (phone)
+          / under the status strip (desktop), panel-deep, never a
+          modal: play never pauses under it. Renders only while
+          the engine publishes an active snapshot. The combat
+          steps auto-collapse it to a chip. */}
+      {tutorial?.active && !tutorial.done && (() => {
+        const copy = TUTORIAL_STEPS[tutorial.stepId];
+        const isPhone = coarsePointer;
+        return (
+          <div className="fixed top-[64px] md:top-[132px] left-1/2 -translate-x-1/2 z-[95] w-[min(94vw,26rem)] pointer-events-auto">
+            <div className="hud-panel hud-panel-deep rounded border border-emerald-800 px-3 py-2 shadow-xl">
+              <div className="flex items-center justify-between gap-2">
+                <button type="button" onClick={() => setCoachExpanded(v => !v)} className="font-mono text-[10px] sm:text-[11px] font-bold tracking-widest text-emerald-300 touch-manipulation">
+                  🎓 STEP {tutorial.step + 1}/8 — {copy.title} {coachExpanded ? '▾' : '▸'}
+                </button>
+                <button type="button" onClick={() => onEndTutorial?.()} className="font-mono text-[9px] text-zinc-400 hover:text-red-400 tracking-widest touch-manipulation">END ✕</button>
+              </div>
+              {coachExpanded && (
+                <>
+                  <p className="font-mono text-[11px] sm:text-xs text-zinc-100 leading-snug mt-1">{isPhone ? copy.phone : copy.desktop}</p>
+                  {copy.callout && <p className="font-mono text-[9px] sm:text-[10px] text-amber-300/90 leading-snug mt-1">▸ {copy.callout}</p>}
+                  {tutorial.stepId === 'workshop' && (
+                    <div className="mt-1.5 flex flex-col gap-0.5">
+                      {TUTORIAL_TRACKS.map(t => (
+                        <div key={t.name} className="flex justify-between font-mono text-[9px] sm:text-[10px]"><span className="font-bold text-zinc-200">{t.name}</span><span className="text-zinc-400">{t.payoff}</span></div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between mt-2">
+                    <div className="flex gap-1">
+                      {(['fly', 'scoop', 'home', 'bank', 'workshop', 'line', 'teeth', 'match'] as const).map((id, i) => (
+                        <span key={id} className={`w-1.5 h-1.5 rounded-full ${i < tutorial.step ? 'bg-emerald-400' : i === tutorial.step ? 'bg-zinc-50 animate-pulse' : 'bg-zinc-700'}`} />
+                      ))}
+                    </div>
+                    <button type="button" onClick={() => onSkipTutorialStep?.()} className="font-mono text-[9px] sm:text-[10px] font-bold text-zinc-300 border border-zinc-700 rounded px-2 py-1 touch-manipulation active:scale-95">
+                      {tutorial.stepId === 'match' ? 'FLY THE MATCH ▸' : 'SKIP STEP ▸'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+      {tutorial?.done && graduationShown && (
+        <div className="fixed top-[64px] md:top-[132px] left-1/2 -translate-x-1/2 z-[95] pointer-events-none">
+          <div className="hud-panel hud-panel-deep rounded border border-emerald-700 px-3 py-2 font-mono text-[10px] sm:text-[11px] font-bold tracking-widest text-emerald-300">🎓 GUIDED FLIGHT COMPLETE — THE MATCH IS YOURS</div>
+        </div>
+      )}
+
       <div className="fixed top-[104px] right-2 md:top-6 md:right-6 z-[54] pointer-events-none">
         <div className="hud-panel border border-zinc-800 px-2 py-1 font-mono text-[9px] sm:text-[10px] leading-none flex items-center gap-1.5 shadow-lg">
           <span><span className="text-zinc-500">PING</span> <span className="text-zinc-100 font-bold">{pingMs}MS</span></span>
@@ -1513,7 +1601,7 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
       </div>
 
-      <div className="fixed max-md:top-auto max-md:bottom-2 top-[148px] md:top-12 md:bottom-auto left-1/2 -translate-x-1/2 z-[55] flex flex-wrap justify-center items-stretch gap-1 max-w-[97vw] pointer-events-none">
+      <div className={`fixed max-md:top-auto max-md:bottom-2 top-[148px] md:top-12 md:bottom-auto left-1/2 -translate-x-1/2 z-[55] flex flex-wrap justify-center items-stretch gap-1 max-w-[97vw] pointer-events-none${spot('strip')}`}>
         {/* PHONE SUMMON: the KIT chip — the strip detail's manual
             door in every phone context (md:hidden; desktop never
             summons — its strip is always whole). */}
@@ -1532,7 +1620,7 @@ export const HUD: React.FC<HUDProps> = ({
             On phones it rides the summoned detail (the ribbon's
             row 1 carries the plate in flight); desktop's strip is
             always whole. Emerald when the climb is payable. */}
-        <div className={`hud-panel px-1.5 py-0.5 rounded border text-center min-w-[56px] ${climbAffordable ? 'border-emerald-700' : 'border-zinc-800'} ${stripDetailShown ? '' : 'max-md:hidden'}`}>
+        <div className={`hud-panel px-1.5 py-0.5 rounded border text-center min-w-[56px] ${climbAffordable ? 'border-emerald-700' : 'border-zinc-800'} ${stripDetailShown ? '' : 'max-md:hidden'}${spot('plate')}`}>
           <div className="text-[8px] sm:text-[9px] font-mono text-zinc-300 tracking-widest whitespace-nowrap">🛸 {progType.name}</div>
           <div className="text-[9px] sm:text-[11px] font-mono font-bold leading-tight whitespace-nowrap text-zinc-50">
             {climbStep === null ? 'T5 · MAX' : climbStep.kind === 'climb' ? <>T{typeTier} · <span className={climbStep.affordable ? 'text-emerald-300' : ''}>⬆{climbStep.price}U</span></> : <>T1 · <span className={climbStep.anyAffordable ? 'text-emerald-300' : ''}>⬆{stepBand![0]}–{stepBand![1]}U</span></>}
@@ -1545,7 +1633,7 @@ export const HUD: React.FC<HUDProps> = ({
           { icon: '⚡', name: 'FUEL', lvl: upgrades.fuelCap, cap: caps.fuel, stat: `${maxFuel}` },
           { icon: '📦', name: 'HOLD', lvl: upgrades.cargo, cap: caps.cargo, stat: `${PHYSICS.CARGO.BASE_CAPACITY + upgrades.cargo * PHYSICS.CARGO.UPGRADE_BONUS}U` },
         ].map(t => (
-          <div key={t.name} className={`hud-panel px-1.5 py-0.5 rounded border border-zinc-800 text-center min-w-[56px] ${stripDetailShown ? '' : 'max-md:hidden'}`}>
+          <div key={t.name} className={`hud-panel px-1.5 py-0.5 rounded border border-zinc-800 text-center min-w-[56px] ${stripDetailShown ? '' : 'max-md:hidden'}${t.name === 'VAC' ? spot('vac') : ''}`}>
             <div className="text-[8px] sm:text-[9px] font-mono text-zinc-300 tracking-widest whitespace-nowrap">{t.icon}<span className="max-sm:hidden"> {t.name} · L{t.lvl}/{t.cap}</span></div>
             <div className="text-[9px] sm:text-[11px] font-mono font-bold text-zinc-50 leading-tight whitespace-nowrap">{t.stat}</div>
           </div>
@@ -2289,8 +2377,22 @@ export const HUD: React.FC<HUDProps> = ({
                 </div>
                 <div className="text-xs font-mono font-bold text-zinc-100 mt-1">{LATEST_BUILD.title}</div>
                 <div className="text-[10px] font-mono text-zinc-400 leading-snug mt-0.5 line-clamp-2">{LATEST_BUILD.detail}</div>
-                <div className="text-[9px] font-mono text-[#33ff33] mt-1.5 tracking-widest">▸ BUILD HISTORY — LAST {Math.min(20, BUILD_HISTORY.length)}</div>
+                <div className="text-[9px] sm:text-[10px] font-mono font-bold text-[#33ff33] mt-2 pt-2 border-t border-amber-900/40 tracking-widest text-center">▸ OPEN BUILD HISTORY — LAST {Math.min(20, BUILD_HISTORY.length)} BUILDS</div>
               </button>
+
+              {/* RECENT CHANGES (Adam, 2026-10-23): the two builds
+                  before the latest, inline under SYS — the recent
+                  history reads at a glance without opening
+                  anything; the full record rides the door above
+                  into the history modal. One source: BUILD_HISTORY. */}
+              <div className="mt-2.5 flex flex-col gap-1.5 px-1">
+                {BUILD_HISTORY.slice(1, 3).map(b => (
+                  <div key={b.ref + b.date} className="flex justify-between items-baseline gap-2 border-l-2 border-zinc-800 pl-2.5">
+                    <span className="text-[10px] font-mono font-bold text-zinc-300 truncate">{b.title}</span>
+                    <span className="text-[8px] font-mono text-zinc-500 shrink-0">{b.date} · {b.ref}</span>
+                  </div>
+                ))}
+              </div>
 
               {/* DEV — TESTER KIT (Adam's commission, 2026-10-21; state
                   side BackGround 4650b48, surface UI lane). Renders ONLY
@@ -2413,6 +2515,32 @@ export const HUD: React.FC<HUDProps> = ({
                   <p className="text-[11px] sm:text-xs font-mono leading-snug text-zinc-300"><span className="text-zinc-50 font-bold tracking-wider">{row.label}</span> — {row.text}</p>
                 </div>
               ))}
+            </div>
+            {/* SOLO CALLSIGN SLOT (Adam, 2026-10-23): the name
+                over your ship in solo, set where the orders are.
+                One stored truth (App owns it): the lobby takes it
+                as its default, and in a room the lobby's issued
+                callsign governs — the field then mirrors it,
+                read-only, never a second truth. The reserved-name
+                law is server-enforced in rooms; this solo plate is
+                a local label on your own screen. */}
+            <div className="border border-zinc-800 rounded px-3 py-2 flex flex-col gap-1.5 bg-zinc-900/30">
+              <span className="text-[9px] font-mono tracking-[0.25em] text-zinc-500">SOLO CALLSIGN</span>
+              {roomCallsign ? (
+                <div className="font-mono text-[12px] sm:text-sm font-bold text-zinc-100">{roomCallsign} <span className="text-[9px] font-normal text-zinc-500 tracking-widest">— SET IN THE LOBBY</span></div>
+              ) : (
+                <input
+                  type="text"
+                  value={soloCallsign ?? ''}
+                  maxLength={16}
+                  placeholder="YOUR NAME OVER YOUR SHIP"
+                  onChange={e => onSetSoloCallsign?.(e.target.value)}
+                  onBlur={e => { const t = e.target.value.trim(); if (t !== e.target.value) onSetSoloCallsign?.(t); }}
+                  onKeyDown={e => e.stopPropagation()}
+                  className="w-full bg-zinc-950/70 border border-zinc-700 rounded px-2.5 py-2 font-mono text-[12px] sm:text-sm font-bold text-zinc-50 placeholder:text-zinc-600 placeholder:font-normal focus:outline-none focus:border-emerald-600"
+                />
+              )}
+              <p className="text-[8px] sm:text-[9px] font-mono text-zinc-500 leading-snug">In solo, this name flies over your ship. Saved on this device — the lobby will greet you with it.</p>
             </div>
             <div className="flex gap-2 mt-1">
               <button

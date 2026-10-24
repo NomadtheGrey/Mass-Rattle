@@ -133,12 +133,16 @@ interface GameCanvasProps {
    *  for every seat in a net room, built by App from the room state.
    *  Absent in solo — no plates, and remote ships don't exist there. */
   seatLabels?: Record<string, { callsign: string; color: string }>;
+  /** GUIDED FLIGHT MARKER (2026-10-23): the current step's
+   *  objective, drawn in the game's own pointing language. The
+   *  engine owns the position + label; the canvas only draws. */
+  tutorialMarker?: import('../tutorial').TutorialMarker | null;
   onSetTarget?: (ownerId: string | null) => void;
   width: number;
   height: number;
 }
 
-export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, seatLabels, onSetTarget }) => {
+export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, seatLabels, tutorialMarker, onSetTarget }) => {
   // CLICK / TAP TARGETING (controls follow-on, 2026-10-22): a
   // click names the nearest valid enemy under it — hostile,
   // alive, undocked; stealth visibility is the sim's word (its
@@ -1603,6 +1607,33 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       }
     }
 
+    // GUIDED FLIGHT MARKER (on-screen half): twin pulsing rings
+    // + a nameplate-style label over the step's objective — the
+    // target-lock's family, in the step's tone color.
+    if (tutorialMarker) {
+      const mc = tutorialMarker.tone === 'fight' ? '#fbbf24' : '#34d399';
+      const ph = (nowMs % 1400) / 1400;
+      ctx.save();
+      for (const off of [0, 0.5]) {
+        const p2 = (ph + off) % 1;
+        ctx.globalAlpha = 0.85 * (1 - p2);
+        ctx.strokeStyle = mc;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(tutorialMarker.x, tutorialMarker.y, 16 + p2 * 26, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.font = 'bold 11px monospace';
+      ctx.textAlign = 'center';
+      const tw = ctx.measureText(tutorialMarker.label).width + 12;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+      ctx.fillRect(tutorialMarker.x - tw / 2, tutorialMarker.y - 58, tw, 15);
+      ctx.fillStyle = mc;
+      ctx.fillText(tutorialMarker.label, tutorialMarker.x, tutorialMarker.y - 47);
+      ctx.restore();
+    }
+
     ctx.restore(); // End Camera space
 
     // OFF-SCREEN CHARGE CUE: the HUD banner says a CME is charging, but not
@@ -1640,6 +1671,40 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       ctx.textAlign = 'start'; // restore canvas default for later world labels
     });
 
+    // GUIDED FLIGHT MARKER (off-screen half): the CME cue's
+    // edge-arrow idiom — clamped triangle + label + distance.
+    if (tutorialMarker) {
+      const camX = width / 2 - ship.pos.x;
+      const camY = height / 2 - ship.pos.y;
+      const sx = tutorialMarker.x + camX;
+      const sy = tutorialMarker.y + camY;
+      const m = 34;
+      if (!(sx > m && sx < width - m && sy > m && sy < height - m)) {
+        const mc = tutorialMarker.tone === 'fight' ? '#fbbf24' : '#34d399';
+        const px = Math.max(m, Math.min(width - m, sx));
+        const py = Math.max(m, Math.min(height - m, sy));
+        const ang = Math.atan2(sy - height / 2, sx - width / 2);
+        const dist = Math.round(Math.hypot(tutorialMarker.x - ship.pos.x, tutorialMarker.y - ship.pos.y));
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(ang);
+        ctx.globalAlpha = 0.6 + 0.4 * Math.sin(nowMs / 160);
+        ctx.fillStyle = mc;
+        ctx.beginPath();
+        ctx.moveTo(13, 0);
+        ctx.lineTo(-6, -9);
+        ctx.lineTo(-6, 9);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+        ctx.fillStyle = mc;
+        ctx.font = '9px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`${tutorialMarker.label} · ${dist}`, px, py + 26);
+        ctx.textAlign = 'start';
+      }
+    }
+
     // Global Overlay Effects
     if (glitchActive) {
       ctx.fillStyle = 'rgba(0, 255, 170, 0.05)';
@@ -1647,7 +1712,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ state, width, height, se
       ctx.fillStyle = 'rgba(100, 255, 255, 0.15)';
       ctx.fillRect(0, Math.random() * height, width, 5 + Math.random() * 20);
     }
-  }, [state, width, height]);
+  }, [state, width, height, tutorialMarker]);
 
   return <canvas ref={canvasRef} width={width} height={height} className="block" onClick={handlePick} />;
 };

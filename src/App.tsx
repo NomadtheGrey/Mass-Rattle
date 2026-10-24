@@ -99,6 +99,19 @@ export default function App() {
     toggleGauges 
   } = useGameLoop(dimensions.width, dimensions.height, net);
 
+  // SOLO CALLSIGN (Adam, 2026-10-23): one stored name for the
+  // pilot on this device — typed in the YOUR ORDERS modal, taken
+  // by the lobby as its default callsign, and flown as the solo
+  // nameplate. A client pref only (localStorage, mr.* family):
+  // never game state; in solo it never touches the wire.
+  const [soloCallsign, setSoloCallsignState] = useState<string>(() => {
+    try { return localStorage.getItem('mr.callsign') ?? ''; } catch { return ''; }
+  });
+  const setSoloCallsign = useCallback((name: string) => {
+    setSoloCallsignState(name);
+    try { localStorage.setItem('mr.callsign', name); } catch { /* session-only */ }
+  }, []);
+
   const [lobbyOpen, setLobbyOpen] = useState(false);
   useEffect(() => {
     if (net.room && net.room.phase !== 'lobby') setLobbyOpen(false);
@@ -108,6 +121,18 @@ export default function App() {
   // only — an SP death is game over and ResultsOverlay owns it. The
   // quoted price is the sim's own function; the host validates.
   const localOwnerId = net.mySeat?.ownerId ?? state.ship.ownerId;
+  // SOLO NAMEPLATE: with no room joined, the stored callsign
+  // plates the LOCAL seat only (the solo opponent stays
+  // label-less). The color is the seat's own team color — the
+  // same TEAM_COLORS read the room map uses.
+  const seatLabelsSolo = useMemo(() => {
+    if (seatLabels) return seatLabels;
+    const name = soloCallsign.trim();
+    if (!name) return undefined;
+    const seat = state.seats.find(x => x.ownerId === localOwnerId);
+    return { [localOwnerId]: { callsign: name, color: TEAM_COLORS[seat?.teamId ?? 'blue'] } };
+  }, [seatLabels, soloCallsign, localOwnerId, state.seats]);
+
   const localSeat = state.seats.find(seat => seat.ownerId === localOwnerId);
   // DEATH TAX display feed (Adam, 2026-10-21): the seat's redeploy
   // deadline (BackGround's death-tax sim, seat.respawnAt — landed
@@ -199,15 +224,17 @@ export default function App() {
           clientState={net.clientState}
           room={net.room}
           myPlayerId={net.myPlayerId}
-          defaultCallsign=""
+          defaultCallsign={soloCallsign}
           initialCode={urlRoomCode}
           reclaimedOwnerId={net.reclaimedOwnerId}
           notice={net.notice}
           callbacks={{
             onCreate: (name, starCount, isPrivate, callsign, callsignPassword) => {
+              if (callsign.trim()) setSoloCallsign(callsign.trim());
               net.createRoom(name, starCount, isPrivate, callsign, callsignPassword);
             },
             onJoin: (code, callsign, callsignPassword) => {
+              if (callsign.trim()) setSoloCallsign(callsign.trim());
               net.joinRoom(code, callsign, callsignPassword);
             },
             onStart: net.startMatch,
@@ -289,7 +316,10 @@ export default function App() {
         onSetDeliveryMode={setDeliveryMode}
         onSetRepairing={setRepairing}
         seats={state.seats}
-        seatLabels={seatLabels}
+        seatLabels={seatLabelsSolo}
+        soloCallsign={soloCallsign}
+        onSetSoloCallsign={setSoloCallsign}
+        roomCallsign={net.mySeat?.occupant.callsign ?? null}
         onDockToHost={dockToHost}
         onUndock={undock}
         onSetHarborOpen={setHarborOpen}
@@ -337,7 +367,7 @@ export default function App() {
         <div className="absolute inset-0 z-0">
           <div className="w-full h-full relative bg-[#050505]">
             <div className="absolute inset-0 grid-bg opacity-20 pointer-events-none" />
-            <GameCanvas state={state} width={dimensions.width} height={dimensions.height} seatLabels={seatLabels} onSetTarget={setTarget} />
+            <GameCanvas state={state} width={dimensions.width} height={dimensions.height} seatLabels={seatLabelsSolo} onSetTarget={setTarget} />
           </div>
         </div>
 

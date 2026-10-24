@@ -11,6 +11,7 @@ import { stepBotShip } from '../sim/botDriver';
 import { DEBUG_ARMED } from '../debug';
 import { stepStarBurn, stepShipPhysics, ShipPhysicsInputs } from '../sim/physics';
 import { createMatch, shipSpawnPosition } from '../sim/matchAssembly';
+import { loadSoloGame, saveSoloGame, clearSoloGame } from '../soloSave';
 import type { NetSession, NetActionIntent } from '../net/useNetClient';
 import {
   SNAPSHOT_EVERY_FRAMES, snapshotDue, localShipInput, remoteShipInput,
@@ -123,7 +124,13 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     integrity: 1,
     turrets: turretsForMilestones(0),
   };
-  const [state, setState] = useState<GameState>({
+  // SOLO SAVE (Adam, 2026-10-23; src/soloSave.ts): a saved solo
+  // match resumes at boot. Read once, here — the initializer below
+  // consumes it; a room never reaches it (the save is solo-only
+  // and the room paths build their own state).
+  const bootSaveRef = useRef<GameState | null | undefined>(undefined);
+  if (bootSaveRef.current === undefined) bootSaveRef.current = loadSoloGame();
+  const [state, setState] = useState<GameState>(() => bootSaveRef.current ?? {
     ship: initialShip,
     star: initialHomeStar,
     enemyStar: initialEnemyStar,
@@ -1017,6 +1024,9 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
     // NET GUARD (P2-3b): in a room — or once a match has been
     // initialized — the field belongs to the match, not SP seeding.
     if (netRef.current?.room || mpRoomRef.current) return;
+    // SOLO SAVE: a resumed match keeps its own field, drones and
+    // star anchor — the seeding below is for fresh games only.
+    if (bootSaveRef.current) return;
     const initialScrap = buildScrapField({ x: width / 2, y: height / 2 });
 
     setState(s => {
@@ -1063,6 +1073,31 @@ export const useGameLoop = (width: number, height: number, net?: NetSession | nu
       };
     });
   }, [width, height, spawnScrap]);
+
+  // SOLO SAVE — WRITE SIDE (Adam, 2026-10-23): while a solo match
+  // runs, persist it every 15 s and again as the page hides or the
+  // tab closes; when the match ends, the save clears so the next
+  // load starts fresh. Rooms never touch it (the guards), and the
+  // sanitizer in src/soloSave.ts decides what rides.
+  useEffect(() => {
+    const flush = () => {
+      const s = stateRef.current;
+      if (!s || netRef.current?.room || mpRoomRef.current) return;
+      saveSoloGame(s);
+    };
+    const timer = window.setInterval(flush, 15000);
+    const onVisibility = () => { if (document.visibilityState === 'hidden') flush(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', flush);
+    };
+  }, []);
+  useEffect(() => {
+    if (state.matchEnd && !netRef.current?.room) clearSoloGame();
+  }, [state.matchEnd]);
 
   // HOST MATCH INIT + MIGRATION PROMOTION (P2-3b): this client is
   // the host of a live room and no match is running yet → build it.
