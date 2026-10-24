@@ -1,5 +1,5 @@
 import React from 'react';
-import type { RoomState, Seat, ClientState } from '../../net/protocol';
+import type { RoomState, Seat, ClientState, RoomBoard } from '../../net/protocol';
 import {
   CUE_GLYPHS, ERROR_LABELS, SEAT_CONNECTION_LABELS,
   TeamId, TEAM_ORDER, TEAM_COLORS, TEAM_LABELS, seatTeam,
@@ -21,7 +21,7 @@ import { ChatPanel } from '../ChatPanel';
 
 export interface LobbyCallbacks {
   onCreate: (name: string, starCount: 2 | 3 | 4, isPrivate: boolean, callsign: string, callsignPassword?: string) => void;
-  onJoin: (code: string, callsign: string, callsignPassword?: string) => void;
+  onJoin: (code: string, callsign: string, callsignPassword?: string, teamPreference?: TeamId | 'random') => void;
   onStart: () => void;
   /** STEP AWAY: plain leave — the seat parks in grace, a bot flies
    *  it, reclaimable all match. */
@@ -44,6 +44,11 @@ interface LobbyScreenProps {
   reclaimedOwnerId?: string | null;
   /** Transport-level failure copy (not a wire ErrorCode). */
   notice?: string | null;
+  /** Read-only pre-join board for the peeked code (null until a
+   *  peek succeeds; cleared when a join starts). */
+  peekedBoard?: RoomBoard | null;
+  /** Fetch the board for a code (read-only, claims nothing). */
+  onPeek?: (code: string) => void;
   callbacks: LobbyCallbacks;
 }
 
@@ -133,9 +138,93 @@ const SeatCard: React.FC<{ seat: Seat; mine: boolean; reclaimed?: boolean }> = (
   );
 };
 
+// PRE-JOIN TEAM BOARD (Adam, 2026-10-24; wire: BackGround c3da552).
+// The peek step between entering a code and claiming a seat: the
+// room's teams in picker order, each showing its human callsigns
+// (AWAY for a grace-held seat), its bot count, and its open seats.
+// OPEN means exactly one thing — a pure-bot seat (kind bot +
+// connection bot). A team with no open seat is DISABLED, which
+// covers full-human teams and teams with no star in 2–3 star
+// rooms. RANDOM stays enabled while any team has an open seat.
+// No seat is claimed here; the CONFIRM button below claims it.
+const PHASE_LABELS: Record<RoomBoard['phase'], string> = {
+  lobby: 'WAITING IN LOBBY',
+  live: 'MATCH LIVE',
+  cinematic: 'END CINEMATIC',
+  results: 'MATCH OVER',
+};
+
+const TeamBoard: React.FC<{
+  board: RoomBoard;
+  pick: TeamId | 'random' | null;
+  onPick: (p: TeamId | 'random') => void;
+  interactive: boolean;
+  onRefresh: () => void;
+}> = ({ board, pick, onPick, interactive, onRefresh }) => {
+  const teamStats = (t: TeamId) => {
+    const seats = board.seats.filter(x => x.teamId === t);
+    const humans = seats.filter(x => x.kind === 'human');
+    const bots = seats.filter(x => x.kind === 'bot').length;
+    const open = seats.filter(x => x.kind === 'bot' && x.connection === 'bot').length;
+    const star = seats.length ? seats[0].starIndex + 1 : null;
+    return { seats, humans, bots, open, star };
+  };
+  const anyOpen = TEAM_ORDER.some(t => teamStats(t).open > 0);
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <span className="text-[10px] font-mono font-bold tracking-[0.25em] text-zinc-400">
+          {board.name || 'UNNAMED ROOM'} · {board.starCount} STARS · {PHASE_LABELS[board.phase]}
+        </span>
+        <button type="button" onClick={onRefresh} className="font-mono text-[9px] font-bold tracking-wider text-zinc-400 hover:text-[#33ff33] touch-manipulation">↻ REFRESH</button>
+      </div>
+      {TEAM_ORDER.map(t => {
+        const { seats, humans, bots, open, star } = teamStats(t);
+        const disabled = !interactive || open === 0;
+        const selected = pick === t;
+        return (
+          <button
+            key={t}
+            type="button"
+            disabled={disabled}
+            onClick={() => onPick(t)}
+            className={`w-full rounded border-2 px-3 py-2 text-left touch-manipulation active:scale-[0.98] ${selected ? 'bg-zinc-800' : 'bg-zinc-900'} ${disabled ? 'opacity-50' : ''}`}
+            style={{ borderColor: selected ? TEAM_COLORS[t] : '#3f3f46', boxShadow: selected ? `0 0 10px ${TEAM_COLORS[t]}55` : undefined }}
+          >
+            <span className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2 min-w-0">
+                <span className="block w-4 h-2.5 shrink-0 rounded-sm" style={{ backgroundColor: TEAM_COLORS[t] }} />
+                <span className="font-mono text-[11px] font-bold" style={{ color: TEAM_COLORS[t] }}>{TEAM_LABELS[t]}</span>
+                {star !== null && <span className="font-mono text-[9px] text-zinc-500">STAR {star}</span>}
+              </span>
+              <span className="font-mono text-[9px] font-bold shrink-0 text-zinc-400">
+                {seats.length === 0 ? 'NO STAR' : open > 0 ? `${open} OPEN` : 'FULL'}
+              </span>
+            </span>
+            <span className="block font-mono text-[9px] text-zinc-400 mt-1 leading-snug truncate">
+              {humans.length > 0
+                ? humans.map(h => `${h.callsign ?? '—'}${h.connection === 'reconnect_grace' ? ' (AWAY)' : ''}`).join(' · ')
+                : 'NO PLAYERS YET'}
+              {bots > 0 && <span className="text-zinc-500"> · {bots} BOT{bots === 1 ? '' : 'S'}</span>}
+            </span>
+          </button>
+        );
+      })}
+      <button
+        type="button"
+        disabled={!interactive || !anyOpen}
+        onClick={() => onPick('random')}
+        className={`w-full py-2.5 rounded border-2 font-mono text-[11px] font-bold tracking-widest touch-manipulation active:scale-[0.98] ${pick === 'random' ? 'bg-zinc-800 border-[#33ff33]' : 'bg-zinc-900 border-zinc-700'} ${!interactive || !anyOpen ? 'opacity-50' : ''}`}
+      >
+        🎲 RANDOM — {anyOpen ? 'ANY OPEN TEAM' : 'NO OPEN TEAM — ROOM FULL'}
+      </button>
+    </div>
+  );
+};
+
 export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   clientState, room, myPlayerId, defaultCallsign = '', initialCode = '',
-  reclaimedOwnerId = null, notice = null, callbacks,
+  reclaimedOwnerId = null, notice = null, peekedBoard = null, onPeek, callbacks,
 }) => {
   const [callsign, setCallsign] = React.useState(defaultCallsign);
   // RESERVED-NAME CLAIM (Adam, 2026-10-21): the callsign 'Nomad' is
@@ -150,6 +239,62 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   const [starCount, setStarCount] = React.useState<2 | 3 | 4>(2);
   const [isPrivate, setIsPrivate] = React.useState(false);
   const [joinCode, setJoinCode] = React.useState(initialCode.toUpperCase().slice(0, 6));
+
+  // PEEK STEP (Adam, 2026-10-24): entering a code peeks the room's
+  // team board before any seat is claimed. showBoard is derived:
+  // a board for exactly the code in the field, not dismissed with
+  // BACK — editing the code hides it on its own.
+  const [peeking, setPeeking] = React.useState(false);
+  const [pick, setPick] = React.useState<TeamId | 'random' | null>(null);
+  const [boardHidden, setBoardHidden] = React.useState(false);
+  const [filledNote, setFilledNote] = React.useState<string | null>(null);
+  const confirmTriedRef = React.useRef(false);
+  const confirmPickRef = React.useRef<TeamId | 'random' | null>(null);
+  const showBoard = peekedBoard !== null && peekedBoard.code === joinCode && !boardHidden;
+  // A refreshed board can fill the picked team under the player —
+  // the confirm stays honest by disabling against the LATEST board.
+  const pickDisabled = (() => {
+    if (!showBoard || !peekedBoard || pick === null) return false;
+    if (pick === 'random') return !TEAM_ORDER.some(t => peekedBoard.seats.some(x => x.teamId === t && x.kind === 'bot' && x.connection === 'bot'));
+    return !peekedBoard.seats.some(x => x.teamId === pick && x.kind === 'bot' && x.connection === 'bot');
+  })();
+  // A ?room= link lands straight in the peek step: the code is
+  // already in hand, so the board fetch runs on mount (entry view
+  // only — a seated room view never peeks).
+  React.useEffect(() => {
+    if (room === null && initialCode.length === 6 && onPeek) {
+      setPeeking(true);
+      onPeek(initialCode);
+    }
+    // Mount-only: the link's code is the one input.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  React.useEffect(() => { setPeeking(false); }, [peekedBoard, notice]);
+  // STALE PICK (Adam, 2026-10-24): a confirm refused room_full
+  // means the seat filled between peek and claim — re-peek the
+  // same code and say the team filled, so the player re-picks
+  // with fresh eyes instead of staring at a stale board.
+  // Keys on clientState.lastError, NOT notice: the hello-error
+  // handler writes the refusal CODE there (BackGround's catch,
+  // 2026-10-24 — notice never carries the room_full label on this
+  // path, so the notice-keyed version never fired). Any other
+  // resolution clears the attempt flag without acting.
+  React.useEffect(() => {
+    if (!confirmTriedRef.current) return;
+    if (clientState.lastError === 'room_full') {
+      confirmTriedRef.current = false;
+      const wasRandom = confirmPickRef.current === 'random';
+      setPick(null);
+      setBoardHidden(false);
+      setFilledNote(wasRandom
+        ? 'THE ROOM FILLED WHILE YOU PICKED — NO OPEN TEAM LEFT'
+        : 'THAT TEAM FILLED BETWEEN PEEK AND CLAIM — PICK ANOTHER TEAM');
+      if (onPeek) onPeek(joinCode);
+    } else if (clientState.lastError !== null) {
+      confirmTriedRef.current = false;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientState.lastError]);
 
   // DICE POLITENESS (Adam, 2026-10-21: no duplicate names in the
   // lobby): the entry screen keeps a best-effort set of the names
@@ -502,17 +647,63 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             autoCorrect="off"
             className="rounded px-3 py-2.5 bg-zinc-900 border border-zinc-700 font-mono text-xl font-bold tracking-[0.4em] text-center text-zinc-50 placeholder:text-zinc-700 outline-none focus:border-[#33ff33]"
           />
-          <button
-            onClick={() => callbacks.onJoin(joinCode, callsign.trim(), asksReserved && callsignPassword ? callsignPassword : undefined)}
-            disabled={busy || !callsignOk || joinCode.length < 6}
-            className={`w-full py-3 rounded font-bold text-sm tracking-widest touch-manipulation active:scale-[0.98] ${
-              busy || !callsignOk || joinCode.length < 6
-                ? 'cta-wait'
-                : 'cta-go-pink'
-            }`}
-          >
-            {busy ? 'JOINING…' : !callsignOk ? 'ENTER A CALLSIGN TO JOIN' : joinCode.length < 6 ? 'ENTER THE 6-LETTER CODE' : 'JOIN ROOM'}
-          </button>
+          {showBoard && peekedBoard ? (
+            <>
+              {filledNote && (
+                <div className="hud-panel px-3 py-2 rounded border-2 border-amber-500 bg-amber-950/30 text-center">
+                  <span className="text-[11px] font-mono font-bold text-amber-300">{filledNote}</span>
+                </div>
+              )}
+              {peekedBoard.phase === 'results' && (
+                <div className="hud-panel px-3 py-2 rounded border-2 border-zinc-700 bg-zinc-900 text-center">
+                  <span className="text-[11px] font-mono font-bold text-zinc-300">MATCH OVER — THIS MATCH HAS ENDED, NO JOIN</span>
+                </div>
+              )}
+              <TeamBoard
+                board={peekedBoard}
+                pick={pick}
+                onPick={setPick}
+                interactive={peekedBoard.phase !== 'results'}
+                onRefresh={() => { setFilledNote(null); onPeek?.(joinCode); }}
+              />
+              {peekedBoard.phase !== 'results' && (
+                <button
+                  onClick={() => {
+                    if (pick === null) return;
+                    confirmTriedRef.current = true;
+                    confirmPickRef.current = pick;
+                    callbacks.onJoin(joinCode, callsign.trim(), asksReserved && callsignPassword ? callsignPassword : undefined, pick);
+                  }}
+                  disabled={busy || !callsignOk || pick === null || pickDisabled}
+                  className={`w-full py-3 rounded font-bold text-sm tracking-widest touch-manipulation active:scale-[0.98] ${
+                    busy || !callsignOk || pick === null || pickDisabled
+                      ? 'cta-wait'
+                      : 'cta-go-pink'
+                  }`}
+                >
+                  {busy ? 'JOINING…' : !callsignOk ? 'ENTER A CALLSIGN TO JOIN' : pick === null ? 'PICK A TEAM TO JOIN' : pickDisabled ? 'THAT TEAM JUST FILLED — PICK ANOTHER' : `JOIN AS ${pick === 'random' ? 'RANDOM' : TEAM_LABELS[pick]}`}
+                </button>
+              )}
+              <button
+                onClick={() => { setBoardHidden(true); setPick(null); setFilledNote(null); }}
+                className="w-full py-2 rounded font-mono text-[11px] font-bold tracking-widest text-zinc-400 border border-zinc-700 touch-manipulation active:scale-[0.98]"
+              >
+                ← CHANGE CODE
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => { setBoardHidden(false); setFilledNote(null); setPeeking(true); onPeek?.(joinCode); }}
+              disabled={busy || !callsignOk || joinCode.length < 6 || peeking}
+              className={`w-full py-3 rounded font-bold text-sm tracking-widest touch-manipulation active:scale-[0.98] ${
+                busy || !callsignOk || joinCode.length < 6 || peeking
+                  ? 'cta-wait'
+                  : 'cta-go-pink'
+              }`}
+            >
+              {busy ? 'JOINING…' : peeking ? 'LOOKING UP ROOM…' : !callsignOk ? 'ENTER A CALLSIGN TO JOIN' : joinCode.length < 6 ? 'ENTER THE 6-LETTER CODE' : 'SEE TEAMS'}
+            </button>
+          )}
           <p className="text-[9px] font-mono text-zinc-600 text-center">
             Got a link instead? Open it — the code fills itself in.
           </p>

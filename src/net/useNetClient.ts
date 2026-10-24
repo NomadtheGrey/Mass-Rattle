@@ -5,6 +5,7 @@ import {
   RoomState, Seat, ClientState, ErrorCode,
   Standing, StageChangedEvent, MatchEndedEvent,
   CreateRoomRequest, CreateRoomResponse,
+  RoomBoard,
   TeamId,
 } from './protocol';
 
@@ -125,7 +126,12 @@ export interface NetSession {
   snapshotVersion: number;
   guestInputsRef: React.MutableRefObject<Map<string, NetInputPayload>>;
   createRoom: (name: string, starCount: 2 | 3 | 4, isPrivate: boolean, callsign: string, callsignPassword?: string) => void;
-  joinRoom: (code: string, callsign: string, callsignPassword?: string) => void;
+  joinRoom: (code: string, callsign: string, callsignPassword?: string, teamPreference?: TeamId | 'random') => void;
+  /** TEAM PICK (Adam, 2026-10-24): the pre-join board, fetched over
+   *  GET /api/rooms/:code before any seat is claimed. Null until a
+   *  peek succeeds; cleared when a join starts. */
+  peekedBoard: RoomBoard | null;
+  peekRoom: (code: string) => void;
   /** STEP AWAY (Adam, 2026-10-21): closing the socket parks the seat
    *  in reconnect grace — a bot plays on and the seat stays
    *  reclaimable all match. This is leaveRoom; grace is what a close
@@ -173,6 +179,10 @@ export function useNetClient(): NetSession {
   const guestInputsRef = React.useRef<Map<string, NetInputPayload>>(new Map());
   const codeRef = React.useRef<string | null>(null);
   const callsignRef = React.useRef<string>('');
+  /** TEAM PICK: the pre-join board's choice, carried into the hello.
+   *  Undefined = legacy first-open-seat behavior. */
+  const teamPreferenceRef = React.useRef<TeamId | 'random' | undefined>(undefined);
+  const [peekedBoard, setPeekedBoard] = React.useState<RoomBoard | null>(null);
   /** Reserved-callsign password proof, presented with the hello
    *  (Adam, 2026-10-21). Held only in memory for this session's
    *  (re)hellos — never persisted to storage. */
@@ -211,7 +221,7 @@ export function useNetClient(): NetSession {
 
     ws.onopen = () => {
       const stored = window.localStorage.getItem(PLAYER_ID_KEY) || undefined;
-      send({ type: 'hello', clientVersion: CLIENT_VERSION, callsign: callsignRef.current, playerId: stored, callsignPassword: callsignPasswordRef.current });
+      send({ type: 'hello', clientVersion: CLIENT_VERSION, callsign: callsignRef.current, playerId: stored, callsignPassword: callsignPasswordRef.current, teamPreference: teamPreferenceRef.current });
     };
 
     ws.onmessage = (ev) => {
@@ -326,13 +336,39 @@ export function useNetClient(): NetSession {
     };
   }, [send]);
 
-  const joinRoom = React.useCallback((code: string, callsign: string, callsignPassword?: string) => {
+  /** TEAM PICK: read-only peek at a room's team board. No seat is
+   *  claimed and no identity issued — the board step runs before
+   *  joinRoom. A failed peek speaks through the existing notice. */
+  const peekRoom = React.useCallback((code: string) => {
+    const clean = code.trim().toUpperCase();
+    if (clean.length < 6) return;
+    setNotice(null);
+    fetch(`/api/rooms/${clean}`)
+      .then(async (res) => {
+        if (!res.ok) {
+          let err = '';
+          try { err = ((await res.json()) as { error?: string }).error ?? ''; } catch { /* unparseable refusal */ }
+          setPeekedBoard(null);
+          setNotice(err === 'room_not_found' ? 'NO SUCH ROOM — CHECK THE CODE' : 'COULD NOT REACH THE SERVER — CHECK YOUR CONNECTION AND TRY AGAIN');
+          return;
+        }
+        setPeekedBoard((await res.json()) as RoomBoard);
+      })
+      .catch(() => {
+        setPeekedBoard(null);
+        setNotice('COULD NOT REACH THE SERVER — CHECK YOUR CONNECTION AND TRY AGAIN');
+      });
+  }, []);
+
+  const joinRoom = React.useCallback((code: string, callsign: string, callsignPassword?: string, teamPreference?: TeamId | 'random') => {
     const clean = code.trim().toUpperCase();
     if (clean.length < 6 || !callsign.trim()) return;
     intentionalRef.current = false;
     codeRef.current = clean;
     callsignRef.current = callsign.trim();
     callsignPasswordRef.current = callsignPassword;
+    teamPreferenceRef.current = teamPreference;
+    setPeekedBoard(null);
     setMatchEnded(null);
     setStandings(null);
     setChatLog([]);
@@ -459,6 +495,7 @@ export function useNetClient(): NetSession {
     migration, standings, matchEnded, stageByStar,
     reclaimedOwnerId, chatLog, notice,
     snapshotRef, snapshotVersion, guestInputsRef,
+    peekedBoard, peekRoom,
     createRoom, joinRoom, leaveRoom, forfeitRoom, startMatch, kickPlayer, setTeam,
     sendInput, sendSnapshot, sendHostMessage, sendChat,
   };

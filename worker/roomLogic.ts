@@ -294,10 +294,15 @@ export type ClaimOutcome =
  *     second socket): not a new claim, not a reclaim.
  *  3. A playerId with a grace hold RECLAIMS that exact seat — never
  *     any other — keeping its original joinedOrder precedence.
- *  4. Otherwise the first PURE bot seat (never a grace-held one) is
- *     claimed. In 'live' / 'cinematic' this is the takeover path:
- *     control flips, play is not interrupted. In 'lobby' it is the
- *     ordinary join.
+ *  4. Otherwise a PURE bot seat (never a grace-held one) is claimed.
+ *     In 'live' / 'cinematic' this is the takeover path: control
+ *     flips, play is not interrupted. In 'lobby' it is the ordinary
+ *     join. TEAM PICK (Adam, 2026-10-24): a hello may carry a team
+ *     preference from the pre-join board — a team name claims that
+ *     team's first open bot seat, 'random' takes a random team that
+ *     has one (rng injected, TEAM_PICKER_ORDER order), and absent
+ *     keeps the legacy first-open-seat rule. A named team with no
+ *     open seat refuses with room_full; the client re-peeks.
  * A 'results' room admits nobody new (flagged reading: the frozen
  * error set has no 'match_over', and a finished room's seats are not
  * takeable — room_full is the honest refusal); a seated player's
@@ -448,6 +453,12 @@ export function claimSeat(
   playerId: string,
   callsign: string,
   reservedProofOk = false,
+  // No defaults here, on purpose: this module takes time and RNG as
+  // parameters (see the header) — the DO passes Math.random, tests
+  // pass a seeded rng. Callers that predate the team pick pass
+  // (undefined, Math.random) for the legacy first-seat rule.
+  teamPreference: TeamId | 'random' | undefined,
+  rng: () => number,
 ): ClaimOutcome {
   if (record.bannedPlayerIds.includes(playerId)) {
     return { ok: false, error: 'kicked' };
@@ -498,9 +509,25 @@ export function claimSeat(
     return { ok: true, seat, isNewClaim: false, reclaimed: true };
   }
   if (record.phase === 'results') return { ok: false, error: 'room_full' };
-  const seat = record.seats.find(
+  // TEAM PICK: open seats are pure bot seats only — a grace-held seat
+  // belongs to its human and is never claimable, whatever the pick.
+  const open = record.seats.filter(
     (s) => s.occupant.kind === 'bot' && s.connection === 'bot',
   );
+  let seat: Seat | undefined;
+  if (teamPreference === 'random') {
+    const teams = TEAM_PICKER_ORDER.filter((t) =>
+      open.some((s) => s.teamId === t),
+    );
+    if (teams.length === 0) return { ok: false, error: 'room_full' };
+    const team = teams[Math.min(teams.length - 1, Math.floor(rng() * teams.length))];
+    seat = open.find((s) => s.teamId === team);
+  } else if (teamPreference !== undefined) {
+    seat = open.find((s) => s.teamId === teamPreference);
+    if (!seat) return { ok: false, error: 'room_full' };
+  } else {
+    seat = open[0];
+  }
   if (!seat) return { ok: false, error: 'room_full' };
   const desired = callsign.trim() || `PLAYER-${seat.starIndex + 1}`;
   if (reservedTakeBlocked(record, desired, seat.ownerId, playerId, reservedProofOk)) {

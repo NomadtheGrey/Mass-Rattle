@@ -58,10 +58,12 @@ import {
   CHAT_MAX_CHARS,
   CHAT_MIN_INTERVAL_MS,
   defaultTeamForSeatIndex,
+  isTeamId,
 } from '../src/net/protocol';
 import type {
   ChatMessage,
   ClientMessage,
+  RoomBoard,
   RoomMeta,
   Seat,
   ServerMessage,
@@ -166,6 +168,28 @@ export class RoomDO {
         await this.persistRoom();
       }
       return Response.json({ room: toRoomState(this.room), meta: roomMeta(this.room) });
+    }
+
+    // Pre-join team board (Adam, 2026-10-24): a read-only peek — no
+    // seat is claimed, no identity issued. Only what the room view
+    // already shows members: phase, teams, callsigns, bot/human
+    // counts. A code its holder could join with learns nothing new.
+    if (url.pathname === '/board' && request.method === 'GET') {
+      if (!this.room) return Response.json({ error: 'room_not_found' }, { status: 404 });
+      const board: RoomBoard = {
+        code: this.room.code,
+        name: this.room.name,
+        phase: this.room.phase,
+        starCount: this.room.starCount,
+        seats: this.room.seats.map((s) => ({
+          starIndex: s.starIndex,
+          teamId: s.teamId,
+          kind: s.occupant.kind,
+          callsign: s.occupant.kind === 'human' ? s.occupant.callsign : null,
+          connection: s.connection,
+        })),
+      };
+      return Response.json(board);
     }
 
     // Internal: existence + list metadata (Worker's ws-route check and
@@ -442,7 +466,16 @@ export class RoomDO {
         }
       }
     }
-    const claim = claimSeat(this.room, playerId, msg.callsign ?? '', reservedProofOk);
+    // TEAM PICK (Adam, 2026-10-24): a hello may carry the pre-join
+    // board's choice. Unknown values are ignored (legacy first-seat
+    // behavior) per the wire's no-error-code philosophy for invalid
+    // picks; a known team with no open seat refuses at claim time
+    // with room_full, and the client re-peeks.
+    const teamPreference =
+      msg.teamPreference === 'random' || isTeamId(msg.teamPreference)
+        ? msg.teamPreference
+        : undefined;
+    const claim = claimSeat(this.room, playerId, msg.callsign ?? '', reservedProofOk, teamPreference, Math.random);
     if (claim.ok === false) {
       this.send(ws, { type: 'error', code: claim.error });
       ws.close(1008, claim.error);
