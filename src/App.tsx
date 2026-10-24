@@ -265,9 +265,9 @@ export default function App() {
           peekedBoard={net.peekedBoard}
           onPeek={net.peekRoom}
           callbacks={{
-            onCreate: (name, starCount, isPrivate, callsign, callsignPassword) => {
+            onCreate: (name, starCount, isPrivate, callsign, callsignPassword, difficulty) => {
               if (callsign.trim()) setSoloCallsign(callsign.trim());
-              net.createRoom(name, starCount, isPrivate, callsign, callsignPassword);
+              net.createRoom(name, starCount, isPrivate, callsign, callsignPassword, difficulty);
             },
             onJoin: (code, callsign, callsignPassword, teamPreference) => {
               if (callsign.trim()) setSoloCallsign(callsign.trim());

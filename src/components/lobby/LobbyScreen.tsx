@@ -1,5 +1,6 @@
 import React from 'react';
-import type { RoomState, Seat, ClientState, RoomBoard } from '../../net/protocol';
+import type { RoomState, Seat, ClientState, RoomBoard, BotDifficulty } from '../../net/protocol';
+import { BOT_DIFFICULTY_ORDER, BOT_DIFFICULTY_META } from '../../sim/botDifficulty';
 import {
   CUE_GLYPHS, ERROR_LABELS, SEAT_CONNECTION_LABELS,
   TeamId, TEAM_ORDER, TEAM_COLORS, TEAM_LABELS, seatTeam,
@@ -20,7 +21,7 @@ import { ChatPanel } from '../ChatPanel';
  */
 
 export interface LobbyCallbacks {
-  onCreate: (name: string, starCount: 2 | 3 | 4, isPrivate: boolean, callsign: string, callsignPassword?: string) => void;
+  onCreate: (name: string, starCount: 2 | 3 | 4, isPrivate: boolean, callsign: string, callsignPassword?: string, difficulty?: BotDifficulty) => void;
   onJoin: (code: string, callsign: string, callsignPassword?: string, teamPreference?: TeamId | 'random') => void;
   onStart: () => void;
   /** STEP AWAY: plain leave — the seat parks in grace, a bot flies
@@ -174,7 +175,7 @@ const TeamBoard: React.FC<{
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <span className="text-[10px] font-mono font-bold tracking-[0.25em] text-zinc-400">
-          {board.name || 'UNNAMED ROOM'} · {board.starCount} STARS · {PHASE_LABELS[board.phase]}
+          {board.name || 'UNNAMED ROOM'} · {board.starCount} STARS · BOTS: {BOT_DIFFICULTY_META[board.difficulty]?.label ?? board.difficulty} · {PHASE_LABELS[board.phase]}
         </span>
         <button type="button" onClick={onRefresh} className="font-mono text-[9px] font-bold tracking-wider text-zinc-400 hover:text-[#33ff33] touch-manipulation">↻ REFRESH</button>
       </div>
@@ -238,6 +239,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   const [roomName, setRoomName] = React.useState('');
   const [starCount, setStarCount] = React.useState<2 | 3 | 4>(2);
   const [isPrivate, setIsPrivate] = React.useState(false);
+  const [botDifficulty, setBotDifficulty] = React.useState<BotDifficulty>('seasoned');
   const [joinCode, setJoinCode] = React.useState(initialCode.toUpperCase().slice(0, 6));
 
   // PEEK STEP (Adam, 2026-10-24): entering a code peeks the room's
@@ -626,8 +628,28 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-zinc-100 transition-all ${isPrivate ? 'left-[22px]' : 'left-0.5'}`} />
             </span>
           </button>
+          <div>
+            <div className="text-[9px] font-mono tracking-[0.25em] text-zinc-500 mb-1.5">BOT DIFFICULTY</div>
+            <div className="flex flex-col gap-1.5">
+              {BOT_DIFFICULTY_ORDER.map(d => {
+                const meta = BOT_DIFFICULTY_META[d];
+                const selected = botDifficulty === d;
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setBotDifficulty(d)}
+                    className={`w-full rounded border-2 px-3 py-2 text-left touch-manipulation active:scale-[0.98] ${selected ? 'bg-zinc-800 border-[#33ff33] shadow-[0_0_10px_rgba(51,255,51,0.25)]' : 'bg-zinc-900 border-zinc-700'}`}
+                  >
+                    <span className={`block font-mono text-[11px] font-bold tracking-widest ${selected ? 'text-[#33ff33]' : 'text-zinc-200'}`}>{meta.label}</span>
+                    <span className="block font-mono text-[9px] text-zinc-400 leading-snug mt-0.5">{meta.blurb}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <button
-            onClick={() => callbacks.onCreate(roomName.trim(), starCount, isPrivate, callsign.trim(), asksReserved && callsignPassword ? callsignPassword : undefined)}
+            onClick={() => callbacks.onCreate(roomName.trim(), starCount, isPrivate, callsign.trim(), asksReserved && callsignPassword ? callsignPassword : undefined, botDifficulty)}
             disabled={busy || !callsignOk}
             className={`w-full py-3 rounded font-bold text-sm tracking-widest touch-manipulation active:scale-[0.98] ${
               busy || !callsignOk ? 'cta-wait' : 'cta-go'
