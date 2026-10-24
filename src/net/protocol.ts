@@ -54,6 +54,17 @@ export type SeatCue = 'triangle' | 'diamond' | 'circle' | 'square';
  */
 export type TeamId = 'red' | 'blue' | 'green' | 'gold';
 
+/** BOT DIFFICULTY LADDER (Adam, 2026-10-24): the rungs live in
+ *  src/sim/botDifficulty.ts (tuning + player-readable copy); this
+ *  is only the wire type. One difficulty per room, chosen at
+ *  creation; solo defaults to ROOKIE (the loop resolves it). */
+export type BotDifficulty = 'rookie' | 'seasoned' | 'veteran' | 'impossible';
+export const isBotDifficulty = (value: unknown): value is BotDifficulty =>
+  value === 'rookie' ||
+  value === 'seasoned' ||
+  value === 'veteran' ||
+  value === 'impossible';
+
 /** Team display colors — the SEAT_COLORS hexes remapped by name, so
  *  the palette the lobby has always shown gains team names without
  *  changing a single rendered color. */
@@ -168,6 +179,8 @@ export interface RoomState {
   seed: number;
   /** True = unlisted; join by code/link only. No passwords in v1. */
   private: boolean;
+  /** Bot difficulty for the room's bots, chosen at creation. */
+  difficulty: BotDifficulty;
   /** playerId of the current host occupant; null only before the
    *  first human hello lands. Mirrors Seat.isHost. */
   hostPlayerId: string | null;
@@ -395,6 +408,8 @@ export interface RoomBoard {
   name: string;
   phase: RoomPhase;
   starCount: StarCount;
+  /** So joiners know what they're getting into before they pick. */
+  difficulty: BotDifficulty;
   seats: RoomBoardSeat[];
 }
 
@@ -461,6 +476,8 @@ export interface CreateRoomRequest {
   starCount: StarCount;
   clientVersion: number;
   private?: boolean;
+  /** Bot difficulty for the room; absent = SEASONED. */
+  difficulty?: BotDifficulty;
 }
 
 /** POST /api/rooms answer. Creating ≠ seated: the creator opens the

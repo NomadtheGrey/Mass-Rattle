@@ -61,6 +61,7 @@ import {
   isTeamId,
 } from '../src/net/protocol';
 import type {
+  BotDifficulty,
   ChatMessage,
   ClientMessage,
   RoomBoard,
@@ -75,6 +76,7 @@ export interface RoomInitBody {
   name: string;
   starCount: StarCount;
   private: boolean;
+  difficulty: BotDifficulty;
   code: string;
   seed: number;
 }
@@ -160,6 +162,7 @@ export class RoomDO {
             name: body.name,
             starCount: body.starCount,
             private: body.private,
+            difficulty: body.difficulty,
           },
           body.code,
           body.seed,
@@ -181,6 +184,7 @@ export class RoomDO {
         name: this.room.name,
         phase: this.room.phase,
         starCount: this.room.starCount,
+        difficulty: this.room.difficulty,
         seats: this.room.seats.map((s) => ({
           starIndex: s.starIndex,
           teamId: s.teamId,
