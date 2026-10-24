@@ -1552,6 +1552,26 @@ export const HUD: React.FC<HUDProps> = ({
           beside the chip. The OPTIONS tab's TUTORIAL BUTTON
           toggle shows/hides it (mr.uiOptions); it stands down
           while its own modal is open. */}
+      {/* END TUTORIAL CHIP (Adam, 2026-10-24): the flight's one
+          obvious exit. The TUTORIAL pill stands down while a
+          flight is active, so its slot is vacant — the chip takes
+          it, same place, same hand: the door that started the
+          flight is the door that ends it. Red-tinted and worded
+          plainly ('END TUTORIAL', not a glyph alone) because the
+          card's 9px zinc END ✕ is exactly what players hunted for
+          and missed. Same verb, same engine semantics — the
+          teardown to a fresh solo — only the home is new. It
+          ignores the TUTORIAL BUTTON toggle on purpose: an escape
+          hatch must not be hideable. */}
+      {tutorial?.active && (
+        <button
+          type="button"
+          onClick={() => onEndTutorial?.()}
+          className="fixed top-2 right-2 md:top-6 md:right-[152px] z-[95] px-3 py-1.5 rounded-full bg-zinc-900/80 border border-red-500/70 text-red-400 text-[10px] font-mono font-bold tracking-widest shadow-[0_0_10px_rgba(239,68,68,0.3)] active:scale-95 touch-manipulation pointer-events-auto"
+        >
+          ✕ END TUTORIAL
+        </button>
+      )}
       {uiOptions.tutorialButton && !objectivesOpen && !tutorial?.active && (
         <button
           type="button"
