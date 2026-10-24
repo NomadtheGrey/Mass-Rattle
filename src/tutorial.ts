@@ -15,8 +15,9 @@
 // tutorial.ts in parallel and the state lane's whole-file push
 // briefly overwrote this contract file. This merged file is the
 // one seam again: UI's types + copy above, the engine's step DEFS
-// below under their own name (TUTORIAL_STEP_DEFS) so the two
-// TUTORIAL_* tables can never collide again.
+// below as TUTORIAL_STEPS (the defs array, step order) beside
+// TUTORIAL_COPY (the copy record, by step id) — the two tables
+// the two surface halves were each built against, now one file.
 
 export type TutorialStepId =
   | 'fly' | 'scoop' | 'home' | 'bank' | 'workshop' | 'line' | 'teeth' | 'match';
@@ -28,6 +29,8 @@ export type TutorialStepId =
 // callout line without a pulse.
 export type TutorialSpotlight =
   | 'plate' | 'vac' | 'dock' | 'shopdoor' | 'nudge' | 'strip' | 'radar';
+/** The integration slices import the spotlight type by this name. */
+export type TutorialSpotlightId = TutorialSpotlight;
 
 export interface TutorialMarker {
   x: number;
@@ -60,7 +63,7 @@ export interface TutorialStepCopy {
 // Copy law: plain words, the game's dialect only where the game has
 // already taught it by this step; controls named for the device in
 // hand; SPACE stays jettison (Adam's settled map), never scoop.
-export const TUTORIAL_STEPS: Record<TutorialStepId, TutorialStepCopy> = {
+export const TUTORIAL_COPY: Record<TutorialStepId, TutorialStepCopy> = {
   fly: {
     title: 'FLY',
     phone: 'Hold THRUST and steer with the stick — reach the marked scrap vein.',
@@ -177,7 +180,7 @@ const nearestScrap = (s: GameState): Vector2D | null => {
 };
 const homeMarker = (s: GameState): TutorialMarker => ({ x: s.star.pos.x, y: s.star.pos.y, label: '⭐ YOUR STAR', tone: 'go' });
 
-export const TUTORIAL_STEP_DEFS: TutorialStepDef[] = [
+export const TUTORIAL_STEPS: TutorialStepDef[] = [
   {
     id: 'fly', spotlight: 'plate',
     marker: s => { const p = nearestScrap(s); return p ? { x: p.x, y: p.y, label: '⛏ SCRAP VEIN', tone: 'go' } : null; },
