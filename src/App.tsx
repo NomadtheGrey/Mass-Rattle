@@ -174,8 +174,8 @@ export default function App() {
   return (
     <NetSessionContext.Provider value={net}>
     <div ref={containerRef} className="crt-container w-full h-full flex items-center justify-center p-0 select-none touch-none">
-      {/* Multiplayer door: opens the lobby; in a live room it becomes
-          the room chip (tap to see the room / leave). */}
+      {/* Multiplayer door: opens the lobby; in a live room it
+          reads simply LOBBY (Adam, 2026-10-24). */}
       {!lobbyOpen && (
         <>
         {/* ROOM SHARE FROM GAMEPLAY (Adam, 2026-10-24): the pill
@@ -188,17 +188,15 @@ export default function App() {
           onClick={() => setLobbyOpen(true)}
           className="px-3 py-1.5 rounded-full bg-zinc-900/70 border border-[#33ff33]/60 text-[#33ff33] text-[10px] font-mono font-bold tracking-widest shadow-[0_0_10px_rgba(51,255,51,0.25)] active:scale-95 touch-manipulation flex items-center gap-1.5"
         >
-          {/* MODE PILL (Adam, library look 2026-10-23): the door is
-              also the mode indicator — MULTIPLAYER and SOLO side by
-              side, the CURRENT mode lit. Solo is any moment with no
-              room joined (net.room is the one truth); in a room the
-              second segment carries the room form instead. */}
+          {/* MODE PILL (Adam, library look 2026-10-23; room form
+              pinned 2026-10-24): in a room the pill is simply
+              LOBBY — the room info, the link, seats, and leaving
+              all live in the lobby one tap away, and the 📋
+              sibling beside it still shares without opening it.
+              Solo is any moment with no room joined (net.room is
+              the one truth); solo keeps the SOLO indicator. */}
           {net.room ? (
-            <>
-              <span>🌐 MULTIPLAYER</span>
-              <span className="opacity-50">·</span>
-              <span className="bg-[#33ff33] text-zinc-950 px-1.5 py-0.5 rounded-full">ROOM {net.room.code} — LOBBY</span>
-            </>
+            <span className="bg-[#33ff33] text-zinc-950 px-1.5 py-0.5 rounded-full">LOBBY</span>
           ) : (
             <>
               <span className="opacity-50">🌐 MULTIPLAYER</span>
