@@ -10,7 +10,6 @@ import { HUD } from './components/HUD';
 import { ResultsOverlay } from './components/ResultsOverlay';
 import { MobileControls } from './components/MobileControls';
 import { useGameLoop } from './hooks/useGameLoop';
-import { TUTORIAL_STEPS as TUTORIAL_TABLE, type TutorialSnapshot, type TutorialStepId, type TutorialSpotlightId } from './tutorial';
 import { inBankWell } from './bank';
 import { LobbyScreen } from './components/lobby/LobbyScreen';
 import { ChatPanel } from './components/ChatPanel';
@@ -95,7 +94,6 @@ export default function App() {
     deployDecoy, 
     restart,
     tutorial,
-    tutorialMarker,
     startTutorial,
     skipTutorialStep,
     endTutorial,
@@ -131,23 +129,6 @@ export default function App() {
   // plates the LOCAL seat only (the solo opponent stays
   // label-less). The color is the seat's own team color — the
   // same TEAM_COLORS read the room map uses.
-  // GUIDED FLIGHT snapshot (integration, 2026-10-23): the loop
-  // publishes {active, step} + the marker; the step table (shared
-  // seam, src/tutorial.ts) supplies the id + spotlight. HUD and
-  // the canvas render surfaces only — truth stays in the engine.
-  const tutorialSnapshot: TutorialSnapshot | null = useMemo(() => {
-    if (!tutorial) return null;
-    const def = TUTORIAL_TABLE[tutorial.step];
-    return {
-      active: tutorial.active,
-      step: tutorial.step,
-      done: tutorial.done,
-      stepId: (def?.id ?? 'fly') as TutorialStepId,
-      spotlight: (def?.spotlight ?? null) as TutorialSpotlightId | null,
-      marker: tutorialMarker ?? null,
-    };
-  }, [tutorial, tutorialMarker]);
-
   const seatLabelsSolo = useMemo(() => {
     if (seatLabels) return seatLabels;
     const name = soloCallsign.trim();
@@ -343,7 +324,7 @@ export default function App() {
         soloCallsign={soloCallsign}
         onSetSoloCallsign={setSoloCallsign}
         roomCallsign={net.mySeat?.occupant.callsign ?? null}
-        tutorial={tutorialSnapshot}
+        tutorial={tutorial}
         onStartTutorial={startTutorial}
         onSkipTutorialStep={skipTutorialStep}
         onEndTutorial={endTutorial}
@@ -368,8 +349,8 @@ export default function App() {
         onControlChange={setVirtualControl}
         onAnalogStick={setAnalogStick}
         onOpenWorkshop={() => toggleShop(true)}
-        tutorialRadarPulse={!!tutorialSnapshot?.active && tutorialSnapshot.spotlight === 'radar'}
         onToggleRadar={handleToggleMobileRadar}
+        tutorialRadarPulse={!!tutorial?.active && tutorial.spotlight === 'radar'}
         onToggleGauges={toggleGauges}
         carrying={state.ship.carrying}
         fuel={state.ship.fuel}
@@ -395,7 +376,7 @@ export default function App() {
         <div className="absolute inset-0 z-0">
           <div className="w-full h-full relative bg-[#050505]">
             <div className="absolute inset-0 grid-bg opacity-20 pointer-events-none" />
-            <GameCanvas state={state} width={dimensions.width} height={dimensions.height} seatLabels={seatLabelsSolo} tutorialMarker={tutorialMarker} onSetTarget={setTarget} />
+            <GameCanvas state={state} width={dimensions.width} height={dimensions.height} seatLabels={seatLabelsSolo} tutorialMarker={tutorial?.marker ?? null} onSetTarget={setTarget} />
           </div>
         </div>
 
