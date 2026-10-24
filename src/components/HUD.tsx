@@ -198,6 +198,13 @@ interface HUDProps {
   onSetRepairing: (on: boolean) => void;
   seats: SeatSimState[];
   seatLabels?: Record<string, { callsign: string; color: string }>;
+  // SOLO CALLSIGN (Adam, 2026-10-23): the stored on-device name —
+  // edited in the YOUR ORDERS modal, defaulted into the lobby,
+  // flown as the solo nameplate. In a room, roomCallsign (the
+  // lobby-issued name) governs and the field mirrors it.
+  soloCallsign?: string;
+  onSetSoloCallsign?: (name: string) => void;
+  roomCallsign?: string | null;
   onDockToHost: (hostOwnerId: string) => void;
   onUndock: () => void;
   onSetHarborOpen: (open: boolean) => void;
@@ -276,6 +283,9 @@ export const HUD: React.FC<HUDProps> = ({
   onSetRepairing,
   seats,
   seatLabels,
+  soloCallsign,
+  onSetSoloCallsign,
+  roomCallsign,
   onDockToHost,
   onUndock,
   onSetHarborOpen,
@@ -2413,6 +2423,32 @@ export const HUD: React.FC<HUDProps> = ({
                   <p className="text-[11px] sm:text-xs font-mono leading-snug text-zinc-300"><span className="text-zinc-50 font-bold tracking-wider">{row.label}</span> — {row.text}</p>
                 </div>
               ))}
+            </div>
+            {/* SOLO CALLSIGN SLOT (Adam, 2026-10-23): the name
+                over your ship in solo, set where the orders are.
+                One stored truth (App owns it): the lobby takes it
+                as its default, and in a room the lobby's issued
+                callsign governs — the field then mirrors it,
+                read-only, never a second truth. The reserved-name
+                law is server-enforced in rooms; this solo plate is
+                a local label on your own screen. */}
+            <div className="border border-zinc-800 rounded px-3 py-2 flex flex-col gap-1.5 bg-zinc-900/30">
+              <span className="text-[9px] font-mono tracking-[0.25em] text-zinc-500">SOLO CALLSIGN</span>
+              {roomCallsign ? (
+                <div className="font-mono text-[12px] sm:text-sm font-bold text-zinc-100">{roomCallsign} <span className="text-[9px] font-normal text-zinc-500 tracking-widest">— SET IN THE LOBBY</span></div>
+              ) : (
+                <input
+                  type="text"
+                  value={soloCallsign ?? ''}
+                  maxLength={16}
+                  placeholder="YOUR NAME OVER YOUR SHIP"
+                  onChange={e => onSetSoloCallsign?.(e.target.value)}
+                  onBlur={e => { const t = e.target.value.trim(); if (t !== e.target.value) onSetSoloCallsign?.(t); }}
+                  onKeyDown={e => e.stopPropagation()}
+                  className="w-full bg-zinc-950/70 border border-zinc-700 rounded px-2.5 py-2 font-mono text-[12px] sm:text-sm font-bold text-zinc-50 placeholder:text-zinc-600 placeholder:font-normal focus:outline-none focus:border-emerald-600"
+                />
+              )}
+              <p className="text-[8px] sm:text-[9px] font-mono text-zinc-500 leading-snug">In solo, this name flies over your ship. Saved on this device — the lobby will greet you with it.</p>
             </div>
             <div className="flex gap-2 mt-1">
               <button
