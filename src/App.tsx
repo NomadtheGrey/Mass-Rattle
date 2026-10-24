@@ -149,9 +149,26 @@ export default function App() {
       {!lobbyOpen && (
         <button
           onClick={() => setLobbyOpen(true)}
-          className="fixed top-2 left-1/2 -translate-x-1/2 z-[95] px-3 py-1.5 rounded-full bg-zinc-900/70 border border-[#33ff33]/60 text-[#33ff33] text-[10px] font-mono font-bold tracking-widest shadow-[0_0_10px_rgba(51,255,51,0.25)] active:scale-95 touch-manipulation"
+          className="fixed top-2 left-1/2 -translate-x-1/2 z-[95] px-3 py-1.5 rounded-full bg-zinc-900/70 border border-[#33ff33]/60 text-[#33ff33] text-[10px] font-mono font-bold tracking-widest shadow-[0_0_10px_rgba(51,255,51,0.25)] active:scale-95 touch-manipulation flex items-center gap-1.5"
         >
-          {net.room ? `🌐 ROOM ${net.room.code} — LOBBY` : '🌐 MULTIPLAYER'}
+          {/* MODE PILL (Adam, library look 2026-10-23): the door is
+              also the mode indicator — MULTIPLAYER and SOLO side by
+              side, the CURRENT mode lit. Solo is any moment with no
+              room joined (net.room is the one truth); in a room the
+              second segment carries the room form instead. */}
+          {net.room ? (
+            <>
+              <span>🌐 MULTIPLAYER</span>
+              <span className="opacity-50">·</span>
+              <span className="bg-[#33ff33] text-zinc-950 px-1.5 py-0.5 rounded-full">ROOM {net.room.code} — LOBBY</span>
+            </>
+          ) : (
+            <>
+              <span className="opacity-50">🌐 MULTIPLAYER</span>
+              <span className="opacity-50">·</span>
+              <span className="bg-[#33ff33] text-zinc-950 px-1.5 py-0.5 rounded-full">☀ SOLO</span>
+            </>
+          )}
         </button>
       )}
       {localSeatDead && localSeat && !repurchaseDismissed && (
