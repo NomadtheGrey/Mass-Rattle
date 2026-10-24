@@ -106,3 +106,91 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     done: (b, s, now) => now - b.startedAt >= 20000,
   },
 ];
+
+/* ================================================================
+ * UI-LANE COPY (appended at integration, 2026-10-23): the engine
+ * table above carries truth; everything below is voice — device-
+ * aware step copy keyed by the table's ids, the plain-name track
+ * list, and the surface snapshot types. Copy law: plain words;
+ * controls named for the device in hand; SPACE stays jettison.
+ * ================================================================ */
+
+export type TutorialStepId = 'fly' | 'scoop' | 'home' | 'bank' | 'workshop' | 'line' | 'teeth' | 'match';
+export type TutorialSpotlightId = 'plate' | 'vac' | 'dock' | 'workshopDoor' | 'climbPill' | 'strip';
+
+export interface TutorialStepCopy {
+  title: string;
+  phone: string;
+  desktop: string;
+  callout?: string;
+}
+
+export const TUTORIAL_COPY: Record<TutorialStepId, TutorialStepCopy> = {
+  fly: {
+    title: 'FLY',
+    phone: 'Hold THRUST and steer with the stick — reach the marked scrap vein.',
+    desktop: 'Thrust with W, steer with A / D — reach the marked scrap vein.',
+    callout: 'THAT’S YOUR PLATE — your ship, its tier, the next climb’s price. The meters with it are your hull and fuel.',
+  },
+  scoop: {
+    title: 'SCOOP',
+    phone: 'Tap VAC, then drift through the vein — gather 3 scrap in your hold.',
+    desktop: 'Q switches your vacuum — drift through the vein and gather 3 scrap in your hold.',
+    callout: 'VACUUM — your pull. Scrap inside its reach drifts to you; the number is how far it reaches.',
+  },
+  home: {
+    title: 'BRING IT HOME',
+    phone: 'Fly back into your star’s glow — the dock doors wake inside it.',
+    desktop: 'Fly back into your star’s glow — the dock doors wake inside it.',
+    callout: 'THE DOCK — inside the glow these doors work: FEED · BANK · WORKSHOP.',
+  },
+  bank: {
+    title: 'BANK FIRST',
+    phone: 'Tap BANK at the dock. Banked scrap is upgrade money — safe even if you fall. Feeding grows your star; that’s for when your ship is ready.',
+    desktop: 'Bank at the dock. Banked scrap is upgrade money — safe even if you fall. Feeding grows your star; that’s for when your ship is ready.',
+  },
+  workshop: {
+    title: 'THE WORKSHOP',
+    phone: 'A 300U TRAINING STIPEND just landed in your bank — the fleet bankrolls your first upgrades. Buy any track.',
+    desktop: 'U is the workshop door. A 300U TRAINING STIPEND just landed in your bank — buy any track.',
+    callout: 'THE WORKSHOP — every upgrade lives here. It only opens docked, and closes when you leave the glow.',
+  },
+  line: {
+    title: 'YOUR LINE',
+    phone: 'Open the frame door and climb — pick a line, take your first T2. The stipend was for this.',
+    desktop: 'Open the frame door and climb — pick a line, take your first T2. The stipend was for this.',
+    callout: 'THE CLIMB PILL — when a climb is affordable, this pill lights. One tap opens the frame door.',
+  },
+  teeth: {
+    title: 'TEETH',
+    phone: 'Tap FIRE — your cannon answers. First blood ends the lesson.',
+    desktop: 'F fires your cannon. First blood ends the lesson.',
+    callout: 'YOUR STRIP — the cannon cell. It lights when it can fire; digits pick, T swaps.',
+  },
+  match: {
+    title: 'THE MATCH',
+    phone: 'Two stars. Break theirs, or feed yours into a black hole — the race is the game. Fly it.',
+    desktop: 'Two stars. Break theirs, or feed yours into a black hole — the race is the game. TAB cycles targets. Fly it.',
+    callout: 'THE RADAR — the whole field at a glance. Red is the enemy.',
+  },
+};
+
+// The workshop step's plain-name track list (Adam's pin: 'common
+// ship upgrades like hold size, thrust, etc.').
+export const TUTORIAL_TRACKS: { name: string; payoff: string }[] = [
+  { name: 'THRUST', payoff: 'top speed' },
+  { name: 'HANDLING', payoff: 'turning' },
+  { name: 'VACUUM', payoff: 'scrap pull' },
+  { name: 'FUEL', payoff: 'tank size' },
+  { name: 'HOLD SIZE', payoff: 'how much you carry' },
+];
+
+// The surface snapshot App composes from the loop's published
+// pieces ({active, step} + the step table + the marker).
+export interface TutorialSnapshot {
+  active: boolean;
+  step: number;
+  stepId: TutorialStepId;
+  spotlight: TutorialSpotlightId | null;
+  marker: TutorialMarker | null;
+}
