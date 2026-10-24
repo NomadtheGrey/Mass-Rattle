@@ -63,3 +63,14 @@ Adam's anchors: bots adopt healing by a **health-graded
 chance — at 95% health ≈ 5%, at 20% health ≈ 80%** — with
 per-pilot recklessness varying it. Posture integration:
 BOTS.md.
+
+## Repair parity (Adam's commission, 2026-10-24)
+
+One repair law for every human seat: each human ship heals
+from its OWN hold at its own hull rate up to its own cap,
+under its own toggle — the host frame ticks every human seat
+(`stepSeatRepairs` in src/sim/repair.ts), not just the local
+ship. Docked ships are the one exception, and it is
+deliberate: a docked ship heals only through its HOST's hold
+(the harbor pass), never from both purses at once. Bot seats
+are untouched by the pass — their driver already heals them.
